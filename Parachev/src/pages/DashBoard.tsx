@@ -5,6 +5,7 @@ import { EllipsisIcon } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption, TableFooter} from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as React from "react"
+import { FilterCard } from "./subPages/FilterCard";
 
 import "./DashBoard.css"
 
@@ -122,7 +123,9 @@ return (
     <div className="flex flex-col gap-4 h-full">
         {/* Ligne 1 : horizontale */}
         <div className="flex gap-4 h-full max-h-1/2 p-4 rounded-b-3xl">
-            <div className="w-1/2 bg-red-400">Élément 1/3</div>
+            <div className="w-1/2 bg-red-400">
+                <FilterCard/>
+            </div>
             <div className="w-2/3 bg-amber-700">
                 <Table>
                     <TableHeader>
