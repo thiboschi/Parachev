@@ -2,10 +2,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { EllipsisIcon } from "lucide-react";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption, TableFooter} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as React from "react"
-import { FilterCard } from "./subPages/FilterCard";
+import { Marker } from "@/components/ui/marker"
+import { CreateAffaire } from "./subPages/CreateAffaire";
+
 
 import "./DashBoard.css"
 
@@ -70,7 +72,6 @@ const invoices = [
     numero: "1100755809",
     client: "DP-2075D",
   },
-  
 ]
 
 
@@ -113,8 +114,8 @@ return (
             </div>
             <div>
                 <ButtonGroup className="">
+                    <CreateAffaire/>
                     <Button variant="outline">Import</Button>
-                    <Button variant="outline">Create</Button>
                 </ButtonGroup>
             </div>
         </div>
@@ -122,11 +123,11 @@ return (
 
     <div className="flex flex-col gap-4 h-full">
         {/* Ligne 1 : horizontale */}
-        <div className="flex gap-4 h-full max-h-1/2 p-4 rounded-b-3xl">
-            <div className="w-1/2 bg-red-400">
-                <FilterCard/>
+        <div className="flex gap-4 h-full max-h-1/2 pb-1 p-3">
+            <div className="w-1/2 bg-red-400 rounded-2xl">
+                <CreateAffaire/>
             </div>
-            <div className="w-2/3 bg-amber-700">
+            <div className="w-2/3 bg-amber-700 rounded-2xl">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -168,10 +169,10 @@ return (
                 </Table>
             </div>
         </div>
-
+        <Marker variant="border"></Marker>
         {/* Ligne 2 */}
-        <div className="w-auto h-full max-h-1/2 p-4 s">
-            <div className=" bg-blue-500 rounded-full-3xlds">
+        <div className="w-auto h-full max-h-1/2 px-4 pt-4">
+            <div className=" bg-blue-500 rounded-2xl">
                 <Table>
                     <TableCaption>Affaire en cour</TableCaption>
                     <TableHeader>
@@ -198,12 +199,6 @@ return (
                         </TableRow>
                         ))}
                     </TableBody>
-                    {/* <TableFooter>
-                        <TableRow>
-                        <TableCell colSpan={3}>Total</TableCell>
-                        <TableCell className="text-right">$2,500.00</TableCell>
-                        </TableRow>
-                    </TableFooter> */}
                 </Table>
             </div>
         </div>

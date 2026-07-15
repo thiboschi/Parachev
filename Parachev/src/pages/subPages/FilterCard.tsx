@@ -10,11 +10,12 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 
+
 export function FilterCard() {
-  const featureName = "Scheduled reports"
+  const featureName = "Créer une nouvelle affaire"
 
   return (
-    <Card size="sm" className="mx-auto w-full max-w-xs">
+    <Card className="mx-auto w-full max-w-xs">
       <CardHeader>
         <CardTitle>{featureName}</CardTitle>
         <CardDescription>
