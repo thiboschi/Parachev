@@ -9,13 +9,13 @@ function App() {
   return (
     <main>
       <BrowserRouter>
-        <nav>
+        {/* <nav>
           <Link to="/">DashBoard</Link>
           <Link to="/contact">Contact</Link>
-        </nav>
+        </nav>  */}
         <Routes>
           <Route path="/" element={<DashBoard />} />
-          <Route path="*" element={<Page404 />} />
+          <Route path="/error" element={<Page404 />} />
         </Routes>
       </BrowserRouter>
       
