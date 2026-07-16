@@ -1,21 +1,19 @@
-import {BrowserRouter, Routes, Route, Link} from "react-router-dom"
-import DashBoard from "./pages/DashBoard";
+import {BrowserRouter, Routes, Route} from "react-router-dom"
+import Page from "./pages/page";
 import Page404 from "./pages/Page404";
+import DashBoard from "./pages/DashBoard";
 
 import "./App.css";
 
 function App() {
 
   return (
-    <main>
+    <main className="@container/main">
       <BrowserRouter>
-        {/* <nav>
-          <Link to="/">DashBoard</Link>
-          <Link to="/contact">Contact</Link>
-        </nav>  */}
         <Routes>
-          <Route path="/" element={<DashBoard />} />
-          <Route path="/error" element={<Page404 />} />
+          <Route path="/" element={<Page />} />
+          <Route path="/test" element={<Page404/>} />
+          <Route path="/test2" element={<DashBoard/>} />
         </Routes>
       </BrowserRouter>
       

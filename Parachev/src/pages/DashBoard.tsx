@@ -1,17 +1,31 @@
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
-import { EllipsisIcon } from "lucide-react";
+import { EllipsisIcon, ChevronDown, Plus, Columns2 } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCaption } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import * as React from "react"
 import { Marker } from "@/components/ui/marker"
 import { CreateAffaire } from "./subPages/CreateAffaire";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
+import { useReactTable, getCoreRowModel, flexRender, type ColumnDef, type VisibilityState } from "@tanstack/react-table"
+import { SectionCards } from "@/components/custom/section-cards";
 
 
 import "./DashBoard.css"
 
-const invoices = [
+type Invoice = {
+  id: string;
+  semaine: string;
+  numero: string;
+  client: string;
+  previ?: boolean;
+  preparer?: boolean;
+  controler?: boolean;
+  bpe?: boolean;
+}
+
+const invoices: Invoice[] = [
   {
     id : "1",
     semaine: "S35",
@@ -74,32 +88,67 @@ const invoices = [
   },
 ]
 
+const columns: ColumnDef<Invoice>[] = [
+  { accessorKey: "semaine", header: "Semaine" },
+  { accessorKey: "numero", header: "N°" },
+  { accessorKey: "client", header: "Nom" },
+  {
+    accessorKey: "previ",
+    header: "Previ",
+    cell: ({ row }) => <Checkbox checked={row.original.previ ?? false} />,
+  },
+  {
+    accessorKey: "preparer",
+    header: "Preparer",
+    cell: ({ row }) => <Checkbox checked={row.original.preparer ?? false} />,
+  },
+  {
+    accessorKey: "controler",
+    header: "Controler",
+    cell: ({ row }) => <Checkbox checked={row.original.controler ?? false} />,
+  },
+  {
+    accessorKey: "bpe",
+    header: "BPE",
+    cell: ({ row }) => <Checkbox checked={row.original.bpe ?? false} />,
+  },
+]
 
 export default function DashBoard() {
 
+const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
+
+const table = useReactTable({
+  data: invoices,
+  columns,
+  getCoreRowModel: getCoreRowModel(),
+  onColumnVisibilityChange: setColumnVisibility,
+  state: { columnVisibility },
+})
+
 const [selectedRows, setSelectedRows] = React.useState<Set<string>>(
-    new Set(["1"])
-  )
+  new Set(["1"])
+)
 
-  const selectAll = selectedRows.size === invoices.length
+const selectAll = selectedRows.size === invoices.length
 
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedRows(new Set(invoices.map((row) => row.id)))
-    } else {
-      setSelectedRows(new Set())
-    }
+const handleSelectAll = (checked: boolean) => {
+  if (checked) {
+    setSelectedRows(new Set(invoices.map((row) => row.id)))
+  } else {
+    setSelectedRows(new Set())
   }
+}
 
-  const handleSelectRow = (id: string, checked: boolean) => {
-    const newSelected = new Set(selectedRows)
-    if (checked) {
-      newSelected.add(id)
-    } else {
-      newSelected.delete(id)
-    }
-    setSelectedRows(newSelected)
+const handleSelectRow = (id: string, checked: boolean) => {
+  const newSelected = new Set(selectedRows)
+  if (checked) {
+    newSelected.add(id)
+  } else {
+    newSelected.delete(id)
   }
+  setSelectedRows(newSelected)
+}
 
 return (
   <div>
@@ -120,13 +169,11 @@ return (
             </div>
         </div>
     </div>
-
+    <SectionCards/>
     <div className="flex flex-col gap-4 h-full">
         {/* Ligne 1 : horizontale */}
         <div className="flex gap-4 h-full max-h-1/2 pb-1 p-3">
-            <div className="w-1/2 bg-red-400 rounded-2xl">
-                <CreateAffaire/>
-            </div>
+            <div className="w-1/2 bg-red-400 rounded-2xl"></div>
             <div className="w-2/3 bg-amber-700 rounded-2xl">
                 <Table>
                     <TableHeader>
@@ -171,31 +218,70 @@ return (
         </div>
         <Marker variant="border"></Marker>
         {/* Ligne 2 */}
+        
+        <div className="flex items-center gap-2">
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
+              <Columns2 />
+              <span className="hidden lg:inline">Customize Columns</span>
+              <span className="lg:hidden">Columns</span>
+              <ChevronDown />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {table
+                .getAllColumns()
+                .filter(
+                  (column) =>
+                    typeof column.accessorFn !== "undefined" &&
+                    column.getCanHide()
+                )
+                .map((column) => {
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={column.id}
+                      className="capitalize"
+                      checked={column.getIsVisible()}
+                      onCheckedChange={(value) =>
+                        column.toggleVisibility(!!value)
+                      }
+                    >
+                      {column.id}
+                    </DropdownMenuCheckboxItem>
+                  )
+                })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" size="sm">
+            <Plus />
+            <span className="hidden lg:inline">Add Section</span>
+          </Button>
+        </div>
+
         <div className="w-auto h-full max-h-1/2 px-4 pt-4">
             <div className=" bg-blue-500 rounded-2xl">
                 <Table>
                     <TableCaption>Affaire en cour</TableCaption>
-                    <TableHeader>
-                        <TableRow>
-                        <TableHead className="w-50">Semaine</TableHead>
-                        <TableHead>N°</TableHead>
-                        <TableHead>Nom</TableHead>
-                        <TableHead>Previ</TableHead>
-                        <TableHead>Preparer</TableHead>
-                        <TableHead>Controler</TableHead>
-                        <TableHead>BPE</TableHead>
+                    <TableHeader className="bg-gray-700">
+                        {table.getHeaderGroups().map((headerGroup) => (
+                        <TableRow key={headerGroup.id}>
+                            {headerGroup.headers.map((header) => (
+                            <TableHead key={header.id}>
+                                {header.isPlaceholder
+                                ? null
+                                : flexRender(header.column.columnDef.header, header.getContext())}
+                            </TableHead>
+                            ))}
                         </TableRow>
+                        ))}
                     </TableHeader>
                     <TableBody>
-                        {invoices.map((invoice) => (
-                        <TableRow key={invoice.id}>
-                            <TableCell className="font-medium">{invoice.semaine}</TableCell>
-                            <TableCell>{invoice.numero}</TableCell>
-                            <TableCell>{invoice.client}</TableCell>
-                            <TableCell> <Checkbox id="terms-checkbox-basic" name="terms-checkbox-basic" /> </TableCell>
-                            <TableCell> <Checkbox id="terms-checkbox-basic" name="terms-checkbox-basic" /> </TableCell>
-                            <TableCell> <Checkbox id="terms-checkbox-basic" name="terms-checkbox-basic" /> </TableCell>
-                            <TableCell className="text-right"> <Checkbox id="terms-checkbox-basic" name="terms-checkbox-basic" /> </TableCell>
+                        {table.getRowModel().rows.map((row) => (
+                        <TableRow key={row.id}>
+                            {row.getVisibleCells().map((cell) => (
+                            <TableCell key={cell.id}>
+                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                            </TableCell>
+                            ))}
                         </TableRow>
                         ))}
                     </TableBody>
