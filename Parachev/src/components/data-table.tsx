@@ -137,9 +137,9 @@ function SortableHeader({
     >
       {children}
       {sorted === "asc" ? (
-        <IconArrowNarrowUp className="ml-2 size-4" />
+        <IconArrowNarrowUp className="ml-2 size-4 text-muted-foreground" />
       ) : sorted === "desc" ? (
-        <IconArrowNarrowDown className="ml-2 size-4" />
+        <IconArrowNarrowDown className="ml-2 size-4 text-muted-foreground" />
       ) : (
         <IconArrowsSort className="ml-2 size-4 text-muted-foreground" />
       )}

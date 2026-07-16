@@ -1,7 +1,7 @@
 import {BrowserRouter, Routes, Route} from "react-router-dom"
 import Page from "./pages/page";
-import Page404 from "./pages/Page404";
-import DashBoard from "./pages/DashBoard";
+import Prevision from "./pages/prevision";
+import Chiffrage from "./pages/chiffrage";
 
 import "./App.css";
 
@@ -12,8 +12,8 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Page />} />
-          <Route path="/test" element={<Page404/>} />
-          <Route path="/test2" element={<DashBoard/>} />
+          <Route path="/chiffrage" element={<Chiffrage/>} />
+          <Route path="/prevision" element={<Prevision/>} />
         </Routes>
       </BrowserRouter>
       

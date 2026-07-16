@@ -45,12 +45,12 @@ const data = {
     },
     {
       title: "Chiffrage",
-      url: "/test",
+      url: "/chiffrage",
       icon: IconListDetails,
     },
     {
       title: "Prevision",
-      url: "/test2",
+      url: "/prevision",
       icon: IconChartBar,
     },
     {
