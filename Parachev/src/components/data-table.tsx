@@ -33,6 +33,8 @@ import {
   IconLoader,
   IconPlus,
   IconTrendingUp,
+  IconArrowNarrowUp,
+  IconArrowNarrowDown,
 } from "@tabler/icons-react"
 import {
   flexRender,
@@ -131,13 +133,13 @@ function SortableHeader({
       variant="ghost"
       size="sm"
       className="-ml-3 h-8"
-      onClick={() => column.toggleSorting(sorted === "asc")}
+      onClick={() => column.toggleSorting()}
     >
       {children}
       {sorted === "asc" ? (
-        <IconChevronUp className="ml-2 size-4" />
+        <IconArrowNarrowUp className="ml-2 size-4" />
       ) : sorted === "desc" ? (
-        <IconChevronDown className="ml-2 size-4" />
+        <IconArrowNarrowDown className="ml-2 size-4" />
       ) : (
         <IconArrowsSort className="ml-2 size-4 text-muted-foreground" />
       )}

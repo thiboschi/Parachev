@@ -6,10 +6,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableCap
 import { Checkbox } from "@/components/ui/checkbox";
 import * as React from "react"
 import { Marker } from "@/components/ui/marker"
-import { CreateAffaire } from "./subPages/CreateAffaire";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuCheckboxItem } from "@/components/ui/dropdown-menu";
 import { useReactTable, getCoreRowModel, flexRender, type ColumnDef, type VisibilityState } from "@tanstack/react-table"
-import { SectionCards } from "@/components/custom/section-cards";
 
 
 import "./DashBoard.css"
@@ -163,13 +161,11 @@ return (
             </div>
             <div>
                 <ButtonGroup className="">
-                    <CreateAffaire/>
                     <Button variant="outline">Import</Button>
                 </ButtonGroup>
             </div>
         </div>
     </div>
-    <SectionCards/>
     <div className="flex flex-col gap-4 h-full">
         {/* Ligne 1 : horizontale */}
         <div className="flex gap-4 h-full max-h-1/2 pb-1 p-3">
