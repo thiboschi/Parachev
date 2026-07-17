@@ -206,6 +206,18 @@ const selectColumn: ColumnDef<z.infer<typeof schema>> = {
   enableHiding: false,
 }
 
+const totalColumn: ColumnDef<z.infer<typeof schema>> = {
+  id: "total",
+  header: () => <div className="text-right">Total</div>,
+  cell: ({ row }) => {
+    const total = Object.values(row.original.machines).reduce<number>(
+      (sum, value) => sum + (value ?? 0),
+      0
+    )
+    return <div className="text-right font-medium tabular-nums">{total}</div>
+  },
+}
+
 const actionsColumn: ColumnDef<z.infer<typeof schema>> = {
   id: "actions",
   cell: () => (
@@ -308,7 +320,7 @@ export function DataTablePrevi({
 
   const machineColumns = useMachineColumns(data)
   const columns = React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(
-    () => [dragColumn, selectColumn, ...machineColumns, actionsColumn],
+    () => [dragColumn, selectColumn, ...machineColumns, actionsColumn, totalColumn],
     [machineColumns]
   )
 
