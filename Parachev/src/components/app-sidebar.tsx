@@ -54,9 +54,9 @@ export const data = {
       icon: IconChartBar,
     },
     {
-      title: "Projects",
-      url: "#",
-      icon: IconFolder,
+      title: "Search",
+      url: "/search",
+      icon: IconSearch,
     },
     {
       title: "Documents",
