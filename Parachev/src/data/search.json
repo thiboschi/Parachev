@@ -21,6 +21,7 @@
       "control" :null
     },
     {
+      
       "presse" : 20,
       "robot" : 10,
       "scie voortman": 30,
@@ -44,6 +45,8 @@
     "semaine": "S28",
     "reviewer": "Assign reviewer",
     "machines": [{
+      "nb_poutre" : 20,
+      "profil": "HEB 500",
       "presse" : 20,
       "robot" : 10,
       "scie voortman": 30,

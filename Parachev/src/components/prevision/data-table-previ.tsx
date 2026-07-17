@@ -85,7 +85,7 @@ import {
 } from "@/components/ui/tabs"
 
 // Shape of each affaire as it comes out of affaires.json: one affaire can
-// carry several machine-value entries (e.g. one per batch/phase).
+// carry several poutres (beams), each with its own machine-value entries.
 export const affaireSchema = z.object({
   id: z.number(),
   client: z.string(),
@@ -93,10 +93,16 @@ export const affaireSchema = z.object({
   status: z.string(),
   semaine: z.string(),
   reviewer: z.string(),
-  machines: z.array(z.record(z.string(), z.number().nullable())),
+  poutres: z.array(
+    z.object({
+      nb_poutre: z.number(),
+      profil: z.string(),
+      machines: z.record(z.string(), z.number().nullable()),
+    })
+  ),
 })
 
-// Shape of a table row: one row per machines[] entry, so a single affaire
+// Shape of a table row: one row per poutres[] entry, so a single affaire
 // can expand into several rows.
 export const schema = z.object({
   id: z.string(),
@@ -105,6 +111,8 @@ export const schema = z.object({
   status: z.string(),
   semaine: z.string(),
   reviewer: z.string(),
+  nb_poutre: z.number(),
+  profil: z.string(),
   machines: z.record(z.string(), z.number().nullable()),
 })
 
@@ -112,14 +120,16 @@ function flattenAffaires(
   affaires: z.infer<typeof affaireSchema>[]
 ): z.infer<typeof schema>[] {
   return affaires.flatMap((affaire) =>
-    affaire.machines.map((machines, index) => ({
+    affaire.poutres.map((poutre, index) => ({
       id: `${affaire.id}-${index}`,
       client: affaire.client,
       numero: affaire.numero,
       status: affaire.status,
       semaine: affaire.semaine,
       reviewer: affaire.reviewer,
-      machines,
+      nb_poutre: poutre.nb_poutre,
+      profil: poutre.profil,
+      machines: poutre.machines,
     }))
   )
 }
@@ -204,6 +214,22 @@ const selectColumn: ColumnDef<z.infer<typeof schema>> = {
   ),
   enableSorting: false,
   enableHiding: false,
+}
+
+const profilColumn: ColumnDef<z.infer<typeof schema>> = {
+  accessorKey: "profil",
+  header: ({ column }) => <SortableHeader column={column}>Profil</SortableHeader>,
+  cell: ({ row }) => row.original.profil,
+}
+
+const nbPoutreColumn: ColumnDef<z.infer<typeof schema>> = {
+  accessorKey: "nb_poutre",
+  header: ({ column }) => (
+    <SortableHeader column={column}>Nb poutres</SortableHeader>
+  ),
+  cell: ({ row }) => (
+    <div className="text-right tabular-nums">{row.original.nb_poutre}</div>
+  ),
 }
 
 const totalColumn: ColumnDef<z.infer<typeof schema>> = {
@@ -320,7 +346,15 @@ export function DataTablePrevi({
 
   const machineColumns = useMachineColumns(data)
   const columns = React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(
-    () => [dragColumn, selectColumn, ...machineColumns, actionsColumn, totalColumn],
+    () => [
+      dragColumn,
+      selectColumn,
+      profilColumn,
+      nbPoutreColumn,
+      ...machineColumns,
+      actionsColumn,
+      totalColumn,
+    ],
     [machineColumns]
   )
 

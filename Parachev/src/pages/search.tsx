@@ -4,7 +4,6 @@ import { z } from "zod"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
-import { affaireSchema } from "@/components/prevision/data-table-previ"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -26,14 +25,36 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 import searchData from "@/data/search.json"
 
+// machines[] entries aren't all shaped the same across search.json (some
+// carry stray "profil"/"nb_poutre" keys), so keep values loosely typed and
+// sum defensively rather than assuming every key is a machine value.
+const affaireSchema = z.object({
+  id: z.number(),
+  client: z.string(),
+  numero: z.string(),
+  status: z.string(),
+  semaine: z.string(),
+  reviewer: z.string(),
+  machines: z.array(z.record(z.string(), z.unknown())),
+})
+
 type Affaire = z.infer<typeof affaireSchema>
 
 const items: Affaire[] = searchData
 
+const NON_MACHINE_KEYS = new Set(["nb_poutre", "profil"])
+
 function totalFor(item: Affaire) {
   return item.machines.reduce(
     (sum, entry) =>
-      sum + Object.values(entry).reduce<number>((s, v) => s + (v ?? 0), 0),
+      sum +
+      Object.entries(entry).reduce<number>(
+        (s, [key, value]) =>
+          NON_MACHINE_KEYS.has(key) || typeof value !== "number"
+            ? s
+            : s + value,
+        0
+      ),
     0
   )
 }
