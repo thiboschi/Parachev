@@ -183,12 +183,13 @@ function DragHandle({ id }: { id: string }) {
   )
 }
 
+//----------------- Drag Button ---------------------------
 const dragColumn: ColumnDef<z.infer<typeof schema>> = {
   id: "drag",
   header: () => null,
   cell: ({ row }) => <DragHandle id={row.original.id} />,
 }
-
+//----------------- CheckBox ------------------------------
 const selectColumn: ColumnDef<z.infer<typeof schema>> = {
   id: "select",
   header: ({ table }) => (
@@ -216,12 +217,14 @@ const selectColumn: ColumnDef<z.infer<typeof schema>> = {
   enableHiding: false,
 }
 
+//----------------- Profil Column ---------------------------
 const profilColumn: ColumnDef<z.infer<typeof schema>> = {
   accessorKey: "profil",
   header: ({ column }) => <SortableHeader column={column}>Profil</SortableHeader>,
   cell: ({ row }) => row.original.profil,
 }
 
+//----------------- nb_poutre Column ---------------------------
 const nbPoutreColumn: ColumnDef<z.infer<typeof schema>> = {
   accessorKey: "nb_poutre",
   header: ({ column }) => (
@@ -244,6 +247,7 @@ const totalColumn: ColumnDef<z.infer<typeof schema>> = {
   },
 }
 
+//----------------- Three Dot ---------------------------
 const actionsColumn: ColumnDef<z.infer<typeof schema>> = {
   id: "actions",
   cell: () => (

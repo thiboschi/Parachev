@@ -1,10 +1,11 @@
 import * as React from "react"
-import { IconSearch } from "@tabler/icons-react"
+import { IconPlus, IconSearch, IconX } from "@tabler/icons-react"
 import { z } from "zod"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -12,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -44,6 +46,27 @@ const items: Affaire[] = searchData
 
 const NON_MACHINE_KEYS = new Set(["nb_poutre", "profil"])
 
+const profilOptions = Array.from(
+  new Set(
+    items.flatMap((item) =>
+      item.machines
+        .map((entry) => entry.profil)
+        .filter((value): value is string => typeof value === "string")
+    )
+  )
+).sort()
+
+type PoutreRow = {
+  id: number
+  profil: string
+  nbrProfil: string
+  lgLam: string
+  lgFinie: string
+  cfl: boolean
+  rayon: string
+  methode: string
+}
+
 function totalFor(item: Affaire) {
   return item.machines.reduce(
     (sum, entry) =>
@@ -64,6 +87,35 @@ export default function Search() {
   const [status, setStatus] = React.useState("all")
   const [reviewer, setReviewer] = React.useState("all")
   const [semaine, setSemaine] = React.useState("all")
+  const [poutreRows, setPoutreRows] = React.useState<PoutreRow[]>([])
+  const nextPoutreRowId = React.useRef(0)
+
+  function addPoutreRow() {
+    nextPoutreRowId.current += 1
+    setPoutreRows((rows) => [
+      ...rows,
+      {
+        id: nextPoutreRowId.current,
+        profil: "",
+        nbrProfil: "",
+        lgLam: "",
+        lgFinie: "",
+        cfl: false,
+        rayon: "",
+        methode: "",
+      },
+    ])
+  }
+
+  function updatePoutreRow(id: number, patch: Partial<PoutreRow>) {
+    setPoutreRows((rows) =>
+      rows.map((row) => (row.id === id ? { ...row, ...patch } : row))
+    )
+  }
+
+  function removePoutreRow(id: number) {
+    setPoutreRows((rows) => rows.filter((row) => row.id !== id))
+  }
 
   const statusOptions = React.useMemo(
     () => Array.from(new Set(items.map((item) => item.status))).sort(),
@@ -178,7 +230,132 @@ export default function Search() {
                 </SelectContent>
               </Select>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="rounded-full"
+              onClick={addPoutreRow}
+            >
+              <IconPlus />
+              <span className="sr-only">Ajouter une ligne de profil</span>
+            </Button>
           </div>
+
+          {poutreRows.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {poutreRows.map((row) => (
+                <div
+                  key={row.id}
+                  className="flex flex-col gap-3 rounded-xl border bg-card p-4 ring-1 ring-foreground/10 md:flex-row md:flex-wrap md:items-end"
+                >
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`profil-${row.id}`}>Profil</Label>
+                    <Select
+                      value={row.profil}
+                      onValueChange={(value) =>
+                        updatePoutreRow(row.id, { profil: value ?? "" })
+                      }
+                    >
+                      <SelectTrigger
+                        id={`profil-${row.id}`}
+                        className="w-full md:w-36"
+                      >
+                        <SelectValue placeholder="Profil" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {profilOptions.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`nbr-profil-${row.id}`}>Nbr Profil</Label>
+                    <Input
+                      id={`nbr-profil-${row.id}`}
+                      className="w-full md:w-28"
+                      value={row.nbrProfil}
+                      onChange={(e) =>
+                        updatePoutreRow(row.id, { nbrProfil: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`lg-lam-${row.id}`}>Lg Lam</Label>
+                    <Input
+                      id={`lg-lam-${row.id}`}
+                      className="w-full md:w-28"
+                      value={row.lgLam}
+                      onChange={(e) =>
+                        updatePoutreRow(row.id, { lgLam: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`lg-finie-${row.id}`}>Lg Finie</Label>
+                    <Input
+                      id={`lg-finie-${row.id}`}
+                      className="w-full md:w-28"
+                      value={row.lgFinie}
+                      onChange={(e) =>
+                        updatePoutreRow(row.id, { lgFinie: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor={`methode-${row.id}`}>Méthode</Label>
+                    <Input
+                      id={`methode-${row.id}`}
+                      className="w-full md:w-32"
+                      value={row.methode}
+                      onChange={(e) =>
+                        updatePoutreRow(row.id, { methode: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 pb-1.5">
+                    <Checkbox
+                      id={`cfl-${row.id}`}
+                      checked={row.cfl}
+                      onCheckedChange={(value) =>
+                        updatePoutreRow(row.id, {
+                          cfl: !!value,
+                          rayon: value ? row.rayon : "",
+                        })
+                      }
+                    />
+                    <Label htmlFor={`cfl-${row.id}`}>CFL</Label>
+                  </div>
+                  {row.cfl && (
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor={`rayon-${row.id}`}>Rayon</Label>
+                      <Input
+                        id={`rayon-${row.id}`}
+                        className="w-full md:w-28"
+                        value={row.rayon}
+                        onChange={(e) =>
+                          updatePoutreRow(row.id, { rayon: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="text-muted-foreground md:ml-auto"
+                    onClick={() => removePoutreRow(row.id)}
+                  >
+                    <IconX />
+                    <span className="sr-only">Supprimer la ligne</span>
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="text-sm text-muted-foreground">
             {results.length} result{results.length !== 1 ? "s" : ""}
