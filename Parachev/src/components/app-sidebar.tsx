@@ -44,11 +44,6 @@ export const data = {
       icon: IconDashboard,
     },
     {
-      title: "Chiffrage",
-      url: "/chiffrage",
-      icon: IconListDetails,
-    },
-    {
       title: "Prevision",
       url: "/prevision",
       icon: IconChartBar,
