@@ -56,6 +56,23 @@ const profilOptions = Array.from(
   )
 ).sort()
 
+const METHODE_OPTIONS = [
+  "Redressage",
+  "Controle U.S",
+  "Building",
+  "Sciage",
+  "Parking",
+  "Presse",
+  "Fers-T",
+  "IFB",
+  "Pont PPE",
+  "Ponts Mixtes",
+  "Ponts Complexes",
+  "Caisson",
+  "Murs Anti Bruit",
+  "Chargement",
+]
+
 type PoutreRow = {
   id: number
   profil: string
@@ -307,14 +324,26 @@ export default function Search() {
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor={`methode-${row.id}`}>Méthode</Label>
-                    <Input
-                      id={`methode-${row.id}`}
-                      className="w-full md:w-32"
+                    <Select
                       value={row.methode}
-                      onChange={(e) =>
-                        updatePoutreRow(row.id, { methode: e.target.value })
+                      onValueChange={(value) =>
+                        updatePoutreRow(row.id, { methode: value ?? "" })
                       }
-                    />
+                    >
+                      <SelectTrigger
+                        id={`methode-${row.id}`}
+                        className="w-full md:w-40"
+                      >
+                        <SelectValue placeholder="Méthode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {METHODE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div className="flex items-center gap-2 pb-1.5">
                     <Checkbox

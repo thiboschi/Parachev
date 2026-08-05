@@ -83,6 +83,8 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs"
+import { toast } from "sonner"
+import { Input } from "@base-ui/react"
 
 // Shape of each affaire as it comes out of affaires.json: one affaire can
 // carry several poutres (beams), each with its own machine-value entries.
@@ -221,8 +223,29 @@ const selectColumn: ColumnDef<z.infer<typeof schema>> = {
 const profilColumn: ColumnDef<z.infer<typeof schema>> = {
   accessorKey: "profil",
   header: ({ column }) => <SortableHeader column={column}>Profil</SortableHeader>,
-  cell: ({ row }) => row.original.profil,
+  cell: ({ row }) => (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
+            loading: `Saving ${row.original.client}`,
+            success: "Done",
+            error: "Error",
+          })
+        }}
+      >
+        <Label htmlFor={`${row.original.id}-target`} className="sr-only">
+          Target
+        </Label>
+        <Input
+          className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
+          defaultValue={row.original.profil}
+          id={`${row.original.id}-target`}
+        />
+      </form>
+    ),
 }
+
 
 //----------------- nb_poutre Column ---------------------------
 const nbPoutreColumn: ColumnDef<z.infer<typeof schema>> = {
@@ -230,11 +253,30 @@ const nbPoutreColumn: ColumnDef<z.infer<typeof schema>> = {
   header: ({ column }) => (
     <SortableHeader column={column}>Nb poutres</SortableHeader>
   ),
-  cell: ({ row }) => (
-    <div className="text-right tabular-nums">{row.original.nb_poutre}</div>
-  ),
+  cell: ({ row }) =>  (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
+            loading: `Saving ${row.original.client}`,
+            success: "Done",
+            error: "Error",
+          })
+        }}
+      >
+        <Label htmlFor={`${row.original.id}-target`} className="sr-only">
+          Target
+        </Label>
+        <Input
+          className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
+          defaultValue={row.original.nb_poutre}
+          id={`${row.original.id}-target`}
+        />
+      </form>
+    ),
 }
 
+//----------------- Total ---------------------------
 const totalColumn: ColumnDef<z.infer<typeof schema>> = {
   id: "total",
   header: () => <div className="text-right">Total</div>,
@@ -243,7 +285,25 @@ const totalColumn: ColumnDef<z.infer<typeof schema>> = {
       (sum, value) => sum + (value ?? 0),
       0
     )
-    return <div className="text-right font-medium tabular-nums">{total}</div>
+    return (<form
+        onSubmit={(e) => {
+          e.preventDefault()
+          toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
+            loading: `Saving ${row.original.client}`,
+            success: "Done",
+            error: "Error",
+          })
+        }}
+      >
+        <Label htmlFor={`${row.original.id}-target`} className="sr-only">
+          Target
+        </Label>
+        <Input
+          className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
+          defaultValue={total}
+          id={`${row.original.id}-target`}
+        />
+      </form>)
   },
 }
 
@@ -292,7 +352,25 @@ function useMachineColumns(data: z.infer<typeof schema>[]) {
       cell: ({ row }) => {
         const value = row.original.machines[name]
         return value != null ? (
-          <div className="text-right tabular-nums">{value}</div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              toast.promise(new Promise((resolve) => setTimeout(resolve, 1000)), {
+                loading: `Saving ${row.original.client}`,
+                success: "Done",
+                error: "Error",
+              })
+            }}
+          >
+            <Label htmlFor={`${row.original.id}-target`} className="sr-only">
+              Target
+            </Label>
+            <Input
+              className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
+              defaultValue={row.original.nb_poutre}
+              id={`${row.original.id}-target`}
+            />
+          </form>
         ) : null
       },
     }))
