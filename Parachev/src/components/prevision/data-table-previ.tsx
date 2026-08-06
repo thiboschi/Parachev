@@ -329,6 +329,21 @@ function useMachineColumns(data: z.infer<typeof schema>[]) {
   }, [data])
 }
 
+const sectionOptions = [
+  "presse",
+  "robot",
+  "scie voortman",
+  "scie koltenbach",
+  "foreuse Numerique",
+  "oxycoupage",
+  "contrefleche",
+  "assemblage",
+  "soudage",
+  "ebavurage",
+  "goujonnage",
+  "control"
+] as const
+
 export function DataTablePrevi({
   data: initialData,
 }: {
@@ -395,10 +410,10 @@ export function DataTablePrevi({
             <SelectValue placeholder="Select a view" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="Previsions">Previsions</SelectItem>
-            <SelectItem value="Chiffrage">Chiffrage</SelectItem>
-            <SelectItem value="Plans">Plans</SelectItem>
-            <SelectItem value="Mails">Mails</SelectItem>
+            <SelectItem value="outline">Previsions</SelectItem>
+            <SelectItem value="past-performance">Chiffrage</SelectItem>
+            <SelectItem value="ket-personnel">Plans</SelectItem>
+            <SelectItem value="focus-documents">Mails</SelectItem>
           </SelectContent>
         </Select>
         <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
@@ -441,10 +456,34 @@ export function DataTablePrevi({
                 })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            <span className="hidden lg:inline">Add Section</span>
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm">
+                <IconPlus />
+                <span className="hidden lg:inline">Add Section</span>
+                <IconChevronDown />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {sectionOptions.map((section) => (
+                <DropdownMenuItem
+                  key={section}
+                  onSelect={() => {
+                    toast.promise(
+                      new Promise((resolve) => setTimeout(resolve, 1000)),
+                      {
+                        loading: `Adding ${section}`,
+                        success: `${section} added`,
+                        error: "Error",
+                      }
+                    )
+                  }}
+                >
+                  {section}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 {/* Vu Sur le tableau de Previ */}
