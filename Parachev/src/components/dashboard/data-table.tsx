@@ -449,10 +449,6 @@ export function DataTable({ data: initialData, }: { data: z.infer<typeof schema>
                 })}
             </DropdownMenuContent>
           </DropdownMenu>
-          <Button variant="outline" size="sm">
-            <IconPlus />
-            <span className="hidden lg:inline">Add Section</span>
-          </Button>
         </div>
       </div>
       <TabsContent
