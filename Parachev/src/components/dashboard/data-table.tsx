@@ -415,6 +415,22 @@ export function DataTable({ data: initialData, }: { data: z.infer<typeof schema>
       className="w-full flex-col justify-start gap-6"
     >
       <div className="flex items-center justify-between px-4 lg:px-6">
+        <Label htmlFor="view-selector" className="sr-only">
+          View
+        </Label>
+        <Select defaultValue="outline">
+          <SelectTrigger className="flex w-fit @4xl/main:hidden" size="sm" id="view-selector">
+            <SelectValue placeholder="Select a view" />
+          </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="outline">Previsions</SelectItem>
+              <SelectItem value="past-performance">Chiffrage</SelectItem>
+            </SelectContent>
+            </Select>
+                <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
+                  <TabsTrigger value="outline">Affaires</TabsTrigger>
+                  <TabsTrigger value="past-performance">Taches</TabsTrigger>
+                </TabsList>
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
