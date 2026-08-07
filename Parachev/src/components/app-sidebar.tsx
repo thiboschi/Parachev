@@ -53,11 +53,6 @@ export const data = {
       url: "/search",
       icon: IconSearch,
     },
-    {
-      title: "Documents",
-      url: "#",
-      icon: IconDatabase,
-    },
   ],
   navClouds: [
     {
