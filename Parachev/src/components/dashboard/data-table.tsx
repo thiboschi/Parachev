@@ -89,6 +89,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs"
 import { NavLink } from "react-router-dom"
+import { DataTableTache } from "./data-table-tache"
 
 export const schema = z.object({
   id: z.number(),
@@ -423,8 +424,8 @@ export function DataTable({ data: initialData, }: { data: z.infer<typeof schema>
             <SelectValue placeholder="Select a view" />
           </SelectTrigger>
             <SelectContent>
-              <SelectItem value="outline">Previsions</SelectItem>
-              <SelectItem value="past-performance">Chiffrage</SelectItem>
+              <SelectItem value="outline">Affaires</SelectItem>
+              <SelectItem value="past-performance">Taches</SelectItem>
             </SelectContent>
             </Select>
                 <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
@@ -467,6 +468,7 @@ export function DataTable({ data: initialData, }: { data: z.infer<typeof schema>
           </DropdownMenu>
         </div>
       </div>
+      {/* Space for the table of affaires */}
       <TabsContent
         value="outline"
         className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6"
@@ -601,20 +603,15 @@ export function DataTable({ data: initialData, }: { data: z.infer<typeof schema>
           </div>
         </div>
       </TabsContent>
+
+      {/* Space for the table of taches */}
       <TabsContent
         value="past-performance"
         className="flex flex-col px-4 lg:px-6"
       >
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-      <TabsContent value="key-personnel" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-      <TabsContent
-        value="focus-documents"
-        className="flex flex-col px-4 lg:px-6"
-      >
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
+        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed">
+          <DataTableTache></DataTableTache>
+        </div>
       </TabsContent>
     </Tabs>
   )
