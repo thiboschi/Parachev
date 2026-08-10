@@ -213,7 +213,7 @@ const columns: ColumnDef<z.infer<typeof schema>>[] = [
       </Badge>
     ),
   },
-  { // Column Target
+  { // Column Semaine
     accessorKey: "semaine",
     header: ({ column }) => <SortableHeader column={column}>Semaine</SortableHeader>,
     cell: ({ row }) => (

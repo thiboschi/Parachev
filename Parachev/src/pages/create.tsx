@@ -1,5 +1,6 @@
 import * as React from "react"
-import { IconPlus, IconSearch, IconX } from "@tabler/icons-react"
+import { NavLink } from "react-router-dom"
+import { IconPlus, IconX } from "@tabler/icons-react"
 import { z } from "zod"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
@@ -7,13 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from "@/components/ui/select"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 import searchData from "@/data/search.json"
@@ -74,7 +69,8 @@ type PoutreRow = {
 }
 
 export default function Create() {
-  const [searchText, setSearchText] = React.useState("")
+  const [clientText, setClientText] = React.useState("")
+  const [numeroText, setNumeroText] = React.useState("")
   const [status, setStatus] = React.useState("all")
   const [reviewer, setReviewer] = React.useState("all")
   const [semaine, setSemaine] = React.useState("all")
@@ -121,21 +117,26 @@ export default function Create() {
     []
   )
 
-  const results = React.useMemo(() => {
-    const query = searchText.trim().toLowerCase()
-    return items.filter((item) => {
-      const matchesQuery =
-        !query ||
-        [item.client, item.numero, item.status, item.semaine, item.reviewer]
-          .join(" ")
-          .toLowerCase()
-          .includes(query)
-      const matchesStatus = status === "all" || item.status === status
-      const matchesReviewer = reviewer === "all" || item.reviewer === reviewer
-      const matchesSemaine = semaine === "all" || item.semaine === semaine
-      return matchesQuery && matchesStatus && matchesReviewer && matchesSemaine
-    })
-  }, [searchText, status, reviewer, semaine])
+  // const results = React.useMemo(() => {
+  //   const client = clientText.trim().toLowerCase()
+  //   const numero = numeroText.trim().toLowerCase()
+  //   return items.filter((item) => {
+  //     const matchesClient =
+  //       !client || item.client.toLowerCase().includes(client)
+  //     const matchesNumero =
+  //       !numero || item.numero.toLowerCase().includes(numero)
+  //     const matchesStatus = status === "all" || item.status === status
+  //     const matchesReviewer = reviewer === "all" || item.reviewer === reviewer
+  //     const matchesSemaine = semaine === "all" || item.semaine === semaine
+  //     return (
+  //       matchesClient &&
+  //       matchesNumero &&
+  //       matchesStatus &&
+  //       matchesReviewer &&
+  //       matchesSemaine
+  //     )
+  //   })
+  // }, [clientText, numeroText, status, reviewer, semaine])
 
   return (
     <SidebarProvider
@@ -152,17 +153,22 @@ export default function Create() {
         <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
           <div className="flex flex-col gap-4 rounded-xl border bg-card p-4 ring-1 ring-foreground/10 md:flex-row md:items-end">
             <div className="flex flex-1 flex-col gap-2">
-              <Label htmlFor="search-query">Search</Label>
-              <div className="relative">
-                <IconSearch className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="search-query"
-                  placeholder="Client, numéro, reviewer..."
-                  className="pl-8"
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                />
-              </div>
+              <Label htmlFor="client-filter">Client</Label>
+              <Input
+                id="client-filter"
+                placeholder="Client"
+                value={clientText}
+                onChange={(e) => setClientText(e.target.value)}
+              />
+            </div>
+            <div className="flex flex-1 flex-col gap-2">
+              <Label htmlFor="numero-filter">Numéro client</Label>
+              <Input
+                id="numero-filter"
+                placeholder="Numéro client"
+                value={numeroText}
+                onChange={(e) => setNumeroText(e.target.value)}
+              />
             </div>
             <div className="flex flex-col gap-2">
               <Label htmlFor="status-filter">Status</Label>
@@ -359,6 +365,12 @@ export default function Create() {
               ))}
             </div>
           )}
+
+          <div className="flex justify-end">
+            <Button render={<NavLink to="/prevision" />}>
+              Create Affaire
+            </Button>
+          </div>
         </div>
       </SidebarInset>
     </SidebarProvider>

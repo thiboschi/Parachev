@@ -413,14 +413,14 @@ export function DataTablePrevi({
             <SelectItem value="outline">Previsions</SelectItem>
             <SelectItem value="past-performance">Chiffrage</SelectItem>
             <SelectItem value="ket-personnel">Plans</SelectItem>
-            <SelectItem value="focus-documents">Mails</SelectItem>
+            <SelectItem value="focus-documents">Commandes</SelectItem>
           </SelectContent>
         </Select>
         <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
           <TabsTrigger value="outline">Previsions</TabsTrigger>
           <TabsTrigger value="past-performance">Chiffrage</TabsTrigger>
           <TabsTrigger value="key-personnel">Plans</TabsTrigger>
-          <TabsTrigger value="focus-documents">Mails</TabsTrigger>
+          <TabsTrigger value="focus-documents">Commandes annex</TabsTrigger>
         </TabsList>
         <div className="flex items-center gap-2">
           <DropdownMenu>
