@@ -117,27 +117,6 @@ export default function Create() {
     []
   )
 
-  // const results = React.useMemo(() => {
-  //   const client = clientText.trim().toLowerCase()
-  //   const numero = numeroText.trim().toLowerCase()
-  //   return items.filter((item) => {
-  //     const matchesClient =
-  //       !client || item.client.toLowerCase().includes(client)
-  //     const matchesNumero =
-  //       !numero || item.numero.toLowerCase().includes(numero)
-  //     const matchesStatus = status === "all" || item.status === status
-  //     const matchesReviewer = reviewer === "all" || item.reviewer === reviewer
-  //     const matchesSemaine = semaine === "all" || item.semaine === semaine
-  //     return (
-  //       matchesClient &&
-  //       matchesNumero &&
-  //       matchesStatus &&
-  //       matchesReviewer &&
-  //       matchesSemaine
-  //     )
-  //   })
-  // }, [clientText, numeroText, status, reviewer, semaine])
-
   return (
     <SidebarProvider
       style={

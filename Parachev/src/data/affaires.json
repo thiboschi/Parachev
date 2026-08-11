@@ -10,12 +10,11 @@
       "profil": "HEB 500",
       "nb_poutre" : 20,
       "machines": {
-        
         "assemblage": 20,
         "manutention": 15,
         "enfilage": null,
-        "foreuse manuel": 30,
-        "foreuse numerique": null,
+        "forage manuel": 30,
+        "forage numerique": null,
         "goujonnage": null,
         "Mise a longueur": 5,
         "p3": 22.5,
@@ -31,12 +30,11 @@
       "profil": "HEB 400",
       "nb_poutre" : 5,
       "machines": {
-        
         "assemblage": 20,
         "manutention": 15,
         "enfilage": null,
-        "foreuse manuel": null,
-        "foreuse numerique": 30,
+        "forage manuel": null,
+        "forage numerique": 30,
         "goujonnage": 2,
         "Mise a longueur": 5,
         "p3": null,
@@ -52,15 +50,12 @@
       "profil": "HEB 1000",
       "nb_poutre" : 20,
       "machines": {
-        
         "assemblage": 20,
-
         "presse/cintrage": 12,
         "enfilage": null,
-        "foreuse manuel": null,
-
+        "forage manuel": null,
         "manutention": 15,
-        "foreuse numerique": 30,
+        "forage numerique": 30,
         "goujonnage": 2,
         "Mise a longueur": 5,
         "p3": null,

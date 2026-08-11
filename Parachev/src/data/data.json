@@ -11,7 +11,7 @@
     "id" : 2,
     "client": "DK29 Krosno",
     "numero": "1100750658",
-    "status": "In Process",
+    "status": "BPE",
     "semaine": "S28",
     "reviewer": "Assign reviewer"
   },
@@ -19,7 +19,7 @@
     "id" : 3,
     "client": "TOARC",
     "numero": "1100750291",
-    "status": "In Process",
+    "status": "Non BPE",
     "semaine": "S28",
     "reviewer": "Assign reviewer"
   },
@@ -27,7 +27,7 @@
     "id" : 4,
     "client": "Pont Bois Rouge",
     "numero": "1100756837",
-    "status": "Done",
+    "status": "Previ",
     "semaine": "S42",
     "reviewer": "Assign reviewer"
   },
