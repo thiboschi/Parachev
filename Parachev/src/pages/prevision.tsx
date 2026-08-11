@@ -6,6 +6,7 @@ import { TimelineHorizontal } from "@/components/prevision/timeline-horizontal"
 
 import data from "../data/affaires.json"
 import item from "../data/timeline.json"
+import { AffaireDescription } from "@/components/prevision/description"
 
 export default function Prevision() {
   return (
@@ -25,6 +26,7 @@ export default function Prevision() {
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
               <div className="px-4 lg:px-6">
                 <TimelineHorizontal items={item.items}/>
+                <AffaireDescription affaire={data[0]}/>
               </div>
               <DataTablePrevi data={data} />
             </div>

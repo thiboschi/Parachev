@@ -1,8 +1,8 @@
 [
   {
     "id" : 1,
-    "client": "ALU NORF FER-T",
-    "numero": "1100756282",
+    "client": "DK29 Krosno",
+    "numero": "1100750658",
     "status": "In Process",
     "semaine": "S35",
     "reviewer": "Assign reviewer",
@@ -11,37 +11,41 @@
       "nb_poutre" : 20,
       "machines": {
         
-        "presse" : 20,
-        "robot" : 10,
-        "scie voortman": 30,
-        "scie koltenbach" : null,
-        "foreuse Numerique" : 20,
-        "oxycoupage" : null,
-        "contrefleche": 10,
-        "assemblage" : 60,
-        "soudage" : 25,
-        "ebavurage" : null,
-        "goujonnage" : 80,
-        "control" :null
+        "assemblage": 20,
+        "manutention": 15,
+        "enfilage": null,
+        "foreuse manuel": 30,
+        "foreuse numerique": null,
+        "goujonnage": null,
+        "Mise a longueur": 5,
+        "p3": 22.5,
+        "oxycoupage": 30,
+        "presse/cintrage": 12,
+        "robot": null,
+        "soudage": 32,
+        "Soudage_sous_flux": null,
+        "control cnd": 2
       }
     },
     {
       "profil": "HEB 400",
-      "nb_poutre" : 20,
+      "nb_poutre" : 5,
       "machines": {
         
-        "presse" : 20,
-        "robot" : 10,
-        "scie voortman": 30,
-        "scie koltenbach" : 10,
-        "foreuse Numerique" : 20,
-        "oxycoupage" : null,
-        "contrefleche": 10,
-        "assemblage" : 60,
-        "soudage" : null,
-        "ebavurage" : null,
-        "goujonnage" : 80,
-        "control" :null
+        "assemblage": 20,
+        "manutention": 15,
+        "enfilage": null,
+        "foreuse manuel": null,
+        "foreuse numerique": 30,
+        "goujonnage": 2,
+        "Mise a longueur": 5,
+        "p3": null,
+        "oxycoupage": 30,
+        "presse/cintrage": 12,
+        "robot": null,
+        "soudage": null,
+        "Soudage_sous_flux": 43,
+        "control cnd": 2
       }
     },
     {
@@ -49,18 +53,22 @@
       "nb_poutre" : 20,
       "machines": {
         
-        "presse" : 20,
-        "robot" : 10,
-        "scie voortman": 30,
-        "scie koltenbach" : null,
-        "foreuse Numerique" : 20,
-        "oxycoupage" : null,
-        "contrefleche": 10,
-        "assemblage" : 60,
-        "soudage" : 25,
-        "ebavurage" : null,
-        "goujonnage" : 80,
-        "control" :null
+        "assemblage": 20,
+
+        "presse/cintrage": 12,
+        "enfilage": null,
+        "foreuse manuel": null,
+
+        "manutention": 15,
+        "foreuse numerique": 30,
+        "goujonnage": 2,
+        "Mise a longueur": 5,
+        "p3": null,
+        "oxycoupage": 30,
+        "robot": null,
+        "soudage": null,
+        "Soudage_sous_flux": 43,
+        "control cnd": 2
       }
     }
   ]

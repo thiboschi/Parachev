@@ -330,18 +330,20 @@ function useMachineColumns(data: z.infer<typeof schema>[]) {
 }
 
 const sectionOptions = [
-  "presse",
-  "robot",
-  "scie voortman",
-  "scie koltenbach",
-  "foreuse Numerique",
-  "oxycoupage",
-  "contrefleche",
-  "assemblage",
-  "soudage",
-  "ebavurage",
-  "goujonnage",
-  "control"
+  "Assemblag/Tracage",
+  "Manutention",
+  "Enfilage",
+  "Forage Manuel",
+  "Forage Numerique",
+  "Goujonnage",
+  "Mise a longueur",
+  "P3",
+  "OxyCoupage",
+  "Presse/Cintrage",
+  "Robot",
+  "Soudage",
+  "Soudage sous flux",
+  "Control CND"
 ] as const
 
 export function DataTablePrevi({
