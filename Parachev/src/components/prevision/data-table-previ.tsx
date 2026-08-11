@@ -319,7 +319,7 @@ function useMachineColumns(data: z.infer<typeof schema>[]) {
             </Label>
             <Input
               className="h-8 w-16 border-transparent bg-transparent text-right shadow-none hover:bg-input/30 focus-visible:border focus-visible:bg-background dark:bg-transparent dark:hover:bg-input/30 dark:focus-visible:bg-input/30"
-              defaultValue={row.original.nb_poutre}
+              defaultValue={value}
               id={`${row.original.id}-target`}
             />
           </form>
