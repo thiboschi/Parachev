@@ -5,11 +5,12 @@ function main(workbook: ExcelScript.Workbook) {
     convertirEnTableau(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     convert(ws);
     nettoyerValeurs(ws);
-    
     convertirEnNombre(ws);
     trierColonnes(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
+    tronquerDecimale(ws);
     ajouterDecimale(ws);
     ajouterBordures(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
+    alignerNombres(ws);
 }
 
 function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], motsFin: string[]) {
@@ -414,4 +415,64 @@ function comparerValeurs(a: string | number | boolean, b: string | number | bool
     const aNum = parseFloat(String(a).replace(",", "."));
     const bNum = parseFloat(String(b).replace(",", "."));
     return aNum - bNum;
+}
+
+function tronquerDecimale(ws: ExcelScript.Worksheet) {
+    const ligneDepart = 22;
+
+    const usedRange = ws.getUsedRange();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
+    const nbColonnes = valeurs[0].length;
+
+    let modifie = false;
+
+    for (let i = ligneDepart; i < nbLignes; i++) {
+        for (let j = 0; j < nbColonnes; j++) {
+            const valeur = valeurs[i][j];
+            const str = String(valeur);
+
+            // Détecte exactement 2 chiffres après la virgule ou le point
+            if (/^\d+[,.]\d{2}$/.test(str)) {
+                const nombre = parseFloat(str.replace(",", "."));
+                // Arrondit à 1 décimale et remet la virgule
+                valeurs[i][j] = String(Math.round(nombre * 10) / 10).replace(".", ",");
+                modifie = true;
+            }
+        }
+    }
+
+    if (modifie) {
+        usedRange.setValues(valeurs);
+    }
+
+    console.log("Arrondi des décimales terminé !");
+}
+
+function alignerNombres(ws: ExcelScript.Worksheet) {
+    const ligneDepart = 22;
+
+    const usedRange = ws.getUsedRange();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
+    const nbColonnes = valeurs[0].length;
+
+    for (let i = ligneDepart; i < nbLignes; i++) {
+        for (let j = 0; j < nbColonnes; j++) {
+            const valeur = valeurs[i][j];
+
+            // Aligne à droite si c'est un nombre ou un texte numérique (avec virgule ou point)
+            const estNumerique =
+                typeof valeur === "number" ||
+                (typeof valeur === "string" && /^\d+([,.]\d+)?$/.test(String(valeur).trim()));
+
+            if (estNumerique) {
+                ws.getRangeByIndexes(i, j, 1, 1)
+                    .getFormat()
+                    .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
+            }
+        }
+    }
+
+    console.log("Alignement à droite terminé !");
 }
