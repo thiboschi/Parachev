@@ -1,0 +1,78 @@
+use crate::erp::traiter_fichier_erp;
+use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
+use rusqlite::Connection;
+use std::path::Path;
+use std::sync::mpsc;
+use std::time::Duration;
+
+/// Lance la surveillance du dossier local (synchronisé OneDrive) et traite
+/// chaque fichier créé ou modifié. Fonction bloquante : à lancer dans son
+/// propre thread (std::thread::spawn), pas besoin de tokio.
+pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Result<()> {
+    let (tx, rx) = mpsc::channel();
+
+    let mut debouncer = new_debouncer(Duration::from_secs(2), tx)?;
+    debouncer
+        .watcher()
+        .watch(Path::new(chemin_dossier), RecursiveMode::NonRecursive)?;
+
+    println!("Surveillance active sur : {chemin_dossier}");
+
+    for evenement in rx {
+        match evenement {
+            Ok(evenements) => {
+                for e in evenements {
+                    if e.kind != DebouncedEventKind::Any {
+                        continue;
+                    }
+                    traiter_evenement(&e.path, chemin_db);
+                }
+            }
+            Err(erreur) => eprintln!("Erreur watcher: {erreur:?}"),
+        }
+    }
+
+    Ok(())
+}
+
+fn traiter_evenement(path: &Path, chemin_db: &str) {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return;
+    };
+
+    // Garde-fou basique contre les fichiers OneDrive "à la demande"
+    // (placeholders cloud pas encore téléchargés) : on vérifie que le
+    // fichier a une taille non nulle avant de tenter de le parser.
+    match fs_metadata_taille(path) {
+        Some(0) | None => {
+            eprintln!("Fichier vide ou inaccessible, ignoré: {path:?}");
+            return;
+        }
+        _ => {}
+    }
+
+    match ext {
+        "txt" => {
+            let mut conn = match Connection::open(chemin_db) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Impossible d'ouvrir la base: {e}");
+                    return;
+                }
+            };
+            match traiter_fichier_erp(path, &mut conn) {
+                Ok(n) => println!("{path:?} : {n} lignes traitées"),
+                Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
+            }
+        }
+        "xlsx" => {
+            // À brancher : parsing Excel (Calamine) -> variables_affaires
+            println!("Fichier Excel détecté (parsing à implémenter): {path:?}");
+        }
+        _ => {}
+    }
+}
+
+fn fs_metadata_taille(path: &Path) -> Option<u64> {
+    std::fs::metadata(path).ok().map(|m| m.len())
+}
