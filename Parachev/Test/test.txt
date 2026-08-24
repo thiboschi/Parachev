@@ -8,7 +8,7 @@ ZGHP_PARA_AFFECTOT                                                              
 ------------------------------------------------------------------------------------------------------------------------------
          D A T E     T  POSTE TR  LIBELLE POSTE TRAV.                        AFFECT      HEURES              TRANSF
          --------    -  --------  -------------------                        ------      ------              ------
-    ** OT:  00005488C071 = 1100706839 KINZIGFLUTBRÜCKE
+    ** OT:  00005488C071 = 1100706839 KINZIGFLUTBRï¿½CKE
          20241214    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           7,0          X
          20241216    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           3,0          X
          20250106    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100          10,0          X
@@ -16,9 +16,9 @@ ZGHP_PARA_AFFECTOT                                                              
          20250107    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100          11,0          X
          20250107    0  PELEPAM1  PADI/PARA/P3                               50-36100           8,0          X
          20250108    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           8,0          X
-         20250108    0  PELEPAM1  PADI/PARA/P3                               50-36100           3,0          X
-         20250109    0  PELEPAM1  PADI/PARA/P3                               50-36100          16,0          X
-         20250110    0  PELEPAM1  PADI/PARA/P3                               50-36100          16,0          X
-         20250113    0  PELEPAM1  PADI/PARA/P3                               50-36100          19,0          X
+         20250108    0  PELEPAM1  PADI/PARA/GOUJONNAGE                               50-36100           3,0          X
+         20250109    0  PELEPAM1  PADI/PARA/GOUJONNAGE                               50-36100          16,0          X
+         20250110    0  PELEPAM1  PADI/PARA/GOUJONNAGE                               50-36100          16,0          X
+         20250113    0  PELEPAM1  PADI/PARA/GOUJONNAGE                               50-36100          19,0          X
          20250114    0  PELEPAM1  PADI/PARA/P3                               50-36100          22,0          X
          **TOTAL OT:                                                                          126,0
