@@ -11,7 +11,7 @@ use std::collections::HashMap;
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![greet, previsualiser_affaire])
+        .invoke_handler(tauri::generate_handler![previsualiser_affaire])
         .setup(|_app| {
             let chemin_dossier = "./../Test".to_string();
             let chemin_db = "affaires.db".to_string();
