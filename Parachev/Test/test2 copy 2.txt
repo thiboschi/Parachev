@@ -1,0 +1,24 @@
+ZGHP_PARA_AFFECTOT                                                                                           30.06.2026 /
+07:38:01
+* SERVICE         :  PARA
+* POSTE DE TRAVAIL:  %%%%%%%%
+* O.T.            :  00005488C071
+* PERIODE de       :  20000101   a   20260101                                                                     PAGE :
+    1
+------------------------------------------------------------------------------------------------------------------------------
+         D A T E     T  POSTE TR  LIBELLE POSTE TRAV.                        AFFECT      HEURES              TRANSF
+         --------    -  --------  -------------------                        ------      ------              ------
+    ** OT:  00005488C071 = 4400706828 KINZIGFLUTBR�CKE
+         20241214    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           8,0          X
+         20241216    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           3,0          X
+         20250106    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100          45,0          X
+         20250107    0  PELEPAC0  PADI/PARA/CASSE MACHINE                    50-36100           3,0          X
+         20250107    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100          111,0          X
+         20250107    0  PELEPAM1  PADI/PARA/P3                               50-36100           8,0          X
+         20250108    0  PELEPAF1  PADI/PARA/FORAGE NUMERIQUE                 50-36100           8,0          X
+         20250108    0  PELEPAM1  PADI/PARA/P3                               50-36100           3,0          X
+         20250109    0  PELEPAM1  PADI/PARA/P3                               50-36100          16,0          X
+         20250110    0  PELEPAM1  PADI/PARA/P3                               50-36100          16,0          X
+         20250113    0  PELEPAM1  PADI/PARA/P3                               50-36100          39,0          X
+         20250114    0  PELEPAM1  PADI/PARA/P3                               50-36100          22,0          X
+         **TOTAL OT:                                                                          126,0
