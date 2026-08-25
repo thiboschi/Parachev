@@ -27,4 +27,5 @@ notify-debouncer-mini = "0.4"
 rusqlite = { version = "0.31", features = ["bundled"] }
 regex = "1"
 chrono = "0.4"
+nalgebra = "0.33"
 

@@ -1,13 +1,27 @@
+import { useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar"
-import { ChartAreaInteractive } from "@/components/dashboard/chart-area-interactive"
-import { DataTable } from "@/components/dashboard/data-table"
-import { SectionCards } from "@/components/dashboard/section-cards"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { invoke } from "@tauri-apps/api/core";
 
 import data from "../data/data.json"
 
 export default function Page() {
+
+  const [affaire, setAffaire] = useState("");
+  const [resultat, setResultat] = useState<Record<string, number> | null>(null);
+
+  // ↓ la fonction handler, définie AVANT le return du composant
+  async function handlePrevisualiser() {
+  try {
+    const heures = await invoke("previsualiser_affaire", { affaire });
+    console.log("Résultat:", heures);
+    setResultat(heures);
+  } catch (e) {
+    console.error("Erreur invoke:", e);
+  }
+}
+
   return (
     <SidebarProvider
       style={
@@ -23,11 +37,13 @@ export default function Page() {
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
-              <SectionCards />
+              <input value={affaire} onChange={(e) => setAffaire(e.target.value)} />
+              <button onClick={handlePrevisualiser}>
+                Prévisualiser
+              </button>
+
               <div className="px-4 lg:px-6">
-                <ChartAreaInteractive />
               </div>
-              <DataTable data={data} />
             </div>
           </div>
         </div>
