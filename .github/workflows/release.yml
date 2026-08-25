@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch: # permet de le lancer manuellement depuis l'onglet Actions
 
+permissions:
+  contents: write # nécessaire pour que tauri-action puisse créer/publier la release
+
 jobs:
   build:
     strategy:
