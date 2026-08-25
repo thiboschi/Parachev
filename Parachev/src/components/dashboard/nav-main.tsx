@@ -1,13 +1,5 @@
 import { IconCirclePlusFilled, type Icon } from "@tabler/icons-react"
-
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar"
-
+import { SidebarGroup, SidebarGroupContent, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 import { NavLink } from "react-router-dom"
 
 export function NavMain({

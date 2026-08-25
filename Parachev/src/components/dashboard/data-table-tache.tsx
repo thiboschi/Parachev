@@ -1,7 +1,6 @@
 import * as React from "react"
 import { IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconTrash } from "@tabler/icons-react"
 import { flexRender, getCoreRowModel, getPaginationRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table"
-
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"

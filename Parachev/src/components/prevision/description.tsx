@@ -1,8 +1,6 @@
 import { z } from "zod"
-
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-
 import { affaireSchema } from "./data-table-previ"
 
 export function AffaireDescription({
