@@ -23,11 +23,12 @@ jobs:
       - name: Checkout du code
         uses: actions/checkout@v4
 
-      # --- si ton frontend utilise Node/npm (sinon supprime ce bloc) ---
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
+          cache: "npm"
+          cache-dependency-path: "Parachev/package-lock.json"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -38,16 +39,18 @@ jobs:
       - name: Cache des dépendances Rust
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: "./Parachev/src-tauri -> target"
 
       - name: Installer les dépendances frontend
-        run: npm install # ou pnpm install / yarn install selon ton projet
+        working-directory: ./Parachev
+        run: npm install
 
       - name: Build & publier avec Tauri
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
+          projectPath: ./Parachev
           tagName: ${{ github.ref_name }}
           releaseName: "App v__VERSION__"
           releaseBody: "Voir les changements ci-dessous."
