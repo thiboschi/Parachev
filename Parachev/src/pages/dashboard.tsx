@@ -7,12 +7,12 @@ import { invoke } from "@tauri-apps/api/core";
 export default function Page() {
 
   const [affaire, setAffaire] = useState("");
-  const [resultat, setResultat] = useState<Record<string, number> | null>(null);
+  const [, setResultat] = useState<Record<string, number> | null>(null);
 
   // ↓ la fonction handler, définie AVANT le return du composant
   async function handlePrevisualiser() {
   try {
-    const heures = await invoke("previsualiser_affaire", { affaire });
+    const heures = await invoke<Record<string, number>>("previsualiser_affaire", { affaire });
     console.log("Résultat:", heures);
     setResultat(heures);
   } catch (e) {

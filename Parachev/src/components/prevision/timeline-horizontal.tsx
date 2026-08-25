@@ -15,7 +15,7 @@ export function TimelineHorizontal({ items }: { items: TimelineItem[] }) {
         <li key={i} className="relative flex-1">
           {/* Ligne de connexion (sauf dernier) */}
           {i < items.length - 1 && (
-            <div className="absolute left-[calc(50%+12px)] right-[calc(-50%+12px)] top-[5px] h-px bg-border" />
+            <div className="absolute left-[calc(50%+12px)] right-[calc(-50%+12px)] top-1.25 h-px bg-border" />
           )}
           <div className="flex flex-col items-center text-center gap-2">
             <span
