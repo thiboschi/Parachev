@@ -4,8 +4,6 @@ import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { invoke } from "@tauri-apps/api/core";
 
-import data from "../data/data.json"
-
 export default function Page() {
 
   const [affaire, setAffaire] = useState("");

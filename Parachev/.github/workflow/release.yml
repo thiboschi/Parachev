@@ -1,0 +1,56 @@
+name: "Build & Release"
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: # permet de le lancer manuellement depuis l'onglet Actions
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: "macos-latest"   # build universel (Intel + Apple Silicon)
+            args: "--target universal-apple-darwin"
+          - platform: "windows-latest"
+            args: ""
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      # --- si ton frontend utilise Node/npm (sinon supprime ce bloc) ---
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # nécessaire uniquement pour le build universel macOS
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cache des dépendances Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Installer les dépendances frontend
+        run: npm install # ou pnpm install / yarn install selon ton projet
+
+      - name: Build & publier avec Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "App v__VERSION__"
+          releaseBody: "Voir les changements ci-dessous."
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
