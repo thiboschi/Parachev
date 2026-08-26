@@ -1,56 +1,56 @@
 {
-  "version": 1,
-  "date_calibration": "2026-08-25",
-  "seuil_diametre_manuel_mm": 40,
-  "postes": {
-    "assemblage_tracage": {
-      "intercept": 0.8,
-      "coefficients": {
-        "nb_barres": 0.31
-      }
-    },
-    "manutention": {
-      "intercept": 0.3,
-      "coefficients": {
-        "nb_barres": 0.21
-      }
-    },
-    "enfilage": {
-      "intercept": 0.2,
-      "coefficients": {
-        "nb_goujons": 0.048
-      }
-    },
-    "forage_manuel": {
-      "intercept": 0.4,
-      "coefficients": {
-        "nb_trous_manuel": 0.16
-      }
-    },
-    "forage_numerique": {
-      "intercept": 1.1,
-      "coefficients": {
-        "nb_trous_numerique": 0.052,
-        "diametre_moyen_numerique": 0.021
-      }
-    },
-    "goujonnage": {
-      "intercept": 0.5,
-      "coefficients": {
-        "nb_goujons": 0.061
-      }
-    },
-    "mise_a_longueur": {
-      "intercept": 0.6,
-      "coefficients": {
-        "nb_barres": 0.42
-      }
-    },
-    "oxycoupage": {
-      "intercept": 0.25,
-      "coefficients": {
-        "longueur_coupe": 0.011
-      }
+    "version": 1,
+    "date_calibration": "2026-08-25",
+    "seuil_diametre_manuel_mm": 40,
+    "postes": {
+        "assemblage_tracage": {
+            "intercept": 0.8,
+            "coefficients": {
+                "nb_barres": 0.31
+            }
+        },
+        "manutention": {
+            "intercept": 0.3,
+            "coefficients": {
+                "nb_barres": 0.21
+            }
+        },
+        "enfilage": {
+            "intercept": 0.2,
+            "coefficients": {
+                "nb_goujons": 0.048
+            }
+        },
+        "forage_manuel": {
+            "intercept": 0.4,
+            "coefficients": {
+                "nb_trous_manuel": 0.16
+            }
+        },
+        "forage_numerique": {
+            "intercept": 1.1,
+            "coefficients": {
+                "nb_trous_numerique": 0.052,
+                "diametre_moyen_numerique": 0.021
+            }
+        },
+        "goujonnage": {
+            "intercept": 0.5,
+            "coefficients": {
+                "nb_goujons": 0.061
+            }
+        },
+        "mise_a_longueur": {
+            "intercept": 0.6,
+            "coefficients": {
+                "nb_barres": 0.42
+            }
+        },
+        "oxycoupage": {
+            "intercept": 0.25,
+            "coefficients": {
+                "longueur_coupe": 0.011
+            }
+        }
     }
-  }
 }
