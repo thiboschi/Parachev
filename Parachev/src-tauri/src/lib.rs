@@ -30,9 +30,11 @@ pub fn run() {
 
 #[tauri::command]
 fn previsualiser_affaire(affaire: String) -> Result<HashMap<String, f64>, String> {
-    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+    let mut conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+    prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
+
     let coeffs = CoefficientsExport::charger("coefficients.json")?;
-    let prevision = prevision::predire_affaire(&conn, &coeffs, &affaire)?;
+    let prevision = prevision::previsualiser_et_enregistrer(&mut conn, &coeffs, &affaire)?;
 
     let mut resultat = prevision.heures_par_poste;
     resultat.insert("total".into(), prevision.total_heures);

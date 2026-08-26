@@ -1,5 +1,4 @@
 use rusqlite::Connection;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 
@@ -7,7 +6,9 @@ use std::fs;
 // Coefficients calibrés (exportés par le script Python de calibration)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CoefficientsExport {
     pub version: u32,
     pub date_calibration: String,
@@ -15,7 +16,7 @@ pub struct CoefficientsExport {
     pub postes: HashMap<String, PosteCoefficients>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PosteCoefficients {
     pub intercept: f64,
     pub coefficients: HashMap<String, f64>,
@@ -104,6 +105,71 @@ pub fn predire_affaire(
 ) -> Result<Prevision, String> {
     let variables = charger_variables_affaire(conn, affaire)?;
     Ok(predire(coeffs, &variables))
+}
+
+// ---------------------------------------------------------------------------
+// Persistance des prévisions (table previsions)
+// ---------------------------------------------------------------------------
+
+/// Crée la table previsions si elle n'existe pas encore.
+/// Une prévision = un total d'heures par (affaire, poste), remplacé
+/// intégralement à chaque nouveau calcul (pas d'historique de versions).
+pub fn initialiser_schema_previsions(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS previsions (
+            affaire              TEXT NOT NULL,
+            poste                TEXT NOT NULL,
+            heures_prevues       REAL NOT NULL,
+            date_prevision       TEXT NOT NULL,
+            version_coefficients TEXT,
+            PRIMARY KEY (affaire, poste)
+        );",
+    )
+}
+
+/// Enregistre une prévision en base : supprime les anciennes lignes de
+/// cette affaire puis insère les nouvelles. Idempotent -- si les variables
+/// de l'affaire ont changé entre deux appels (ex. plus de goujons en V2
+/// qu'en V1), l'ancien résultat est intégralement remplacé, pas fusionné.
+pub fn enregistrer_prevision(
+    conn: &mut Connection,
+    affaire: &str,
+    prevision: &Prevision,
+    version_coefficients: &str,
+) -> Result<(), String> {
+    let date_prevision = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute(
+        "DELETE FROM previsions WHERE affaire = ?1",
+        rusqlite::params![affaire],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for (poste, heures) in &prevision.heures_par_poste {
+        tx.execute(
+            "INSERT INTO previsions (affaire, poste, heures_prevues, date_prevision, version_coefficients)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![affaire, poste, heures, date_prevision, version_coefficients],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Combine calcul de la prévision + enregistrement en base, en une seule
+/// opération -- c'est cette fonction que la commande Tauri doit appeler.
+pub fn previsualiser_et_enregistrer(
+    conn: &mut Connection,
+    coeffs: &CoefficientsExport,
+    affaire: &str,
+) -> Result<Prevision, String> {
+    let variables = charger_variables_affaire(conn, affaire)?;
+    let prevision = predire(coeffs, &variables);
+    enregistrer_prevision(conn, affaire, &prevision, &coeffs.date_calibration)?;
+    Ok(prevision)
 }
 
 #[cfg(test)]
@@ -213,5 +279,159 @@ mod tests {
         let coeffs = coeffs_test();
         let resultat = predire_affaire(&conn, &coeffs, "INEXISTANTE");
         assert!(resultat.is_err());
+    }
+}
+
+#[cfg(test)]
+mod tests_json_reel {
+    use super::*;
+
+    #[test]
+    fn test_charge_coefficients_json_genere() {
+        let export = CoefficientsExport::charger("coefficients.json")
+            .expect("le fichier coefficients.json de test doit se charger sans erreur");
+        assert_eq!(export.postes.len(), 8);
+        assert!(export.postes.contains_key("forage_numerique"));
+        assert_eq!(
+            export.postes["forage_numerique"].coefficients["nb_trous_numerique"],
+            0.052
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests_persistance {
+    use super::*;
+
+    fn preparer_base_test() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE variables_affaires (
+                affaire TEXT PRIMARY KEY, nb_barres REAL, nb_goujons REAL,
+                nb_trous_manuel REAL, nb_trous_numerique REAL,
+                diametre_moyen_numerique REAL, longueur_coupe REAL
+            )",
+            [],
+        )
+        .unwrap();
+        initialiser_schema_previsions(&conn).unwrap();
+        conn
+    }
+
+    fn coeffs_test() -> CoefficientsExport {
+        let mut postes = HashMap::new();
+        postes.insert(
+            "goujonnage".to_string(),
+            PosteCoefficients {
+                intercept: 0.5,
+                coefficients: HashMap::from([("nb_goujons".to_string(), 0.12)]),
+            },
+        );
+        CoefficientsExport {
+            version: 1,
+            date_calibration: "2026-08-25".into(),
+            seuil_diametre_manuel_mm: 40.0,
+            postes,
+        }
+    }
+
+    #[test]
+    fn test_enregistrer_prevision_puis_relire() {
+        let mut conn = preparer_base_test();
+        let coeffs = coeffs_test();
+
+        conn.execute(
+            "INSERT INTO variables_affaires VALUES ('AFF001', 0, 60, 0, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        let prevision = previsualiser_et_enregistrer(&mut conn, &coeffs, "AFF001").unwrap();
+        assert!((prevision.heures_par_poste["goujonnage"] - 7.7).abs() < 1e-9);
+
+        let heures_en_base: f64 = conn
+            .query_row(
+                "SELECT heures_prevues FROM previsions WHERE affaire = 'AFF001' AND poste = 'goujonnage'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!((heures_en_base - 7.7).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_v2_remplace_v1_sans_fusionner() {
+        // Reproduit exactement le scénario décrit : V1 avec moins de
+        // goujons, puis V2 avec plus de goujons -- le résultat en base
+        // doit refléter UNIQUEMENT la V2, pas une moyenne ou un cumul.
+        let mut conn = preparer_base_test();
+        let coeffs = coeffs_test();
+
+        // --- V1 : 60 goujons ---
+        conn.execute(
+            "INSERT INTO variables_affaires VALUES ('AFF001', 0, 60, 0, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        let prevision_v1 = previsualiser_et_enregistrer(&mut conn, &coeffs, "AFF001").unwrap();
+        assert!((prevision_v1.heures_par_poste["goujonnage"] - 7.7).abs() < 1e-9);
+
+        // --- V2 : correction à 100 goujons (plus de goujons que la V1) ---
+        conn.execute(
+            "UPDATE variables_affaires SET nb_goujons = 100 WHERE affaire = 'AFF001'",
+            [],
+        )
+        .unwrap();
+        let prevision_v2 = previsualiser_et_enregistrer(&mut conn, &coeffs, "AFF001").unwrap();
+        // 0.5 + 0.12*100 = 12.5
+        assert!((prevision_v2.heures_par_poste["goujonnage"] - 12.5).abs() < 1e-9);
+
+        // Vérifications en base : une seule ligne (pas de doublon V1+V2),
+        // et cette ligne contient bien la valeur V2, pas V1.
+        let n: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM previsions WHERE affaire = 'AFF001'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "une seule ligne attendue, pas d'accumulation V1+V2");
+
+        let heures_finales: f64 = conn
+            .query_row(
+                "SELECT heures_prevues FROM previsions WHERE affaire = 'AFF001' AND poste = 'goujonnage'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert!(
+            (heures_finales - 12.5).abs() < 1e-9,
+            "doit refléter la V2 (12.5), pas la V1 (7.7) ni une fusion des deux"
+        );
+    }
+
+    #[test]
+    fn test_deux_affaires_distinctes_ne_s_interferent_pas() {
+        let mut conn = preparer_base_test();
+        let coeffs = coeffs_test();
+
+        conn.execute(
+            "INSERT INTO variables_affaires VALUES ('AFF001', 0, 60, 0, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO variables_affaires VALUES ('AFF002', 0, 100, 0, 0, 0, 0)",
+            [],
+        )
+        .unwrap();
+
+        previsualiser_et_enregistrer(&mut conn, &coeffs, "AFF001").unwrap();
+        previsualiser_et_enregistrer(&mut conn, &coeffs, "AFF002").unwrap();
+
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM previsions", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 2, "les deux affaires doivent coexister sans s'écraser");
     }
 }

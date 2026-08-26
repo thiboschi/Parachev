@@ -18,15 +18,12 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
 
     println!("Surveillance active sur : {chemin_dossier}");
     for evenement in rx {
-        println!("hello ");
         match evenement {
             Ok(evenements) => {
-                println!(" hella");
                 for e in evenements {
                     if e.kind != DebouncedEventKind::Any {
                         continue;
                     }
-                    println!(" heyyyyy");
                     traiter_evenement(&e.path, chemin_db);
                 }
             }
