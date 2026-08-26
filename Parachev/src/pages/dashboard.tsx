@@ -3,7 +3,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Table, TableBody, TableCell, TableHead, TableHeader,TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { invoke } from "@tauri-apps/api/core";
@@ -14,6 +14,9 @@ export default function Page() {
   const [resultat, setResultat] = useState<Record<string, number> | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const [chargement, setChargement] = useState(false);
+
+  const [recalibrage, setRecalibrage] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
 
   // ↓ la fonction handler, définie AVANT le return du composant
   async function handlePrevisualiser() {
@@ -29,6 +32,24 @@ export default function Page() {
     } finally {
       setChargement(false);
     }
+  }
+
+  async function handleRecalibrer() {
+    setRecalibrage(true);
+    try {
+      await invoke("recalibrer");
+      afficherNotification("Algo recalibré");
+    } catch (e) {
+      console.error("Erreur recalibration:", e);
+      afficherNotification("Échec de la recalibration");
+    } finally {
+      setRecalibrage(false);
+    }
+  }
+
+  function afficherNotification(message: string) {
+    setNotification(message);
+    setTimeout(() => setNotification(null), 3000);
   }
 
   // On sépare le total des postes individuels pour l'afficher à part
@@ -63,6 +84,13 @@ export default function Page() {
                 </div>
                 <Button onClick={handlePrevisualiser} disabled={!affaire || chargement}>
                   {chargement ? "Calcul en cours…" : "Prévisualiser"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleRecalibrer}
+                  disabled={recalibrage}
+                >
+                  {recalibrage ? "Recalibration…" : "Recalibrer"}
                 </Button>
               </div>
 
@@ -111,6 +139,12 @@ export default function Page() {
           </div>
         </div>
       </SidebarInset>
+
+      {notification && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-md border bg-background px-4 py-3 text-sm shadow-lg">
+          {notification}
+        </div>
+      )}
     </SidebarProvider>
   )
 }
