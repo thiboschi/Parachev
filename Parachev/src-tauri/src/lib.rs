@@ -15,6 +15,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![previsualiser_affaire, recalibrer])
         .setup(|_app| {
+
+            let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+            erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+            drop(conn);
+
             let chemin_dossier = "./../Test".to_string();
             let chemin_db = "affaires.db".to_string();
 
