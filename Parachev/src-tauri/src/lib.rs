@@ -6,6 +6,7 @@ mod calibration;
 
 use crate::prevision::{CoefficientsExport};
 use rusqlite::Connection;
+use serde::Serialize;
 use std::collections::HashMap;
 use crate::calibration::{calibrer_tous_les_postes};
 
@@ -13,7 +14,7 @@ use crate::calibration::{calibrer_tous_les_postes};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![previsualiser_affaire, recalibrer])
+        .invoke_handler(tauri::generate_handler![previsualiser_affaire, recalibrer, lister_heures])
         .setup(|_app| {
 
             let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
@@ -52,9 +53,40 @@ fn previsualiser_affaire(affaire: String) -> Result<HashMap<String, f64>, String
 fn recalibrer() -> Result<(), String> {
     let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
     let export = calibrer_tous_les_postes(&conn)?;
- 
+
     let json = serde_json::to_string_pretty(&export).map_err(|e| e.to_string())?;
     std::fs::write("coefficients.json", json).map_err(|e| e.to_string())?;
- 
+
     Ok(())
+}
+
+#[derive(Serialize)]
+struct HeureRow {
+    affaire: String,
+    ot: Option<String>,
+    date: Option<String>,
+    poste: String,
+    heures: f64,
+}
+
+#[tauri::command]
+fn lister_heures() -> Result<Vec<HeureRow>, String> {
+    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT affaire, ot, date, poste, heures FROM heures ORDER BY rowid")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(HeureRow {
+                affaire: row.get(0)?,
+                ot: row.get(1)?,
+                date: row.get(2)?,
+                poste: row.get(3)?,
+                heures: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
