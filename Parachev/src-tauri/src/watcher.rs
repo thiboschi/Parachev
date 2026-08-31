@@ -1,4 +1,5 @@
 use crate::erp::traiter_fichier_erp;
+use crate::parsing::traiter_fichier_excel;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
 use rusqlite::Connection;
 use std::path::Path;
@@ -64,8 +65,17 @@ fn traiter_evenement(path: &Path, chemin_db: &str) {
             }
         }
         "xlsx" => {
-            // À brancher : parsing Excel (Calamine) -> variables_affaires
-            println!("Fichier Excel détecté (parsing à implémenter): {path:?}");
+            let conn = match Connection::open(chemin_db) {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Impossible d'ouvrir la base: {e}");
+                    return;
+                }
+            };
+            match traiter_fichier_excel(&path.to_string_lossy(), &conn) {
+                Ok(affaire) => println!("{path:?} : variables extraites pour l'affaire {affaire}"),
+                Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
+            }
         }
         _ => {}
     }
