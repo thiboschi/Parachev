@@ -21,7 +21,7 @@ pub fn run() {
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             drop(conn);
 
-            let chemin_dossier = "./../Test".to_string();
+            let chemin_dossier = "./../../Para".to_string();
             let chemin_db = "affaires.db".to_string();
 
             std::thread::spawn(move || {

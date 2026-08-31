@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { DataTableHeures } from "@/components/dashboard/data-table-heures"
 import { invoke } from "@tauri-apps/api/core";
 
 export default function Page() {
@@ -134,6 +135,17 @@ export default function Page() {
                     </CardContent>
                   </Card>
                 )}
+              </div>
+
+              <div className="px-4 lg:px-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Heures — affaires.db</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <DataTableHeures />
+                  </CardContent>
+                </Card>
               </div>
             </div>
           </div>

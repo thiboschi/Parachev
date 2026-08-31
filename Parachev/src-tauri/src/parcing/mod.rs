@@ -7,9 +7,11 @@
 //! cellule, détection des cellules d'erreur #REF!).
 
 mod goujons;
+mod oxycoupage;
 mod previ;
 
 pub use goujons::{extraire_goujons_fc_gouj, BarreGoujons, ResultatGoujons};
+pub use oxycoupage::{extraire_oxycoupage, ResultatOxycoupage};
 pub use previ::{extraire_info_previ, InfoPrevi};
 
 use calamine::Data;
@@ -23,11 +25,11 @@ pub struct VariablesAffaire {
     pub affaire: String,
     pub nb_barres: f64,
     pub nb_goujons: f64,
+    pub longueur_coupe: f64,
     // À compléter au fur et à mesure des sous-modules suivants :
     // pub nb_trous_manuel: f64,
     // pub nb_trous_numerique: f64,
     // pub diametre_moyen_numerique: f64,
-    // pub longueur_coupe: f64,
 }
 
 /// Extrait toutes les variables disponibles pour une affaire en ouvrant
@@ -37,11 +39,13 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         .ok_or_else(|| format!("Feuille PREVI introuvable dans {chemin_fichier}"))?;
 
     let goujons = extraire_goujons_fc_gouj(chemin_fichier)?;
+    let oxycoupage = extraire_oxycoupage(chemin_fichier)?;
 
     Ok(VariablesAffaire {
         affaire: info.commande,
         nb_barres: info.nb_barres_total,
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
+        longueur_coupe: oxycoupage.map(|o| o.longueur_coupe_totale).unwrap_or(0.0),
     })
 }
 
