@@ -1,6 +1,6 @@
 import * as React from "react"
-import { IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight } from "@tabler/icons-react"
-import { flexRender, getCoreRowModel, getPaginationRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table"
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconArrowsSort, IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight } from "@tabler/icons-react"
+import { flexRender, getCoreRowModel, getPaginationRowModel, getSortedRowModel, useReactTable, type Column, type ColumnDef, type SortingState } from "@tanstack/react-table"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -15,31 +15,64 @@ type Heure = {
   heures: number
 }
 
+// Clickable column header that toggles asc/desc/none sorting
+function SortableHeader({
+  column,
+  children,
+}: {
+  column: Column<Heure, unknown>
+  children: React.ReactNode
+}) {
+  const sorted = column.getIsSorted()
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="-ml-3 h-8"
+      onClick={() => column.toggleSorting()}
+    >
+      {children}
+      {sorted === "asc" ? (
+        <IconArrowNarrowUp className="ml-2 size-4 text-muted-foreground" />
+      ) : sorted === "desc" ? (
+        <IconArrowNarrowDown className="ml-2 size-4 text-muted-foreground" />
+      ) : (
+        <IconArrowsSort className="ml-2 size-4 text-muted-foreground" />
+      )}
+    </Button>
+  )
+}
+
 const columns: ColumnDef<Heure>[] = [
   {
     accessorKey: "affaire",
-    header: "Affaire",
+    header: ({ column }) => <SortableHeader column={column}>Affaire</SortableHeader>,
   },
   {
     accessorKey: "ot",
-    header: "OT",
+    header: ({ column }) => <SortableHeader column={column}>OT</SortableHeader>,
     cell: ({ row }) => row.original.ot ?? "—",
   },
   {
     accessorKey: "date",
-    header: "Date",
+    header: ({ column }) => <SortableHeader column={column}>Date</SortableHeader>,
     cell: ({ row }) => row.original.date ?? "—",
   },
   {
     accessorKey: "poste",
-    header: "Poste",
+    header: ({ column }) => <SortableHeader column={column}>Poste</SortableHeader>,
     cell: ({ row }) => (
       <span className="capitalize">{row.original.poste.replace(/_/g, " ")}</span>
     ),
   },
   {
     accessorKey: "heures",
-    header: () => <div className="text-right">Heures</div>,
+    header: ({ column }) => (
+      <div className="flex justify-end">
+        <SortableHeader column={column}>Heures</SortableHeader>
+      </div>
+    ),
     cell: ({ row }) => (
       <div className="text-right">{row.original.heures.toFixed(2)} h</div>
     ),
@@ -50,6 +83,7 @@ export function DataTableHeures() {
   const [data, setData] = React.useState<Heure[]>([])
   const [chargement, setChargement] = React.useState(true)
   const [erreur, setErreur] = React.useState<string | null>(null)
+  const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState({
     pageIndex: 0,
     pageSize: 20,
