@@ -2,9 +2,37 @@ use crate::erp::traiter_fichier_erp;
 use crate::parsing::traiter_fichier_excel;
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
 use rusqlite::Connection;
+use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
+
+/// Parcourt le dossier surveillé et traite tous les fichiers déjà présents,
+/// qu'ils aient changé ou non depuis le dernier lancement -- le watcher
+/// (surveiller_dossier) ne détecte que les changements FUTURS, donc sans ce
+/// scan initial, un fichier déjà présent et inchangé au démarrage de l'app
+/// ne serait jamais (re)traité tant qu'il n'est pas modifié une nouvelle fois.
+/// À appeler une fois avant surveiller_dossier, idéalement dans le même
+/// thread d'arrière-plan.
+pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
+    let entrees = match fs::read_dir(chemin_dossier) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Impossible de lire le dossier {chemin_dossier}: {e}");
+            return;
+        }
+    };
+ 
+    let mut n_traites = 0;
+    for entree in entrees.flatten() {
+        let path = entree.path();
+        if path.is_file() {
+            traiter_evenement(&path, chemin_db);
+            n_traites += 1;
+        }
+    }
+    println!("Scan initial terminé : {n_traites} fichier(s) examiné(s) dans {chemin_dossier}");
+}
 
 /// Lance la surveillance du dossier local (synchronisé OneDrive) et traite
 /// chaque fichier créé ou modifié. Fonction bloquante : à lancer dans son

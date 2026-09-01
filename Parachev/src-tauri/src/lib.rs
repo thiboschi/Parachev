@@ -17,7 +17,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![previsualiser_affaire, recalibrer, lister_heures])
         .setup(|_app| {
-
             let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             drop(conn);
@@ -26,6 +25,8 @@ pub fn run() {
             let chemin_db = "affaires.db".to_string();
 
             std::thread::spawn(move || {
+                watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db);
+
                 if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db) {
                     eprintln!("Erreur watcher: {e:?}");
                 }
