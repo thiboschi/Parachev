@@ -7,31 +7,40 @@ use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-/// Parcourt le dossier surveillé et traite tous les fichiers déjà présents,
-/// qu'ils aient changé ou non depuis le dernier lancement -- le watcher
-/// (surveiller_dossier) ne détecte que les changements FUTURS, donc sans ce
-/// scan initial, un fichier déjà présent et inchangé au démarrage de l'app
-/// ne serait jamais (re)traité tant qu'il n'est pas modifié une nouvelle fois.
+/// Parcourt le dossier surveillé -- ET tous ses sous-dossiers -- et traite
+/// tous les fichiers déjà présents, qu'ils aient changé ou non depuis le
+/// dernier lancement -- le watcher (surveiller_dossier) ne détecte que les
+/// changements FUTURS, donc sans ce scan initial, un fichier déjà présent
+/// et inchangé au démarrage de l'app ne serait jamais (re)traité tant
+/// qu'il n'est pas modifié une nouvelle fois.
 /// À appeler une fois avant surveiller_dossier, idéalement dans le même
 /// thread d'arrière-plan.
 pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
-    let entrees = match fs::read_dir(chemin_dossier) {
+    let mut n_traites = 0;
+    parcourir_recursivement(Path::new(chemin_dossier), chemin_db, &mut n_traites);
+    println!("Scan initial terminé : {n_traites} fichier(s) examiné(s) dans {chemin_dossier} (sous-dossiers inclus)");
+}
+
+/// Parcourt récursivement un dossier : traite chaque fichier rencontré,
+/// et redescend dans chaque sous-dossier trouvé.
+fn parcourir_recursivement(dossier: &Path, chemin_db: &str, n_traites: &mut usize) {
+    let entrees = match fs::read_dir(dossier) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("Impossible de lire le dossier {chemin_dossier}: {e}");
+            eprintln!("Impossible de lire le dossier {dossier:?}: {e}");
             return;
         }
     };
- 
-    let mut n_traites = 0;
+
     for entree in entrees.flatten() {
         let path = entree.path();
-        if path.is_file() {
+        if path.is_dir() {
+            parcourir_recursivement(&path, chemin_db, n_traites);
+        } else if path.is_file() {
             traiter_evenement(&path, chemin_db);
-            n_traites += 1;
+            *n_traites += 1;
         }
     }
-    println!("Scan initial terminé : {n_traites} fichier(s) examiné(s) dans {chemin_dossier}");
 }
 
 /// Lance la surveillance du dossier local (synchronisé OneDrive) et traite
@@ -43,7 +52,7 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
     let mut debouncer = new_debouncer(Duration::from_secs(2), tx)?;
     debouncer
         .watcher()
-        .watch(Path::new(chemin_dossier), RecursiveMode::NonRecursive)?;
+        .watch(Path::new(chemin_dossier), RecursiveMode::Recursive)?;
 
     println!("Surveillance active sur : {chemin_dossier}");
     for evenement in rx {
