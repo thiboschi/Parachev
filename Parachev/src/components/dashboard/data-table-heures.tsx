@@ -1,6 +1,6 @@
 import * as React from "react"
 import { IconArrowNarrowDown, IconArrowNarrowUp, IconArrowsSort, IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight } from "@tabler/icons-react"
-import { flexRender, getCoreRowModel, getPaginationRowModel, getSortedRowModel, useReactTable, type Column, type ColumnDef, type SortingState } from "@tanstack/react-table"
+import { flexRender, getCoreRowModel, getPaginationRowModel, useReactTable, type Column, type ColumnDef } from "@tanstack/react-table"
 import { invoke } from "@tauri-apps/api/core"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -83,7 +83,6 @@ export function DataTableHeures() {
   const [data, setData] = React.useState<Heure[]>([])
   const [chargement, setChargement] = React.useState(true)
   const [erreur, setErreur] = React.useState<string | null>(null)
-  const [sorting, setSorting] = React.useState<SortingState>([])
   const [pagination, setPagination] = React.useState({
     pageIndex: 0,
     pageSize: 20,

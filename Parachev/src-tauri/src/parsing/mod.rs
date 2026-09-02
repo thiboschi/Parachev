@@ -10,9 +10,9 @@ mod goujons;
 mod oxycoupage;
 mod previ;
 
-pub use goujons::{extraire_goujons_fc_gouj, BarreGoujons, ResultatGoujons};
-pub use oxycoupage::{extraire_oxycoupage, ResultatOxycoupage};
-pub use previ::{extraire_info_previ, InfoPrevi};
+pub use goujons::{extraire_goujons_fc_gouj};
+pub use oxycoupage::{extraire_oxycoupage};
+pub use previ::{extraire_info_previ};
 
 use calamine::Data;
 use rusqlite::{params, Connection};

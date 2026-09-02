@@ -72,9 +72,7 @@ fn trouver_colonne(
     None
 }
 
-fn extraire_depuis_feuille(
-    range: &Range<calamine::Data>,
-) -> Result<Option<(usize, f64)>, String> {
+fn extraire_depuis_feuille( range: &Range<calamine::Data>, ) -> Result<Option<(usize, f64)>, String> {
     let Some(ligne_entete) =
         trouver_ligne_entete(range, "PROFIL", MAX_LIGNES_RECHERCHE_ENTETE, MAX_COL_RECHERCHE_ENTETE)
     else {
