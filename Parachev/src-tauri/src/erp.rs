@@ -33,6 +33,24 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Reformate en ISO ("YYYY-MM-DD") les dates encore stockées sous l'ancien
+/// format compact SAP ("YYYYMMDD", 8 chiffres sans séparateur). Idempotent :
+/// ne touche que les lignes dont `date` fait exactement 8 chiffres, donc ne
+/// modifie rien au second appel une fois les dates déjà migrées. À appeler
+/// une fois au démarrage (juste après initialiser_schema) pour que les
+/// données importées avant ce correctif trient et se filtrent correctement
+/// par date, sans avoir à ré-importer le fichier ERP.
+pub fn migrer_format_dates(conn: &Connection) -> rusqlite::Result<usize> {
+    conn.execute(
+        "UPDATE heures
+         SET date = substr(date, 1, 4) || '-' || substr(date, 5, 2) || '-' || substr(date, 7, 2)
+         WHERE date IS NOT NULL
+           AND length(date) = 8
+           AND date GLOB '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'",
+        [],
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Normalisation des libellés de poste
 // ---------------------------------------------------------------------------
@@ -122,7 +140,13 @@ pub fn parser_fichier_erp(path: &Path) -> Result<Vec<LigneHeure>, String> {
             let (Some(affaire), Some(ot)) = (&affaire_courante, &ot_courant) else {
                 continue;
             };
-            let date = caps[1].to_string();
+            let date_brute = caps[1].to_string(); // format interne SAP : YYYYMMDD
+            let date = format!(
+                "{}-{}-{}",
+                &date_brute[0..4],
+                &date_brute[4..6],
+                &date_brute[6..8]
+            );
             let libelle_poste = caps[3].trim().to_string();
             let heures_str = caps[5].replace(',', ".");
 

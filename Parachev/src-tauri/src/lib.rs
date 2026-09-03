@@ -61,6 +61,7 @@ pub fn run() {
 
             let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_format_dates(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             let chemin_dossier = config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
                 .map_err(|e| e.to_string())?;
