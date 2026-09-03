@@ -15,8 +15,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: "macos-latest"   # build universel (Intel + Apple Silicon)
-            args: "--target universal-apple-darwin"
+          - platform: "macos-latest"   # Apple Silicon uniquement — évite le universal binary (lipo casse la signature ad-hoc)
+            args: "--target aarch64-apple-darwin"
           - platform: "windows-latest"
             args: ""
 
@@ -36,8 +36,7 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          # nécessaire uniquement pour le build universel macOS
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin' || '' }}
 
       - name: Cache des dépendances Rust
         uses: swatinem/rust-cache@v2
