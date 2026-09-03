@@ -10,8 +10,38 @@ use crate::prevision::{CoefficientsExport};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use crate::calibration::{calibrer_tous_les_postes};
+use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+
+/// Retourne (et crée si besoin) le dossier de données de l'application,
+/// fourni par l'OS -- ~/Library/Application Support/<identifier>/ sur macOS,
+/// %APPDATA%/<identifier>/ sur Windows. Contrairement à un chemin relatif
+/// comme "affaires.db", ce dossier existe toujours et est garanti
+/// accessible en écriture, que l'app tourne en dev ou packagée.
+fn dossier_donnees(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn chemin_db(app: &tauri::AppHandle) -> Result<String, String> {
+    Ok(dossier_donnees(app)?
+        .join("affaires.db")
+        .to_string_lossy()
+        .to_string())
+}
+
+fn chemin_coefficients(app: &tauri::AppHandle) -> Result<String, String> {
+    Ok(dossier_donnees(app)?
+        .join("coefficients.json")
+        .to_string_lossy()
+        .to_string())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -25,9 +55,11 @@ pub fn run() {
             obtenir_dossier_configure,
             choisir_dossier_surveille
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            let app_handle = app.handle().clone();
+            let chemin_db_str = chemin_db(&app_handle)?;
 
-            let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+            let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             let chemin_dossier = config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
@@ -38,12 +70,10 @@ pub fn run() {
             // d'un lancement précédent -- sinon on attend que l'utilisateur
             // en choisisse un via choisir_dossier_surveille().
             if let Some(chemin_dossier) = chemin_dossier {
-                let chemin_db = "affaires.db".to_string();
-
                 std::thread::spawn(move || {
-                    watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db);
+                    watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db_str);
 
-                    if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db) {
+                    if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db_str) {
                         eprintln!("Erreur watcher: {e:?}");
                     }
                 });
@@ -58,8 +88,8 @@ pub fn run() {
 /// Retourne le dossier actuellement configuré, s'il y en a un. Utile pour
 /// l'UI : afficher le chemin actuel au chargement de la page.
 #[tauri::command]
-fn obtenir_dossier_configure() -> Result<Option<String>, String> {
-    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+fn obtenir_dossier_configure(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
     config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
 }
@@ -81,16 +111,16 @@ async  fn choisir_dossier_surveille(app: tauri::AppHandle) -> Result<Option<Stri
     };
     let chemin = dossier.to_string();
 
-    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+    let chemin_db_str = chemin_db(&app)?;
+    let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
     config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
     config::ecrire_config(&conn, config::CLE_DOSSIER_SURVEILLE, &chemin)?;
     drop(conn);
 
     let chemin_thread = chemin.clone();
     std::thread::spawn(move || {
-        let chemin_db = "affaires.db".to_string();
-        watcher::scanner_dossier_initial(&chemin_thread, &chemin_db);
-        if let Err(e) = watcher::surveiller_dossier(&chemin_thread, &chemin_db) {
+        watcher::scanner_dossier_initial(&chemin_thread, &chemin_db_str);
+        if let Err(e) = watcher::surveiller_dossier(&chemin_thread, &chemin_db_str) {
             eprintln!("Erreur watcher: {e:?}");
         }
     });
@@ -99,11 +129,11 @@ async  fn choisir_dossier_surveille(app: tauri::AppHandle) -> Result<Option<Stri
 }
 
 #[tauri::command]
-fn previsualiser_affaire(affaire: String) -> Result<HashMap<String, f64>, String> {
-    let mut conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashMap<String, f64>, String> {
+    let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
 
-    let coeffs = CoefficientsExport::charger("coefficients.json")?;
+    let coeffs = CoefficientsExport::charger(&chemin_coefficients(&app)?)?;
     let prevision = prevision::previsualiser_et_enregistrer(&mut conn, &coeffs, &affaire)?;
 
     let mut resultat = prevision.heures_par_poste;
@@ -112,12 +142,12 @@ fn previsualiser_affaire(affaire: String) -> Result<HashMap<String, f64>, String
 }
 
 #[tauri::command]
-fn recalibrer() -> Result<(), String> {
-    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+fn recalibrer(app: tauri::AppHandle) -> Result<(), String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let export = calibrer_tous_les_postes(&conn)?;
 
     let json = serde_json::to_string_pretty(&export).map_err(|e| e.to_string())?;
-    std::fs::write("coefficients.json", json).map_err(|e| e.to_string())?;
+    std::fs::write(chemin_coefficients(&app)?, json).map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -132,8 +162,8 @@ struct HeureRow {
 }
 
 #[tauri::command]
-fn lister_heures() -> Result<Vec<HeureRow>, String> {
-    let conn = Connection::open("affaires.db").map_err(|e| e.to_string())?;
+fn lister_heures(app: tauri::AppHandle) -> Result<Vec<HeureRow>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare("SELECT affaire, ot, date, poste, heures FROM heures ORDER BY rowid")
         .map_err(|e| e.to_string())?;
