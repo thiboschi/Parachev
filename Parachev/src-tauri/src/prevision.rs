@@ -96,17 +96,6 @@ pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Pre
     Prevision { heures_par_poste, total_heures }
 }
 
-/// Combine chargement des variables depuis SQLite + application des coefficients,
-/// pour une affaire déjà présente en base (ex. devis importé mais pas encore réalisé).
-pub fn predire_affaire(
-    conn: &Connection,
-    coeffs: &CoefficientsExport,
-    affaire: &str,
-) -> Result<Prevision, String> {
-    let variables = charger_variables_affaire(conn, affaire)?;
-    Ok(predire(coeffs, &variables))
-}
-
 // ---------------------------------------------------------------------------
 // Persistance des prévisions (table previsions)
 // ---------------------------------------------------------------------------
@@ -237,48 +226,6 @@ mod tests {
         // forage_numerique: 1.0 + 0.05*55 + 0.02*14 = 1.0 + 2.75 + 0.28 = 4.03
         let total_attendu = 7.7 + 4.03;
         assert!((prevision.total_heures - total_attendu).abs() < 1e-9);
-    }
-
-    #[test]
-    fn test_predire_affaire_depuis_sqlite() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE variables_affaires (
-                affaire TEXT PRIMARY KEY, nb_barres REAL, nb_goujons REAL,
-                nb_trous_manuel REAL, nb_trous_numerique REAL,
-                diametre_moyen_numerique REAL, longueur_coupe REAL
-            )",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO variables_affaires VALUES ('AFF001', 20, 60, 5, 55, 14.0, 340.0)",
-            [],
-        )
-        .unwrap();
-
-        let coeffs = coeffs_test();
-        let prevision = predire_affaire(&conn, &coeffs, "AFF001").unwrap();
-
-        assert!((prevision.heures_par_poste["goujonnage"] - 7.7).abs() < 1e-9);
-    }
-
-    #[test]
-    fn test_affaire_introuvable_retourne_erreur() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE variables_affaires (
-                affaire TEXT PRIMARY KEY, nb_barres REAL, nb_goujons REAL,
-                nb_trous_manuel REAL, nb_trous_numerique REAL,
-                diametre_moyen_numerique REAL, longueur_coupe REAL
-            )",
-            [],
-        )
-        .unwrap();
-
-        let coeffs = coeffs_test();
-        let resultat = predire_affaire(&conn, &coeffs, "INEXISTANTE");
-        assert!(resultat.is_err());
     }
 }
 
