@@ -2,35 +2,9 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { HeuresTable } from "../components/dashboard/heures-barres";
-import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+
 
 export default function Page() {
-
-type VariableAffaire = {
-  affaire: string;
-  client: string | null;
-  nbBarres: number | null;
-  nbGoujons: number | null;
-  nbTrousManuel: number | null;
-  nbTrousNumerique: number | null;
-  diametreMoyenNumerique: number | null;
-  longueurCoupe: number | null;
-};
-const [variables, setVariables] = useState<VariableAffaire[]>([]);
-
-useEffect(() => {
-  invoke<VariableAffaire[]>("lister_variables_affaires").then(setVariables);
-}, []);
-
   return (
     <SidebarProvider
       style={
