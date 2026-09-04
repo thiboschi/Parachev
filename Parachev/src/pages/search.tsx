@@ -2,8 +2,8 @@ import * as React from "react"
 import { IconX } from "@tabler/icons-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
-import { AffaireResults } from "../components/affaires/affaires-result"
-import { AffaireSearchBar } from "../components/affaires/affaires-search-bar"
+import { AffaireResults } from "@/components/affaires/affaires-result"
+import { AffaireSearchBar } from "@/components/affaires/affaires-search-bar"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
@@ -11,7 +11,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
-import { items, profilOptions } from "../lib/affaires"
+import { useAffairesDb } from "@/hooks/use-affaires-db"
+import { PROFIL_OPTIONS } from "@/lib/profils"
 
 const METHODE_OPTIONS = [
   "Redressage",
@@ -42,10 +43,10 @@ type PoutreRow = {
 }
 
 export default function Search() {
+  const { affaires, clients, loading, error } = useAffairesDb()
+
   const [searchText, setSearchText] = React.useState("")
-  const [status, setStatus] = React.useState("all")
-  const [reviewer, setReviewer] = React.useState("all")
-  const [semaine, setSemaine] = React.useState("all")
+  const [client, setClient] = React.useState("all")
   const [poutreRows, setPoutreRows] = React.useState<PoutreRow[]>([])
   const nextPoutreRowId = React.useRef(0)
 
@@ -76,34 +77,16 @@ export default function Search() {
     setPoutreRows((rows) => rows.filter((row) => row.id !== id))
   }
 
-  const statusOptions = React.useMemo(
-    () => Array.from(new Set(items.map((item) => item.status))).sort(),
-    []
-  )
-  const reviewerOptions = React.useMemo(
-    () => Array.from(new Set(items.map((item) => item.reviewer))).sort(),
-    []
-  )
-  const semaineOptions = React.useMemo(
-    () => Array.from(new Set(items.map((item) => item.semaine))).sort(),
-    []
-  )
-
   const results = React.useMemo(() => {
     const query = searchText.trim().toLowerCase()
-    return items.filter((item) => {
+    return affaires.filter((item) => {
       const matchesQuery =
         !query ||
-        [item.client, item.numero, item.status, item.semaine, item.reviewer]
-          .join(" ")
-          .toLowerCase()
-          .includes(query)
-      const matchesStatus = status === "all" || item.status === status
-      const matchesReviewer = reviewer === "all" || item.reviewer === reviewer
-      const matchesSemaine = semaine === "all" || item.semaine === semaine
-      return matchesQuery && matchesStatus && matchesReviewer && matchesSemaine
+        [item.numero, item.client ?? ""].join(" ").toLowerCase().includes(query)
+      const matchesClient = client === "all" || item.client === client
+      return matchesQuery && matchesClient
     })
-  }, [searchText, status, reviewer, semaine])
+  }, [affaires, searchText, client])
 
   return (
     <SidebarProvider
@@ -121,15 +104,9 @@ export default function Search() {
           <AffaireSearchBar
             searchText={searchText}
             onSearchTextChange={setSearchText}
-            status={status}
-            onStatusChange={setStatus}
-            statusOptions={statusOptions}
-            reviewer={reviewer}
-            onReviewerChange={setReviewer}
-            reviewerOptions={reviewerOptions}
-            semaine={semaine}
-            onSemaineChange={setSemaine}
-            semaineOptions={semaineOptions}
+            client={client}
+            onClientChange={setClient}
+            clientOptions={clients}
             onAddPoutreRow={addPoutreRow}
           />
 
@@ -152,7 +129,7 @@ export default function Search() {
                         <SelectValue placeholder="Profil" />
                       </SelectTrigger>
                       <SelectContent>
-                        {profilOptions.map((option) => (
+                        {PROFIL_OPTIONS.map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
                           </SelectItem>
@@ -254,7 +231,7 @@ export default function Search() {
             </div>
           )}
 
-          <AffaireResults results={results} />
+          <AffaireResults results={results} loading={loading} error={error} />
         </div>
       </SidebarInset>
     </SidebarProvider>

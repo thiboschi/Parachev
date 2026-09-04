@@ -47,29 +47,7 @@ useEffect(() => {
           <div className="@container/main flex flex-1 flex-col gap-2">
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
               <div className="flex items-end gap-2 px-4 lg:px-6">
-                <HeuresTable/>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Affaire</TableHead>
-                      <TableHead>Client</TableHead>
-                      <TableHead className="text-right">Barres</TableHead>
-                      <TableHead className="text-right">Goujons</TableHead>
-                      <TableHead className="text-right">Longueur coupe</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {variables.map((v) => (
-                      <TableRow key={v.affaire}>
-                        <TableCell>{v.affaire}</TableCell>
-                        <TableCell>{v.client ?? "—"}</TableCell>
-                        <TableCell className="text-right">{v.nbBarres ?? "—"}</TableCell>
-                        <TableCell className="text-right">{v.nbGoujons ?? "—"}</TableCell>
-                        <TableCell className="text-right">{v.longueurCoupe ?? "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>              
+                <HeuresTable/>      
               </div>
             </div>
           </div>
