@@ -34,7 +34,7 @@ export function SiteHeader() {
         <div className="ml-auto flex items-center gap-2">
           <Button variant="ghost" size="sm" className="hidden sm:flex"/>
           <Button onClick={handleChoisirDossier}>
-            {dossier ? `Dossier : ${dossier}` : "Choisir le dossier à surveiller"}
+            {dossier ? `Dossier` : "Choisir le dossier à surveiller"}
           </Button>
         </div>
       </div>
