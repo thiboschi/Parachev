@@ -53,7 +53,8 @@ pub fn run() {
             recalibrer,
             lister_heures,
             obtenir_dossier_configure,
-            choisir_dossier_surveille
+            choisir_dossier_surveille,
+            lister_variables_affaires
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -62,6 +63,7 @@ pub fn run() {
             let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             erp::migrer_format_dates(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             let chemin_dossier = config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
                 .map_err(|e| e.to_string())?;
@@ -177,6 +179,47 @@ fn lister_heures(app: tauri::AppHandle) -> Result<Vec<HeureRow>, String> {
                 date: row.get(2)?,
                 poste: row.get(3)?,
                 heures: row.get(4)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct VariablesAffaireRow {
+    affaire: String,
+    client: Option<String>,
+    nb_barres: Option<f64>,
+    nb_goujons: Option<f64>,
+    nb_trous_manuel: Option<f64>,
+    nb_trous_numerique: Option<f64>,
+    diametre_moyen_numerique: Option<f64>,
+    longueur_coupe: Option<f64>,
+}
+
+#[tauri::command]
+fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffaireRow>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT affaire, client, nb_barres, nb_goujons, nb_trous_manuel,
+                    nb_trous_numerique, diametre_moyen_numerique, longueur_coupe
+             FROM variables_affaires ORDER BY affaire",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(VariablesAffaireRow {
+                affaire: row.get(0)?,
+                client: row.get(1)?,
+                nb_barres: row.get(2)?,
+                nb_goujons: row.get(3)?,
+                nb_trous_manuel: row.get(4)?,
+                nb_trous_numerique: row.get(5)?,
+                diametre_moyen_numerique: row.get(6)?,
+                longueur_coupe: row.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?;

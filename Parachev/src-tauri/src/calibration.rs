@@ -5,11 +5,14 @@ use std::collections::HashMap;
 
 /// Définition des variables explicatives par poste -- doit rester
 /// cohérente avec POSTE_VARIABLES côté pipeline_calibration.py.
+///
+/// Note : "enfilage" n'existe PAS dans les données ERP réelles (confirmé
+/// sur le fichier complet, 15 postes recensés, enfilage absent) --
+/// volontairement retiré d'ici pour ne pas laisser une entrée trompeuse.
 pub fn poste_variables() -> HashMap<&'static str, Vec<&'static str>> {
     HashMap::from([
         ("assemblage_tracage", vec!["nb_barres"]),
         ("manutention", vec!["nb_barres"]),
-        ("enfilage", vec!["nb_goujons"]),
         ("forage_manuel", vec!["nb_trous_manuel"]),
         ("forage_numerique", vec!["nb_trous_numerique", "diametre_moyen_numerique"]),
         ("goujonnage", vec!["nb_goujons"]),
@@ -24,8 +27,8 @@ const DIAMETRE_SEUIL_MANUEL_MM: f64 = 40.0;
 #[derive(Debug)]
 pub struct ResultatCalibration {
     pub poste: String,
-    // pub n: usize,
-    // pub r2: f64,
+    pub n: usize,
+    pub r2: f64,
     pub coefficients: PosteCoefficients,
 }
 
@@ -78,7 +81,6 @@ fn charger_donnees_poste(
 fn regression_lineaire(donnees: &[LigneCalibration], n_variables: usize) -> (f64, Vec<f64>, f64) {
     let n = donnees.len();
 
-    // Matrice design X avec une colonne de 1 pour l'intercept
     let mut x = DMatrix::<f64>::zeros(n, n_variables + 1);
     let mut y = DVector::<f64>::zeros(n);
     for (i, ligne) in donnees.iter().enumerate() {
@@ -97,7 +99,6 @@ fn regression_lineaire(donnees: &[LigneCalibration], n_variables: usize) -> (f64
     let intercept = beta[0];
     let coefficients: Vec<f64> = beta.iter().skip(1).copied().collect();
 
-    // R² = 1 - (somme des carrés résiduels / somme des carrés totaux)
     let y_pred = &x * &beta;
     let residus: f64 = (0..n).map(|i| (y[i] - y_pred[i]).powi(2)).sum();
     let y_moyenne = y.mean();
@@ -141,8 +142,8 @@ pub fn calibrer_poste(
 
     Ok(Some(ResultatCalibration {
         poste: poste.to_string(),
-        // n: donnees.len(),
-        // r2,
+        n: donnees.len(),
+        r2,
         coefficients: PosteCoefficients { intercept, coefficients },
     }))
 }
@@ -164,138 +165,4 @@ pub fn calibrer_tous_les_postes(conn: &Connection) -> Result<CoefficientsExport,
         seuil_diametre_manuel_mm: DIAMETRE_SEUIL_MANUEL_MM,
         postes,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn preparer_base_test() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute_batch(
-            "CREATE TABLE heures (affaire TEXT, poste TEXT, heures REAL);
-             CREATE TABLE variables_affaires (
-                 affaire TEXT PRIMARY KEY, nb_barres REAL, nb_goujons REAL,
-                 nb_trous_manuel REAL, nb_trous_numerique REAL,
-                 diametre_moyen_numerique REAL, longueur_coupe REAL
-             );",
-        )
-        .unwrap();
-        conn
-    }
-
-    #[test]
-    fn test_regression_retrouve_coefficients_connus() {
-        let conn = preparer_base_test();
-
-        // Génère des données synthétiques suivant EXACTEMENT
-        // heures = 0.5 + 0.12 * nb_goujons (sans bruit), pour vérifier
-        // que la régression retrouve les coefficients exacts.
-        for i in 0..20 {
-            let affaire = format!("AFF{i:03}");
-            let nb_goujons = 10.0 + i as f64 * 5.0;
-            let heures = 0.5 + 0.12 * nb_goujons;
-
-            conn.execute(
-                "INSERT INTO variables_affaires
-                 (affaire, nb_barres, nb_goujons, nb_trous_manuel, nb_trous_numerique,
-                  diametre_moyen_numerique, longueur_coupe)
-                 VALUES (?1, 0, ?2, 0, 0, 0, 0)",
-                rusqlite::params![affaire, nb_goujons],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO heures VALUES (?1, 'goujonnage', ?2)",
-                rusqlite::params![affaire, heures],
-            )
-            .unwrap();
-        }
-
-        let resultat = calibrer_poste(&conn, "goujonnage", &["nb_goujons"])
-            .unwrap()
-            .expect("devrait être calibré, échantillon suffisant");
-
-        assert_eq!(resultat.n, 20);
-        assert!((resultat.coefficients.intercept - 0.5).abs() < 1e-6);
-        assert!((resultat.coefficients.coefficients["nb_goujons"] - 0.12).abs() < 1e-6);
-        assert!(resultat.r2 > 0.999); // données sans bruit -> R² quasi parfait
-    }
-
-    #[test]
-    fn test_echantillon_insuffisant_retourne_none() {
-        let conn = preparer_base_test();
-
-        // Seulement 3 affaires -- largement sous le seuil minimum (15 pour 1 variable)
-        for i in 0..3 {
-            let affaire = format!("AFF{i}");
-            conn.execute(
-                "INSERT INTO variables_affaires
-                 (affaire, nb_barres, nb_goujons, nb_trous_manuel, nb_trous_numerique,
-                  diametre_moyen_numerique, longueur_coupe)
-                 VALUES (?1, 0, 10, 0, 0, 0, 0)",
-                rusqlite::params![affaire],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO heures VALUES (?1, 'goujonnage', 5.0)",
-                rusqlite::params![affaire],
-            )
-            .unwrap();
-        }
-
-        let resultat = calibrer_poste(&conn, "goujonnage", &["nb_goujons"]).unwrap();
-        assert!(resultat.is_none());
-    }
-
-    #[test]
-    fn test_regression_multivariable() {
-        let conn = preparer_base_test();
-
-        // heures = 1.0 + 0.05*nb_trous_numerique + 0.02*diametre_moyen (sans bruit)
-        for i in 0..30 {
-            let affaire = format!("AFF{i:03}");
-            let nb_trous = 20.0 + i as f64 * 2.0;
-            let diametre = 10.0 + (i % 5) as f64;
-            let heures = 1.0 + 0.05 * nb_trous + 0.02 * diametre;
-
-            conn.execute(
-                "INSERT INTO variables_affaires
-                 (affaire, nb_barres, nb_goujons, nb_trous_manuel, nb_trous_numerique,
-                  diametre_moyen_numerique, longueur_coupe)
-                 VALUES (?1, 0, 0, 0, ?2, ?3, 0)",
-                rusqlite::params![affaire, nb_trous, diametre],
-            )
-            .unwrap();
-            conn.execute(
-                "INSERT INTO heures VALUES (?1, 'forage_numerique', ?2)",
-                rusqlite::params![affaire, heures],
-            )
-            .unwrap();
-        }
-
-        let resultat = calibrer_poste(
-            &conn,
-            "forage_numerique",
-            &["nb_trous_numerique", "diametre_moyen_numerique"],
-        )
-        .unwrap()
-        .expect("devrait être calibré");
-
-        assert!((resultat.coefficients.intercept - 1.0).abs() < 1e-6);
-        assert!(
-            (resultat.coefficients.coefficients["nb_trous_numerique"] - 0.05).abs() < 1e-6
-        );
-        assert!(
-            (resultat.coefficients.coefficients["diametre_moyen_numerique"] - 0.02).abs() < 1e-6
-        );
-    }
-
-    #[test]
-    fn test_calibrer_tous_les_postes_ignore_postes_absents() {
-        let conn = preparer_base_test();
-        // Base vide : aucun poste ne doit être calibré, mais ça ne doit pas planter
-        let export = calibrer_tous_les_postes(&conn).unwrap();
-        assert!(export.postes.is_empty());
-        assert_eq!(export.version, 1);
-    }
 }

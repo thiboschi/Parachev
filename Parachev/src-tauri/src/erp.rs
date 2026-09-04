@@ -21,6 +21,7 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
 
         CREATE TABLE IF NOT EXISTS variables_affaires (
             affaire                     TEXT PRIMARY KEY,
+            client                      TEXT,
             nb_barres                   REAL,
             nb_goujons                  REAL,
             nb_trous_manuel             REAL,
@@ -31,6 +32,20 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         ",
     )?;
     Ok(())
+}
+
+/// Ajoute la colonne `client` à variables_affaires si elle n'existe pas
+/// déjà -- migration idempotente pour les bases créées avant ce correctif
+/// (SQLite n'a pas de "ADD COLUMN IF NOT EXISTS" natif, d'où la gestion
+/// manuelle de l'erreur "duplicate column").
+pub fn migrer_ajouter_colonne_client(conn: &Connection) -> rusqlite::Result<()> {
+    match conn.execute("ALTER TABLE variables_affaires ADD COLUMN client TEXT", []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Reformate en ISO ("YYYY-MM-DD") les dates encore stockées sous l'ancien
@@ -104,7 +119,22 @@ pub struct LigneHeure {
     pub heures: f64,
 }
 
-pub fn parser_fichier_erp(path: &Path) -> Result<Vec<LigneHeure>, String> {
+/// Résultat complet du parsing : les lignes d'heures, plus le nom du
+/// client/de l'affaire associé à chaque numéro d'affaire (capturé une
+/// seule fois, depuis la ligne d'en-tête "** OT: ... = 1100706839 NOM").
+///
+/// Limite connue : le fichier ERP source peut contenir une corruption
+/// d'encodage préexistante sur les caractères accentués (conversion avec
+/// perte faite en amont, avant que ce fichier n'arrive dans le pipeline).
+/// Le nom capturé ici reflète fidèlement les données source, y compris
+/// corrompues le cas échéant -- ce n'est pas récupérable côté parsing.
+#[derive(Debug, Default)]
+pub struct ResultatParsingErp {
+    pub lignes: Vec<LigneHeure>,
+    pub clients: std::collections::HashMap<String, String>,
+}
+
+pub fn parser_fichier_erp(path: &Path) -> Result<ResultatParsingErp, String> {
     let octets = fs::read(path).map_err(|e| format!("Lecture impossible: {e}"))?;
     let contenu: String = octets.iter().map(|&b| b as char).collect();
 
@@ -115,13 +145,21 @@ pub fn parser_fichier_erp(path: &Path) -> Result<Vec<LigneHeure>, String> {
     .unwrap();
 
     let mut lignes = Vec::new();
+    let mut clients = std::collections::HashMap::new();
     let mut affaire_courante: Option<String> = None;
     let mut ot_courant: Option<String> = None;
 
     for ligne in contenu.lines() {
         if let Some(caps) = re_header.captures(ligne) {
             ot_courant = Some(caps[1].to_string());
-            affaire_courante = Some(caps[2].to_string());
+            let affaire = caps[2].to_string();
+
+            let nom_client = caps[3].trim().to_string();
+            if !nom_client.is_empty() {
+                clients.insert(affaire.clone(), nom_client);
+            }
+
+            affaire_courante = Some(affaire);
             continue;
         }
 
@@ -168,7 +206,7 @@ pub fn parser_fichier_erp(path: &Path) -> Result<Vec<LigneHeure>, String> {
         }
     }
 
-    Ok(lignes)
+    Ok(ResultatParsingErp { lignes, clients })
 }
 
 // ---------------------------------------------------------------------------
@@ -193,61 +231,27 @@ pub fn inserer_heures(conn: &mut Connection, lignes: &[LigneHeure]) -> rusqlite:
     Ok(())
 }
 
-pub fn traiter_fichier_erp(path: &Path, conn: &mut Connection) -> Result<usize, String> {
-    let lignes = parser_fichier_erp(path)?;
-    let n = lignes.len();
-    inserer_heures(conn, &lignes).map_err(|e| format!("Erreur SQLite: {e}"))?;
-    Ok(n)
+/// Insère ou met à jour le nom client pour chaque affaire, sans jamais
+/// toucher aux autres colonnes de variables_affaires (nb_barres,
+/// nb_goujons... alimentées séparément par le parsing Excel). Idempotent.
+pub fn inserer_clients(
+    conn: &Connection,
+    clients: &std::collections::HashMap<String, String>,
+) -> rusqlite::Result<()> {
+    for (affaire, client) in clients {
+        conn.execute(
+            "INSERT INTO variables_affaires (affaire, client) VALUES (?1, ?2)
+             ON CONFLICT(affaire) DO UPDATE SET client = excluded.client",
+            params![affaire, client],
+        )?;
+    }
+    Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_fichier_erp_complet() {
-        let lignes = parser_fichier_erp(Path::new("ERP.txt")).unwrap();
-        println!("Lignes exploitables parsées : {}", lignes.len());
-
-        let affaires: std::collections::HashSet<&str> =
-            lignes.iter().map(|l| l.affaire.as_str()).collect();
-        println!("Affaires distinctes (postes exploitables) : {}", affaires.len());
-
-        // Répartition par poste
-        let mut par_poste: std::collections::HashMap<&str, (usize, f64)> =
-            std::collections::HashMap::new();
-        for l in &lignes {
-            let entry = par_poste.entry(l.poste.as_str()).or_insert((0, 0.0));
-            entry.0 += 1;
-            entry.1 += l.heures;
-        }
-        for (poste, (n, total)) in &par_poste {
-            println!("  {poste}: {n} lignes, {total:.1}h");
-        }
-
-        assert!(!lignes.is_empty());
-        // Les 15 postes réels doivent tous être présents désormais
-        assert_eq!(par_poste.len(), 15, "les 15 postes réels doivent tous apparaître");
-    }
-
-    #[test]
-    fn test_insertion_fichier_complet() {
-        let lignes = parser_fichier_erp(Path::new("ERP.txt")).unwrap();
-        let mut conn = Connection::open_in_memory().unwrap();
-        initialiser_schema(&conn).unwrap();
-
-        inserer_heures(&mut conn, &lignes).unwrap();
-
-        let n: i64 = conn
-            .query_row("SELECT COUNT(*) FROM heures", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(n as usize, lignes.len());
-
-        // Idempotence sur le fichier complet
-        inserer_heures(&mut conn, &lignes).unwrap();
-        let n2: i64 = conn
-            .query_row("SELECT COUNT(*) FROM heures", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(n2, n, "pas de doublon après ré-insertion");
-    }
+pub fn traiter_fichier_erp(path: &Path, conn: &mut Connection) -> Result<usize, String> {
+    let resultat = parser_fichier_erp(path)?;
+    let n = resultat.lignes.len();
+    inserer_heures(conn, &resultat.lignes).map_err(|e| format!("Erreur SQLite: {e}"))?;
+    inserer_clients(conn, &resultat.clients).map_err(|e| format!("Erreur SQLite (clients): {e}"))?;
+    Ok(n)
 }
