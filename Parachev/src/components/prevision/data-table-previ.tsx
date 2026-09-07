@@ -1,5 +1,5 @@
 import * as React from "react"
-import { IconArrowsSort, IconChevronDown, IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconDotsVertical, IconLayoutColumns, IconPlus, IconArrowNarrowUp, IconArrowNarrowDown } from "@tabler/icons-react"
+import { IconArrowsSort, IconChevronLeft, IconChevronRight, IconChevronsLeft, IconChevronsRight, IconArrowNarrowUp, IconArrowNarrowDown } from "@tabler/icons-react"
 import {
   flexRender,
   getCoreRowModel,
@@ -17,12 +17,10 @@ import {
 } from "@tanstack/react-table"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Tabs } from "@/components/ui/tabs"
 import { toast } from "sonner"
 import { Input } from "@base-ui/react"
 
@@ -103,34 +101,6 @@ function SortableHeader({
       )}
     </Button>
   )
-}
-
-//----------------- CheckBox ------------------------------
-const selectColumn: ColumnDef<z.infer<typeof schema>> = {
-  id: "select",
-  header: ({ table }) => (
-    <div className="flex items-center justify-center">
-      <Checkbox
-        checked={
-          table.getIsAllPageRowsSelected() ||
-          (table.getIsSomePageRowsSelected() && undefined)
-        }
-        onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-        aria-label="Select all"
-      />
-    </div>
-  ),
-  cell: ({ row }) => (
-    <div className="flex items-center justify-center">
-      <Checkbox
-        checked={row.getIsSelected()}
-        onCheckedChange={(value) => row.toggleSelected(!!value)}
-        aria-label="Select row"
-      />
-    </div>
-  ),
-  enableSorting: false,
-  enableHiding: false,
 }
 
 //----------------- Profil Column ---------------------------
@@ -221,34 +191,6 @@ const totalColumn: ColumnDef<z.infer<typeof schema>> = {
   },
 }
 
-//----------------- Three Dot ---------------------------
-const actionsColumn: ColumnDef<z.infer<typeof schema>> = {
-  id: "actions",
-  cell: () => (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <Button
-            variant="ghost"
-            className="flex size-8 text-muted-foreground data-[state=open]:bg-muted"
-            size="icon"
-          />
-        }
-      >
-        <IconDotsVertical />
-        <span className="sr-only">Open menu</span>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-32">
-        <DropdownMenuItem>Edit</DropdownMenuItem>
-        <DropdownMenuItem>Make a copy</DropdownMenuItem>
-        <DropdownMenuItem>Favorite</DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive">Delete</DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  ),
-}
-
 // One column per machine, built from whatever machine names appear in the
 // dataset. Cells only render a value when it"s different than null.
 function useMachineColumns(data: z.infer<typeof schema>[]) {
@@ -293,23 +235,6 @@ function useMachineColumns(data: z.infer<typeof schema>[]) {
   }, [data])
 }
 
-const sectionOptions = [
-  "Assemblag/Tracage",
-  "Manutention",
-  "Enfilage",
-  "Forage Manuel",
-  "Forage Numerique",
-  "Goujonnage",
-  "Mise a longueur",
-  "P3",
-  "OxyCoupage",
-  "Presse/Cintrage",
-  "Robot",
-  "Soudage",
-  "Soudage sous flux",
-  "Control CND"
-] as const
-
 export function DataTablePrevi({
   data: initialData,
 }: {
@@ -330,11 +255,9 @@ export function DataTablePrevi({
   const machineColumns = useMachineColumns(data)
   const columns = React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(
     () => [
-      selectColumn,
       profilColumn,
       nbPoutreColumn,
       ...machineColumns,
-      actionsColumn,
       totalColumn,
     ],
     [machineColumns]
@@ -367,93 +290,6 @@ export function DataTablePrevi({
 
   return (
     <Tabs defaultValue="outline" className="w-full flex-col justify-start gap-6">
-      <div className="flex items-center justify-between px-4 lg:px-6">
-        <Label htmlFor="view-selector" className="sr-only">
-          View
-        </Label>
-        <Select defaultValue="outline">
-          <SelectTrigger className="flex w-fit @4xl/main:hidden" size="sm" id="view-selector">
-            <SelectValue placeholder="Select a view" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="outline">Previsions</SelectItem>
-            <SelectItem value="past-performance">Chiffrage</SelectItem>
-            <SelectItem value="ket-personnel">Plans</SelectItem>
-            <SelectItem value="focus-documents">Commandes</SelectItem>
-          </SelectContent>
-        </Select>
-        <TabsList className="hidden **:data-[slot=badge]:size-5 **:data-[slot=badge]:rounded-full **:data-[slot=badge]:bg-muted-foreground/30 **:data-[slot=badge]:px-1 @4xl/main:flex">
-          <TabsTrigger value="outline">Previsions</TabsTrigger>
-          <TabsTrigger value="past-performance">Chiffrage</TabsTrigger>
-          <TabsTrigger value="key-personnel">Plans</TabsTrigger>
-          <TabsTrigger value="focus-documents">Commandes annex</TabsTrigger>
-        </TabsList>
-        <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="outline" size="sm" />}
-            >
-              <IconLayoutColumns />
-              <span className="hidden lg:inline">Customize Columns</span>
-              <span className="lg:hidden">Columns</span>
-              <IconChevronDown />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              {table
-                .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== "undefined" &&
-                    column.getCanHide()
-                )
-                .map((column) => {
-                  return (
-                    <DropdownMenuCheckboxItem
-                      key={column.id}
-                      className="capitalize"
-                      checked={column.getIsVisible()}
-                      onCheckedChange={(value) =>
-                        column.toggleVisibility(!!value)
-                      }
-                    >
-                      {column.id}
-                    </DropdownMenuCheckboxItem>
-                  )
-                })}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button variant="outline" size="sm" />}
-            >
-              <IconPlus />
-              <span className="hidden lg:inline">Add Section</span>
-              <IconChevronDown />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {sectionOptions.map((section) => (
-                <DropdownMenuItem
-                  key={section}
-                  onSelect={() => {
-                    toast.promise(
-                      new Promise((resolve) => setTimeout(resolve, 1000)),
-                      {
-                        loading: `Adding ${section}`,
-                        success: `${section} added`,
-                        error: "Error",
-                      }
-                    )
-                  }}
-                >
-                  {section}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
-      </div>
-{/* Vu Sur le tableau de Previ */}
-      <TabsContent value="outline" className="relative flex flex-col gap-4 overflow-auto px-4 lg:px-6">
         <div className="overflow-hidden rounded-lg border">
           <Table>
             <TableHeader className="sticky top-0 z-10 bg-muted">
@@ -579,19 +415,7 @@ export function DataTablePrevi({
             </div>
           </div>
         </div>
-      </TabsContent>
-{/* Vu sur la parti de chiffrage */}
-      <TabsContent value="past-performance" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-{/* Vu les plans et tout les documents en pdf */}
-      <TabsContent value="key-personnel" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
-{/* Vu sur tout les mails */}
-      <TabsContent value="focus-documents" className="flex flex-col px-4 lg:px-6">
-        <div className="aspect-video w-full flex-1 rounded-lg border border-dashed"></div>
-      </TabsContent>
+      
     </Tabs>
   )
 }
