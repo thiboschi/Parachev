@@ -1,3 +1,4 @@
+import { useParams } from "react-router-dom"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DataTablePrevi } from "@/components/prevision/data-table-previ"
 import { SiteHeader } from "@/components/dashboard/site-header"
@@ -9,6 +10,13 @@ import item from "../data/timeline.json"
 import { AffaireDescription } from "@/components/prevision/description"
 
 export default function Prevision() {
+  // "affaire" est la clé privée (numéro d'affaire) qui identifie quelle
+  // affaire afficher ; sans param dans l'URL (ex. via le lien générique
+  // de la sidebar), on retombe sur la première de la liste.
+  const { affaire } = useParams<{ affaire: string }>()
+  const affaireCourante =
+    data.find((a) => a.numero === affaire) ?? data[0]
+
   return (
     <SidebarProvider
       style={
@@ -26,9 +34,9 @@ export default function Prevision() {
             <div className="flex flex-col gap-4 py-4 md:gap-6 md:py-6">
               <div className="px-4 lg:px-6">
                 <TimelineHorizontal items={item.items}/>
-                <AffaireDescription affaire={data[0]}/>
+                <AffaireDescription affaire={affaireCourante}/>
               </div>
-              <DataTablePrevi data={data} />
+              <DataTablePrevi data={[affaireCourante]} />
             </div>
           </div>
         </div>

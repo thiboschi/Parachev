@@ -553,7 +553,7 @@ function TableCellViewer({ item }: { item: z.infer<typeof schema> }) {
     <Button
       variant="link"
       className="w-fit px-0 text-left text-foreground"
-      render={<NavLink to="/prevision" />}
+      render={<NavLink to={`/prevision/${item.numero}`} />}
     >
       {item.client}
     </Button>
