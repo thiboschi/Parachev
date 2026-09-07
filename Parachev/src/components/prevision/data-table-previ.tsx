@@ -250,7 +250,7 @@ const actionsColumn: ColumnDef<z.infer<typeof schema>> = {
 }
 
 // One column per machine, built from whatever machine names appear in the
-// dataset. Cells only render a value when it's different than null.
+// dataset. Cells only render a value when it"s different than null.
 function useMachineColumns(data: z.infer<typeof schema>[]) {
   return React.useMemo<ColumnDef<z.infer<typeof schema>>[]>(() => {
     const machineNames = Array.from(
