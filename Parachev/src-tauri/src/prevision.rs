@@ -1,4 +1,5 @@
-use rusqlite::Connection;
+use crate::config;
+use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::fs;
 
@@ -24,10 +25,134 @@ pub struct PosteCoefficients {
 
 impl CoefficientsExport {
     pub fn charger(path: &str) -> Result<Self, String> {
+        println!("{}", path);
         let contenu = fs::read_to_string(path)
-            .map_err(|e| format!("Impossible de lire {path}: {e}"))?;
-        serde_json::from_str(&contenu).map_err(|e| format!("JSON invalide dans {path}: {e}"))
+            .map_err(|e| {
+                eprintln!("Impossible de lire {path}: {e}");
+                format!("Impossible de lire {path}: {e}")
+            })?;
+        println!("c'est bon");
+        serde_json::from_str(&contenu).map_err(|e|{ 
+            eprintln!("JSON invalide dans {path}: {e}");
+            format!("JSON invalide dans {path}: {e}")})
     }
+}
+
+// ---------------------------------------------------------------------------
+// Persistance des coefficients en SQLite (remplace la lecture répétée du
+// fichier coefficients.json à chaque prévision)
+// ---------------------------------------------------------------------------
+
+const CLE_INTERCEPT: &str = "__intercept__";
+const CLE_VERSION: &str = "coefficients_version";
+const CLE_DATE_CALIBRATION: &str = "coefficients_date_calibration";
+const CLE_SEUIL_DIAMETRE_MANUEL_MM: &str = "coefficients_seuil_diametre_manuel_mm";
+
+pub fn initialiser_schema_coefficients(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS coefficients (
+            poste    TEXT NOT NULL,
+            variable TEXT NOT NULL,
+            valeur   REAL NOT NULL,
+            PRIMARY KEY (poste, variable)
+        );",
+    )
+}
+
+/// Remplace intégralement le contenu de la table `coefficients` (et les
+/// métadonnées associées dans `configuration`) par celui de `coeffs`.
+/// Un remplacement complet, plutôt qu'un upsert, garantit qu'une variable ou
+/// un poste retiré lors d'une nouvelle calibration ne reste pas orphelin.
+pub fn enregistrer_coefficients(conn: &mut Connection, coeffs: &CoefficientsExport) -> Result<(), String> {
+    initialiser_schema_coefficients(conn).map_err(|e| e.to_string())?;
+
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM coefficients", []).map_err(|e| e.to_string())?;
+
+    for (poste, params) in &coeffs.postes {
+        tx.execute(
+            "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)",
+            params![poste, CLE_INTERCEPT, params.intercept],
+        )
+        .map_err(|e| e.to_string())?;
+
+        for (variable, valeur) in &params.coefficients {
+            tx.execute(
+                "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)",
+                params![poste, variable, valeur],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+
+    config::ecrire_config(conn, CLE_VERSION, &coeffs.version.to_string())?;
+    config::ecrire_config(conn, CLE_DATE_CALIBRATION, &coeffs.date_calibration)?;
+    config::ecrire_config(
+        conn,
+        CLE_SEUIL_DIAMETRE_MANUEL_MM,
+        &coeffs.seuil_diametre_manuel_mm.to_string(),
+    )?;
+
+    Ok(())
+}
+
+/// Reconstruit un `CoefficientsExport` à partir de la table `coefficients`
+/// et des métadonnées en base -- utilisé à la place de la lecture directe
+/// du fichier JSON pour chaque prévision.
+pub fn charger_coefficients(conn: &Connection) -> Result<CoefficientsExport, String> {
+    println!("charger_coef");
+    let version: u32 = config::lire_config(conn, CLE_VERSION)?
+        .ok_or_else(|| "Aucune version de coefficients en base -- calibrer d'abord".to_string())?
+        .parse()
+        .map_err(|e| format!("Version de coefficients invalide en base: {e}"))?;
+
+    let date_calibration = config::lire_config(conn, CLE_DATE_CALIBRATION)?
+        .ok_or_else(|| "Aucune date de calibration en base".to_string())?;
+
+    let seuil_diametre_manuel_mm: f64 = config::lire_config(conn, CLE_SEUIL_DIAMETRE_MANUEL_MM)?
+        .ok_or_else(|| "Aucun seuil de diamètre manuel en base".to_string())?
+        .parse()
+        .map_err(|e| format!("Seuil de diamètre manuel invalide en base: {e}"))?;
+
+    let mut stmt = conn
+        .prepare("SELECT poste, variable, valeur FROM coefficients")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut postes: HashMap<String, PosteCoefficients> = HashMap::new();
+    for row in rows {
+        let (poste, variable, valeur) = row.map_err(|e| e.to_string())?;
+        let entry = postes.entry(poste).or_insert_with(|| PosteCoefficients {
+            intercept: 0.0,
+            coefficients: HashMap::new(),
+        });
+        if variable == CLE_INTERCEPT {
+            entry.intercept = valeur;
+        } else {
+            entry.coefficients.insert(variable, valeur);
+        }
+    }
+
+    if postes.is_empty() {
+        return Err("Aucun coefficient en base -- calibrer d'abord".to_string());
+    }
+
+    Ok(CoefficientsExport {
+        version,
+        date_calibration,
+        seuil_diametre_manuel_mm,
+        postes,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -63,7 +188,9 @@ pub fn charger_variables_affaire(
         Ok(variables)
     });
 
-    resultat.map_err(|e| format!("Affaire '{affaire}' introuvable en base: {e}"))
+    resultat.map_err(|e|{ 
+        eprintln!("Affaire '{affaire}' introuvable en base: {e}");
+        format!("Affaire '{affaire}' introuvable en base: {e}")})
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +206,7 @@ pub struct Prevision {
 /// Applique la formule linéaire calibrée : temps = intercept + Σ(coef_i × x_i)
 /// pour chaque poste calibré, à partir des variables fournies.
 pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Prevision {
+    println!("predire");
     let mut heures_par_poste = HashMap::new();
 
     for (poste, params) in &coeffs.postes {
@@ -104,6 +232,7 @@ pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Pre
 /// Une prévision = un total d'heures par (affaire, poste), remplacé
 /// intégralement à chaque nouveau calcul (pas d'historique de versions).
 pub fn initialiser_schema_previsions(conn: &Connection) -> rusqlite::Result<()> {
+    println!("Create table prevision");
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS previsions (
             affaire              TEXT NOT NULL,
@@ -126,6 +255,7 @@ pub fn enregistrer_prevision(
     prevision: &Prevision,
     version_coefficients: &str,
 ) -> Result<(), String> {
+    println!("Prevision enregistrée");
     let date_prevision = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
     let tx = conn.transaction().map_err(|e| e.to_string())?;
@@ -155,6 +285,7 @@ pub fn previsualiser_et_enregistrer(
     coeffs: &CoefficientsExport,
     affaire: &str,
 ) -> Result<Prevision, String> {
+    println!("About to previ and register");
     let variables = charger_variables_affaire(conn, affaire)?;
     let prevision = predire(coeffs, &variables);
     enregistrer_prevision(conn, affaire, &prevision, &coeffs.date_calibration)?;

@@ -63,11 +63,27 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let chemin_db_str = chemin_db(&app_handle)?;
 
-            let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
+            let mut conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             erp::migrer_format_dates(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+            prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
+
+            // Migration ponctuelle depuis coefficients.json vers la table
+            // `coefficients` -- si un fichier existe déjà (installation
+            // précédente) mais que la base n'a jamais été peuplée.
+            let chemin_coefficients_str = chemin_coefficients(&app_handle)?;
+            if config::lire_config(&conn, "coefficients_version")
+                .map_err(|e| e.to_string())?
+                .is_none()
+            {
+                if let Ok(coeffs) = CoefficientsExport::charger(&chemin_coefficients_str) {
+                    prevision::enregistrer_coefficients(&mut conn, &coeffs)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+
             let chemin_dossier = config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
                 .map_err(|e| e.to_string())?;
             drop(conn);
@@ -139,7 +155,7 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
     let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
 
-    let coeffs = CoefficientsExport::charger(&chemin_coefficients(&app)?)?;
+    let coeffs = CoefficientsExport::charger("/Users/thibaultboschi/Documents/School/Epitech/Tek5/Stage/Parachev/Parachev/src-tauri/coefficients.json")?;
     let prevision = prevision::previsualiser_et_enregistrer(&mut conn, &coeffs, &affaire)?;
 
     let mut resultat = prevision.heures_par_poste;
@@ -149,11 +165,15 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
 
 #[tauri::command]
 fn recalibrer(app: tauri::AppHandle) -> Result<(), String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let export = calibrer_tous_les_postes(&conn)?;
 
+    // Le JSON reste écrit pour inspection/débogage, mais la base est
+    // désormais la source utilisée par previsualiser_affaire.
     let json = serde_json::to_string_pretty(&export).map_err(|e| e.to_string())?;
     std::fs::write(chemin_coefficients(&app)?, json).map_err(|e| e.to_string())?;
+
+    prevision::enregistrer_coefficients(&mut conn, &export)?;
 
     Ok(())
 }
