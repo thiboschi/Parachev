@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import {
   Card,
@@ -43,6 +44,8 @@ const CHAMPS_VARIABLES: {
 ]
 
 export function AffaireResults({ results, loading, error }: AffaireResultsProps) {
+  const navigate = useNavigate()
+
   return (
     <>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -66,7 +69,19 @@ export function AffaireResults({ results, loading, error }: AffaireResultsProps)
           )
 
           return (
-            <Card key={item.numero}>
+            <Card
+              key={item.numero}
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate(`/prevision/${item.numero}`)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  navigate(`/prevision/${item.numero}`)
+                }
+              }}
+              className="cursor-pointer transition-colors hover:bg-muted/50"
+            >
               <CardHeader>
                 <CardTitle>{item.client ?? "Client inconnu"}</CardTitle>
                 <CardDescription>

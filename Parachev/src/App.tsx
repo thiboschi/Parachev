@@ -12,7 +12,6 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Page />} />
-          <Route path="/prevision" element={<Prevision/>} />
           <Route path="/prevision/:affaire" element={<Prevision/>} />
           <Route path="/search" element={<Search/>} />
         </Routes>

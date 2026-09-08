@@ -16,11 +16,6 @@ export const data = {
       icon: IconDashboard,
     },
     {
-      title: "Prevision",
-      url: "/prevision",
-      icon: IconChartBar,
-    },
-    {
       title: "Search",
       url: "/search",
       icon: IconSearch,
