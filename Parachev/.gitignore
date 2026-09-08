@@ -26,3 +26,4 @@ dist-ssr
 #file
 affaires.db
 /Test/
+.DS_Store
