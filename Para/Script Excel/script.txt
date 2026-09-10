@@ -353,11 +353,11 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
 function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: string) {
     const ligneDepart = 22;
     const colonneRecherche = 0;
+    const largeurBordure = 5; // nombre de cases
 
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
-    const nbColonnes = usedRange.getColumnCount();
 
     let ligneDebut = -1;
     let ligneFin = -1;
@@ -400,7 +400,8 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
         }
 
         if (String(valeurD) !== String(valeurDPrecedente)) {
-            const ligne = ws.getRangeByIndexes(i, 0, 1, nbColonnes);
+            // Bordure uniquement sur les 5 premières cases
+            const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
             ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop).setStyle(ExcelScript.BorderLineStyle.thin);
             ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop).setColor("#000000");
         }
