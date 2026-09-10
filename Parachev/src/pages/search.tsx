@@ -44,7 +44,6 @@ type PoutreRow = {
 
 export default function Search() {
   const { affaires, clients, loading, error } = useAffairesDb()
-
   const [searchText, setSearchText] = React.useState("")
   const [client, setClient] = React.useState("all")
   const [poutreRows, setPoutreRows] = React.useState<PoutreRow[]>([])
