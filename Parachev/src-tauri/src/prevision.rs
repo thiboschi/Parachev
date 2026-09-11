@@ -179,12 +179,12 @@ pub fn charger_variables_affaire(
 
     let resultat = stmt.query_row([affaire], |row| {
         let mut variables = VariablesAffaire::new();
-        variables.insert("nb_barres".into(), row.get(0)?);
-        variables.insert("nb_goujons".into(), row.get(1)?);
-        variables.insert("nb_trous_manuel".into(), row.get(2)?);
-        variables.insert("nb_trous_numerique".into(), row.get(3)?);
-        variables.insert("diametre_moyen_numerique".into(), row.get(4)?);
-        variables.insert("longueur_coupe".into(), row.get(5)?);
+        variables.insert("nb_barres".into(), row.get::<_, Option<f64>>(0)?.unwrap_or(0.0));
+        variables.insert("nb_goujons".into(), row.get::<_, Option<f64>>(1)?.unwrap_or(0.0));
+        variables.insert("nb_trous_manuel".into(), row.get::<_, Option<f64>>(2)?.unwrap_or(0.0));
+        variables.insert("nb_trous_numerique".into(), row.get::<_, Option<f64>>(3)?.unwrap_or(0.0));
+        variables.insert("diametre_moyen_numerique".into(), row.get::<_, Option<f64>>(4)?.unwrap_or(0.0));
+        variables.insert("longueur_coupe".into(), row.get::<_, Option<f64>>(5)?.unwrap_or(0.0));
         Ok(variables)
     });
 
@@ -210,14 +210,27 @@ pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Pre
     let mut heures_par_poste = HashMap::new();
 
     for (poste, params) in &coeffs.postes {
-        let mut temps = params.intercept;
-        for (variable, coef) in &params.coefficients {
-            let valeur = variables.get(variable).copied().unwrap_or(0.0);
-            temps += coef * valeur;
-        }
-        // Garde-fou : un temps ne peut pas être négatif (extrapolation
-        // hors du domaine calibré donnant un résultat aberrant)
-        heures_par_poste.insert(poste.clone(), temps.max(0.0));
+        let toutes_variables_nulles = params
+            .coefficients
+            .keys()
+            .all(|variable| variables.get(variable).copied().unwrap_or(0.0) == 0.0);
+
+        // Si aucune des variables du poste n'est renseignée (toutes à 0),
+        // il n'y a pas de travail à prévoir pour ce poste, même si
+        // l'intercept calibré est non nul.
+        let temps = if toutes_variables_nulles {
+            0.0
+        } else {
+            let mut temps = params.intercept;
+            for (variable, coef) in &params.coefficients {
+                let valeur = variables.get(variable).copied().unwrap_or(0.0);
+                temps += coef * valeur;
+            }
+            // Garde-fou : un temps ne peut pas être négatif (extrapolation
+            // hors du domaine calibré donnant un résultat aberrant)
+            temps.max(0.0)
+        };
+        heures_par_poste.insert(poste.clone(), temps);
     }
 
     let total_heures = heures_par_poste.values().sum();
@@ -336,12 +349,14 @@ mod tests {
 
     #[test]
     fn test_predire_variable_absente_vaut_zero() {
-        // Si une variable attendue par le modèle n'est pas fournie,
-        // elle doit être traitée comme 0.0, pas planter.
+        // Si une variable attendue par le modèle n'est pas fournie (ou vaut
+        // 0), et qu'aucune variable du poste n'est renseignée, il n'y a pas
+        // de travail à prévoir : le temps du poste doit être 0, intercept
+        // ignoré.
         let coeffs = coeffs_test();
         let variables = VariablesAffaire::new(); // vide
         let prevision = predire(&coeffs, &variables);
-        assert!((prevision.heures_par_poste["goujonnage"] - 0.5).abs() < 1e-9);
+        assert!((prevision.heures_par_poste["goujonnage"] - 0.0).abs() < 1e-9);
     }
 
     #[test]
