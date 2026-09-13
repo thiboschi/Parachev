@@ -9,10 +9,12 @@
 mod goujons;
 mod oxycoupage;
 mod previ;
+mod variables_parcing;
 
 pub use goujons::{extraire_goujons_fc_gouj};
 pub use oxycoupage::{extraire_oxycoupage};
 pub use previ::{extraire_info_previ};
+pub use variables_parcing::{extraire_variables_forage, VariablesForage};
 
 use calamine::Data;
 use rusqlite::{params, Connection};
@@ -24,10 +26,12 @@ use rusqlite::{params, Connection};
 /// explicitement "ce poste n'est pas utilisé sur cette affaire" (ex. pas de
 /// goujonnage), une valeur légitime et différente de "pas encore mesuré".
 ///
-/// Les champs liés au Forage restent en Option<f64> = None : leur parser
-/// n'est pas encore implémenté (LISTE TROUS, en attente d'un fichier avec
-/// des données réellement renseignées pour validation) -- None signifie
-/// ici "non disponible", pas "zéro trou".
+/// Les champs liés au Forage restent en Option<f64> : None signifie "poste
+/// non utilisé sur cette affaire" (feuille FT-MAN/FT-NUM absente). Quand la
+/// feuille existe, aucune des données réelles observées à ce jour ne permet
+/// de compter les trous ou leur diamètre (voir variables_parcing.rs) -- la
+/// valeur vaut alors 1.0, un repli grossier à corriger manuellement plutôt
+/// qu'un silence qui laisserait croire que le poste n'existe pas.
 #[derive(Debug, Default)]
 pub struct VariablesAffaire {
     pub affaire: String,
@@ -47,26 +51,25 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
 
     let goujons = extraire_goujons_fc_gouj(chemin_fichier)?;
     let oxycoupage = extraire_oxycoupage(chemin_fichier)?;
+    let forage = extraire_variables_forage(chemin_fichier)?;
 
     Ok(VariablesAffaire {
         affaire: info.commande,
         nb_barres: info.nb_barres_total,
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
         longueur_coupe: oxycoupage.map(|o| o.longueur_coupe_totale).unwrap_or(0.0),
-        nb_trous_manuel: None,
-        nb_trous_numerique: None,
-        diametre_moyen_numerique: None,
+        nb_trous_manuel: forage.nb_trous_manuel,
+        nb_trous_numerique: forage.nb_trous_numerique,
+        diametre_moyen_numerique: forage.diametre_moyen_numerique,
     })
 }
 
 /// Insère ou met à jour une affaire dans variables_affaires. Idempotent
 /// (INSERT OR REPLACE sur la clé primaire `affaire`) -- ré-extraire un
-/// fichier modifié écrase proprement les anciennes valeurs.
-///
-/// Ne touche PAS aux colonnes Forage (nb_trous_*, diametre_moyen_numerique)
-/// quand elles valent None, pour ne jamais écraser une valeur qui aurait pu
-/// être renseignée par un futur parser LISTE TROUS avant que celui-ci ne
-/// soit branché ici.
+/// fichier modifié écrase proprement les anciennes valeurs, colonnes Forage
+/// incluses : un None reflète maintenant un poste réellement absent de
+/// l'affaire (feuille FT-MAN/FT-NUM manquante), pas un parser non
+/// implémenté, donc plus de raison de le préserver artificiellement.
 pub fn inserer_variables_affaire(
     conn: &Connection,
     variables: &VariablesAffaire,
@@ -75,10 +78,7 @@ pub fn inserer_variables_affaire(
         "INSERT INTO variables_affaires
             (affaire, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique)
-         VALUES (?1, ?2, ?3, ?4,
-                 COALESCE(?5, (SELECT nb_trous_manuel FROM variables_affaires WHERE affaire = ?1)),
-                 COALESCE(?6, (SELECT nb_trous_numerique FROM variables_affaires WHERE affaire = ?1)),
-                 COALESCE(?7, (SELECT diametre_moyen_numerique FROM variables_affaires WHERE affaire = ?1)))
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
          ON CONFLICT(affaire) DO UPDATE SET
             nb_barres = excluded.nb_barres,
             nb_goujons = excluded.nb_goujons,
@@ -198,10 +198,11 @@ mod tests {
     }
 
     #[test]
-    fn test_reinsertion_preserve_colonnes_forage_non_encore_extraites() {
+    fn test_reinsertion_ecrase_les_colonnes_forage() {
         let conn = preparer_base_test();
 
-        // 1er passage : extraction normale (forage = None -> NULL)
+        // 1er passage : extraction normale. FT-MAN et FT-NUM existent tous
+        // les deux dans 1100719879.xlsx -> repli de présence à 1.0.
         traiter_fichier_excel("1100719879.xlsx", &conn).unwrap();
         let nb_trous: Option<f64> = conn
             .query_row(
@@ -210,18 +211,17 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(nb_trous, None);
+        assert_eq!(nb_trous, Some(1.0));
 
-        // Simule un futur parser Forage qui aurait rempli cette colonne
+        // Une correction manuelle en base (l'utilisateur affine le repli)...
         conn.execute(
             "UPDATE variables_affaires SET nb_trous_numerique = 42.0 WHERE affaire = '1100719879'",
             [],
         )
         .unwrap();
 
-        // 2e passage : ré-extraction (ex. fichier Excel modifié) -- le
-        // parser Forage n'existe toujours pas, donc None à nouveau.
-        // La valeur 42.0 déjà en base ne doit PAS être écrasée.
+        // ...est bien écrasée par une ré-extraction (fichier Excel modifié
+        // ou juste re-scanné) : idempotent et cohérent avec nb_barres.
         traiter_fichier_excel("1100719879.xlsx", &conn).unwrap();
         let nb_trous_apres: Option<f64> = conn
             .query_row(
@@ -230,9 +230,9 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(nb_trous_apres, Some(42.0), "la valeur Forage ne doit pas être écrasée par None");
+        assert_eq!(nb_trous_apres, Some(1.0), "la ré-extraction doit écraser la correction manuelle, comme les autres colonnes");
 
-        // Mais nb_barres doit bien être remis à jour normalement
+        // nb_barres doit bien être remis à jour normalement
         let nb_barres: f64 = conn
             .query_row(
                 "SELECT nb_barres FROM variables_affaires WHERE affaire = '1100719879'",
