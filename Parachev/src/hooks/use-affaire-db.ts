@@ -12,24 +12,33 @@ export interface PrevisionRow {
   version_coefficients: string | null
 }
 
+// Shape returned by the `lister_profils_affaire` Tauri command
+// (ProfilAffaireRow in lib.rs) -- détail par profil distinct d'une affaire.
+export interface ProfilAffaireRow {
+  profil: string
+  nb_barres: number
+}
+
 interface UseAffaireDbResult {
   client: string | null
   variables: VariablesAffaireRow | null
+  profils: ProfilAffaireRow[]
   heures: HeureRow[]
   heuresParPoste: HeuresParPoste[]
   totalHeures: number
   previsions: PrevisionRow[]
   loading: boolean
   error: string | null
-  /** Relit les trois tables -- à appeler après un nouveau calcul de prévision. */
+  /** Relit les quatre tables -- à appeler après un nouveau calcul de prévision. */
   refetch: () => void
 }
 
 /**
  * Charge, pour une seule affaire (clé privée `affaire`), ses variables
- * (`obtenir_variables_affaire`), ses heures pointées (`lister_heures_affaire`)
- * et ses prévisions déjà enregistrées (`lister_previsions_affaire`) --
- * les trois commandes Tauri scopées par affaire, en parallèle.
+ * (`obtenir_variables_affaire`), son détail par profil (`lister_profils_affaire`),
+ * ses heures pointées (`lister_heures_affaire`) et ses prévisions déjà
+ * enregistrées (`lister_previsions_affaire`) -- les quatre commandes Tauri
+ * scopées par affaire, en parallèle.
  *
  * `obtenir_variables_affaire` échoue si l'affaire n'a pas encore de ligne
  * dans `variables_affaires` (ex. devis pas encore importé) : c'est traité
@@ -39,6 +48,7 @@ interface UseAffaireDbResult {
  */
 export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [variables, setVariables] = React.useState<VariablesAffaireRow | null>(null)
+  const [profils, setProfils] = React.useState<ProfilAffaireRow[]>([])
   const [heures, setHeures] = React.useState<HeureRow[]>([])
   const [previsions, setPrevisions] = React.useState<PrevisionRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -56,15 +66,17 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
     async function charger() {
       try {
-        const [variablesRes, heuresRes, previsionsRes] = await Promise.all([
+        const [variablesRes, profilsRes, heuresRes, previsionsRes] = await Promise.all([
           invoke<VariablesAffaireRow>("obtenir_variables_affaire", { affaire }).catch(
             () => null
           ),
+          invoke<ProfilAffaireRow[]>("lister_profils_affaire", { affaire }),
           invoke<HeureRow[]>("lister_heures_affaire", { affaire }),
           invoke<PrevisionRow[]>("lister_previsions_affaire", { affaire }),
         ])
         if (!annule) {
           setVariables(variablesRes)
+          setProfils(profilsRes)
           setHeures(heuresRes)
           setPrevisions(previsionsRes)
           setError(null)
@@ -97,6 +109,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   return {
     client: variables?.client ?? null,
     variables,
+    profils,
     heures,
     heuresParPoste,
     totalHeures,

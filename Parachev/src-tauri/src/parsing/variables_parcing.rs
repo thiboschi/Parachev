@@ -1,6 +1,7 @@
 //! Extraction des variables de forage (perçage manuel FT-MAN et perçage
 //! numérique FT-NUM) -- les 3 variables explicatives de `variables_affaires`
-//! que les autres sous-parsers (previ, goujons, oxycoupage) ne couvrent pas.
+//! que les autres sous-parsers (previ, goujons, oxycoupage, presse) ne
+//! couvrent pas.
 //!
 //! Constat fait en examinant les 4 fichiers réels disponibles dans "Para" :
 //! - La feuille "LISTE TROUS" (censée détailler chaque trou percé avec son

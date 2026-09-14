@@ -7,8 +7,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import type { AffaireResume, VariablesAffaireRow } from "@/hooks/use-affaires-db"
+import type { AffaireResume } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
+import { CHAMPS_VARIABLES_NUMERIQUES, CHAMPS_VARIABLES_TEXTE } from "@/lib/variables-affaires"
 
 interface AffaireResultsProps {
   results: AffaireResume[]
@@ -18,30 +19,6 @@ interface AffaireResultsProps {
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
-
-// Champs de variables_affaires à afficher, dans l'ordre, avec leur libellé
-// et un formatteur optionnel. `client` et `affaire` sont exclus : déjà
-// affichés dans l'en-tête de la carte.
-const CHAMPS_VARIABLES: {
-  key: keyof Omit<VariablesAffaireRow, "affaire" | "client">
-  label: string
-  format?: (value: number) => string
-}[] = [
-  { key: "nb_barres", label: "Nb barres" },
-  { key: "nb_goujons", label: "Nb goujons" },
-  { key: "nb_trous_manuel", label: "Trous (manuel)" },
-  { key: "nb_trous_numerique", label: "Trous (numérique)" },
-  {
-    key: "diametre_moyen_numerique",
-    label: "Ø moyen numérique",
-    format: (v) => `${formatHeures(v)} mm`,
-  },
-  {
-    key: "longueur_coupe",
-    label: "Longueur coupe",
-    format: (v) => `${formatHeures(v)} mm`,
-  },
-]
 
 export function AffaireResults({ results, loading, error }: AffaireResultsProps) {
   const navigate = useNavigate()
@@ -64,7 +41,10 @@ export function AffaireResults({ results, loading, error }: AffaireResultsProps)
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {results.map((item) => {
           const variables = item.variables
-          const champsVariablesRenseignes = CHAMPS_VARIABLES.filter(
+          const champsTexteRenseignes = CHAMPS_VARIABLES_TEXTE.filter(
+            ({ key }) => variables && variables[key] != null
+          )
+          const champsVariablesRenseignes = CHAMPS_VARIABLES_NUMERIQUES.filter(
             ({ key }) => variables && variables[key] != null
           )
 
@@ -107,6 +87,17 @@ export function AffaireResults({ results, loading, error }: AffaireResultsProps)
                       <div key={poste} className="flex items-center justify-between">
                         <span className="text-muted-foreground">{libellePoste(poste)}</span>
                         <span className="tabular-nums">{formatHeures(heures)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {champsTexteRenseignes.length > 0 && variables && (
+                  <div className="mt-2 flex flex-col gap-1.5 border-t pt-2">
+                    {champsTexteRenseignes.map(({ key, label }) => (
+                      <div key={key} className="flex items-center justify-between">
+                        <span className="text-muted-foreground">{label}</span>
+                        <span className="tabular-nums">{variables[key]}</span>
                       </div>
                     ))}
                   </div>

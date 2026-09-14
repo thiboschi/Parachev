@@ -22,12 +22,26 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         CREATE TABLE IF NOT EXISTS variables_affaires (
             affaire                     TEXT PRIMARY KEY,
             client                      TEXT,
+            profil                      TEXT,
+            numero_plan                 TEXT,
             nb_barres                   REAL,
             nb_goujons                  REAL,
             nb_trous_manuel             REAL,
             nb_trous_numerique          REAL,
             diametre_moyen_numerique    REAL,
-            longueur_coupe              REAL
+            longueur_coupe              REAL,
+            contre_fleche               REAL
+        );
+
+        -- Une affaire peut regrouper plusieurs profils distincts (ex. HEB
+        -- 600 et HEM 700 sur la même commande) ; `variables_affaires.profil`
+        -- ne garde que le premier comme résumé rapide, cette table porte le
+        -- détail complet (un profil = une ligne, avec son propre nb_barres).
+        CREATE TABLE IF NOT EXISTS profils_affaires (
+            affaire   TEXT NOT NULL,
+            profil    TEXT NOT NULL,
+            nb_barres REAL NOT NULL,
+            PRIMARY KEY (affaire, profil)
         );
         ",
     )?;
@@ -40,6 +54,37 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
 /// manuelle de l'erreur "duplicate column").
 pub fn migrer_ajouter_colonne_client(conn: &Connection) -> rusqlite::Result<()> {
     match conn.execute("ALTER TABLE variables_affaires ADD COLUMN client TEXT", []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Ajoute les colonnes `profil` et `numero_plan` à variables_affaires si
+/// elles n'existent pas déjà -- même migration idempotente que pour
+/// `client`, pour les bases créées avant ce correctif.
+pub fn migrer_ajouter_colonnes_profil_numero_plan(conn: &Connection) -> rusqlite::Result<()> {
+    for colonne in ["profil", "numero_plan"] {
+        match conn.execute(
+            &format!("ALTER TABLE variables_affaires ADD COLUMN {colonne} TEXT"),
+            [],
+        ) {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(msg)))
+                if msg.contains("duplicate column") => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
+/// Ajoute la colonne `contre_fleche` à variables_affaires si elle n'existe
+/// pas déjà -- même migration idempotente que pour `client`/`profil`, pour
+/// les bases créées avant ce correctif.
+pub fn migrer_ajouter_colonne_contre_fleche(conn: &Connection) -> rusqlite::Result<()> {
+    match conn.execute("ALTER TABLE variables_affaires ADD COLUMN contre_fleche REAL", []) {
         Ok(_) => Ok(()),
         Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {
             Ok(())

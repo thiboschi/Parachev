@@ -102,14 +102,14 @@ fn traiter_evenement(path: &Path, chemin_db: &str) {
             }
         }
         "xlsx" => {
-            let conn = match Connection::open(chemin_db) {
+            let mut conn = match Connection::open(chemin_db) {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("Impossible d'ouvrir la base: {e}");
                     return;
                 }
             };
-            match traiter_fichier_excel(&path.to_string_lossy(), &conn) {
+            match traiter_fichier_excel(&path.to_string_lossy(), &mut conn) {
                 Ok(affaire) => println!("{path:?} : variables extraites pour l'affaire {affaire}"),
                 Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
             }

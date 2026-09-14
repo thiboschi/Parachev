@@ -18,11 +18,41 @@ use calamine::{open_workbook, DataType, Reader, Xlsx};
 pub struct InfoPrevi {
     pub commande: String,
     pub client: Option<String>,
+    /// Profil du premier groupe barre/longueur de l'affaire (ex. "HEB 600").
+    /// Simple résumé rapide à l'image de `commande`/`client` -- voir
+    /// `groupes_profil` pour le détail complet quand l'affaire mélange
+    /// plusieurs profils distincts.
+    pub profil: Option<String>,
+    /// N° de plan ArcelorMittal (ex. "1900016822", parfois avec suffixe
+    /// "-NNNNN" pour une affaire à plusieurs plans). Toujours situé 2 lignes
+    /// sous la première ligne de données, quel que soit le nombre de
+    /// groupes profil/longueur réellement renseignés (confirmé sur les 4
+    /// fichiers réels disponibles) -- identifié par son préfixe "19".
+    pub numero_plan: Option<String>,
     pub nb_barres_total: f64,
+    /// Répartition de nb_barres_total par profil distinct (ex. HEB 600:23,
+    /// HEM 700:16 si l'affaire mélange plusieurs profils) -- les groupes
+    /// partageant le même texte de profil (ex. deux longueurs différentes
+    /// du même profil) sont fusionnés en une seule entrée dont nb_barres
+    /// est la somme. Ordre d'apparition dans le fichier, pas alphabétique.
+    pub groupes_profil: Vec<GroupeProfil>,
     /// false si la colonne NBR n'a pas pu être localisée dans ce fichier
     /// (structure de template différente) -- nb_barres_total vaut alors 0.0
     /// et cette absence doit être signalée plutôt qu'ignorée silencieusement.
     pub colonne_nbr_trouvee: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupeProfil {
+    pub profil: String,
+    pub nb_barres: f64,
+}
+
+/// true si `s` ressemble à un n° de plan ArcelorMittal : préfixe "19" suivi
+/// de chiffres, assez long pour ne pas confondre avec une autre valeur
+/// (ex. année ou petit compteur qui commencerait aussi par "19").
+fn ressemble_a_un_numero_plan(s: &str) -> bool {
+    s.len() >= 8 && s.starts_with("19") && s.chars().take(4).all(|c| c.is_ascii_digit())
 }
 
 const MAX_LIGNES_RECHERCHE_ENTETE: u32 = 15;
@@ -124,29 +154,53 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         .map(cellule_vers_texte)
         .filter(|s| !s.is_empty());
 
+    let profil = col_profil.and_then(|col_profil| {
+        range
+            .get_value((ligne_premiere_donnee, col_profil))
+            .map(cellule_vers_texte)
+            .filter(|s| !s.is_empty())
+    });
+
     // Somme du NBR sur toutes les lignes de données valides (celles où
     // PROFIL est renseigné -- les lignes intermédiaires type "Lot"/"N°
     // Plan" dans la même colonne A n'ont pas de PROFIL et sont ignorées),
-    // jusqu'à la ligne "TOTAL" qui marque la fin du tableau.
+    // jusqu'à la ligne "TOTAL" qui marque la fin du tableau. On en profite
+    // pour repérer, dans la même colonne A, la cellule "N° de plan" (préfixe
+    // "19") au passage.
     let mut nb_barres_total = 0.0;
+    let mut groupes_profil: Vec<GroupeProfil> = Vec::new();
+    let mut numero_plan = None;
     let colonne_nbr_trouvee = col_nbr.is_some();
 
-    if let (Some(col_nbr), Some(col_profil)) = (col_nbr, col_profil) {
+    {
         let mut r = ligne_premiere_donnee;
         let limite = (ligne_entete + MAX_LIGNES_DONNEES).min(range.height() as u32);
         while r < limite {
-            if let Some(v) = range.get_value((r, 0)) {
-                if cellule_vers_texte(v).eq_ignore_ascii_case("TOTAL") {
+            let col_a = range.get_value((r, 0)).map(cellule_vers_texte);
+            if let Some(texte) = &col_a {
+                if texte.eq_ignore_ascii_case("TOTAL") {
                     break;
                 }
+                if numero_plan.is_none() && ressemble_a_un_numero_plan(texte) {
+                    numero_plan = Some(texte.clone());
+                }
             }
-            let profil_rempli = range
-                .get_value((r, col_profil))
-                .map(|v| !cellule_vers_texte(v).is_empty())
-                .unwrap_or(false);
-            if profil_rempli {
-                if let Some(v) = range.get_value((r, col_nbr)).and_then(|v| v.as_f64()) {
-                    nb_barres_total += v;
+            if let (Some(col_nbr), Some(col_profil)) = (col_nbr, col_profil) {
+                let profil_ligne = range
+                    .get_value((r, col_profil))
+                    .map(cellule_vers_texte)
+                    .filter(|s| !s.is_empty());
+                if let Some(profil_ligne) = profil_ligne {
+                    if let Some(v) = range.get_value((r, col_nbr)).and_then(|v| v.as_f64()) {
+                        nb_barres_total += v;
+                        match groupes_profil.iter_mut().find(|g| g.profil == profil_ligne) {
+                            Some(groupe) => groupe.nb_barres += v,
+                            None => groupes_profil.push(GroupeProfil {
+                                profil: profil_ligne,
+                                nb_barres: v,
+                            }),
+                        }
+                    }
                 }
             }
             r += 1;
@@ -156,7 +210,10 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
     Ok(Some(InfoPrevi {
         commande,
         client,
+        profil,
+        numero_plan,
         nb_barres_total,
+        groupes_profil,
         colonne_nbr_trouvee,
     }))
 }
@@ -170,8 +227,15 @@ mod tests {
         let info = extraire_info_previ("1100706839.xlsx").unwrap().unwrap();
         assert_eq!(info.commande, "1100706839");
         assert_eq!(info.client.as_deref(), Some("KINZIGFLUTBRÜCKE"));
+        assert_eq!(info.profil.as_deref(), Some("HEB 600"));
+        assert_eq!(info.numero_plan.as_deref(), Some("1900016822"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 23.0);
+        // Un seul profil réel sur cette affaire -> un seul groupe.
+        assert_eq!(
+            info.groupes_profil,
+            vec![GroupeProfil { profil: "HEB 600".into(), nb_barres: 23.0 }]
+        );
     }
 
     #[test]
@@ -190,8 +254,16 @@ mod tests {
         // et NBR FER-T) -- seule celle adjacente à PROFIL est la bonne.
         let info = extraire_info_previ("1100662668.xlsx").unwrap().unwrap();
         assert_eq!(info.commande, "1100662668");
+        assert_eq!(info.profil.as_deref(), Some("HEB 600"));
+        assert_eq!(info.numero_plan.as_deref(), Some("1900015874"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 18.0);
+        // Les 2 groupes partagent le même profil "HEB 600" (seule la
+        // longueur diffère) -> fusionnés en une seule entrée.
+        assert_eq!(
+            info.groupes_profil,
+            vec![GroupeProfil { profil: "HEB 600".into(), nb_barres: 18.0 }]
+        );
     }
 
     #[test]
@@ -201,7 +273,14 @@ mod tests {
         // Deux lignes de données : NBR=16 et NBR=23 -> total 39.
         let info = extraire_info_previ("1100546190.xlsx").unwrap().unwrap();
         assert_eq!(info.commande, "1100546190");
+        assert_eq!(info.profil.as_deref(), Some("HEM 700"));
+        assert_eq!(info.numero_plan.as_deref(), Some("1900013594"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 39.0);
+        // Là aussi les 2 groupes partagent le même profil "HEM 700".
+        assert_eq!(
+            info.groupes_profil,
+            vec![GroupeProfil { profil: "HEM 700".into(), nb_barres: 39.0 }]
+        );
     }
 }

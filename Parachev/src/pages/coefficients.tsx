@@ -12,7 +12,7 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table"
-import { libellePoste } from "@/lib/postes"
+import { libellePoste, POSTE_KEYS } from "@/lib/postes"
 
 // Miroir de CoefficientLigne / CoefficientsInfo (src-tauri/src/lib.rs).
 type CoefficientLigne = {
@@ -54,21 +54,31 @@ export default function Coefficients() {
     return () => window.removeEventListener("coefficients-updated", charger)
   }, [])
 
+  // Regroupe les lignes par poste, puis complète avec TOUS les postes
+  // connus (même sans coefficient calibré) -- pour que la page montre
+  // vraiment l'ensemble des coefficients possibles, pas seulement le
+  // sous-ensemble déjà présent dans la table `coefficients`.
   const parPoste = useMemo(() => {
-    if (!info) return []
     const map = new Map<string, CoefficientLigne[]>()
-    for (const ligne of info.lignes) {
+    for (const ligne of info?.lignes ?? []) {
       const liste = map.get(ligne.poste) ?? []
       liste.push(ligne)
       map.set(ligne.poste, liste)
     }
-    return Array.from(map, ([poste, lignes]) => ({
-      poste,
-      intercept: lignes.find((l) => l.variable === CLE_INTERCEPT)?.valeur ?? 0,
-      variables: lignes
-        .filter((l) => l.variable !== CLE_INTERCEPT)
-        .sort((a, b) => a.variable.localeCompare(b.variable)),
-    })).sort((a, b) => a.poste.localeCompare(b.poste))
+
+    const tousLesPostes = new Set([...POSTE_KEYS, ...map.keys()])
+
+    return Array.from(tousLesPostes, (poste) => {
+      const lignes = map.get(poste)
+      return {
+        poste,
+        calibre: lignes != null,
+        intercept: lignes?.find((l) => l.variable === CLE_INTERCEPT)?.valeur ?? null,
+        variables: (lignes ?? [])
+          .filter((l) => l.variable !== CLE_INTERCEPT)
+          .sort((a, b) => a.variable.localeCompare(b.variable)),
+      }
+    }).sort((a, b) => a.poste.localeCompare(b.poste))
   }, [info])
 
   return (
@@ -105,14 +115,15 @@ export default function Coefficients() {
             </p>
           )}
 
-          {!loading && !error && parPoste.length === 0 && (
+          {!loading && !error && (!info || info.lignes.length === 0) && (
             <p className="text-sm text-muted-foreground">
-              Aucun coefficient en base -- lancez une calibration via le
-              bouton "Calibrer" en haut de la page.
+              Aucun coefficient calibré pour l'instant -- lancez une
+              calibration via le bouton "Calibrer" en haut de la page. Tous
+              les postes connus sont listés ci-dessous en attendant.
             </p>
           )}
 
-          {!loading && !error && parPoste.length > 0 && (
+          {!loading && !error && (
             <div className="overflow-hidden rounded-xl border bg-card">
               <Table>
                 <TableHeader>
@@ -124,15 +135,21 @@ export default function Coefficients() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {parPoste.map(({ poste, intercept, variables }) =>
+                  {parPoste.map(({ poste, calibre, intercept, variables }) =>
                     variables.length === 0 ? (
                       <TableRow key={poste}>
                         <TableCell className="font-medium">
                           {libellePoste(poste)}
                         </TableCell>
-                        <TableCell className="tabular-nums">
-                          {formatValeur(intercept)}
-                        </TableCell>
+                        {calibre ? (
+                          <TableCell className="tabular-nums">
+                            {formatValeur(intercept!)}
+                          </TableCell>
+                        ) : (
+                          <TableCell className="text-muted-foreground italic">
+                            Non calibré
+                          </TableCell>
+                        )}
                         <TableCell colSpan={2} className="text-muted-foreground">
                           —
                         </TableCell>
@@ -152,7 +169,7 @@ export default function Coefficients() {
                                 className="tabular-nums align-top"
                                 rowSpan={variables.length}
                               >
-                                {formatValeur(intercept)}
+                                {formatValeur(intercept!)}
                               </TableCell>
                             </>
                           ) : null}

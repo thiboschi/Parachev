@@ -7,8 +7,8 @@ mod calibration;
 mod config;
 
 use crate::prevision::{CoefficientsExport};
-use rusqlite::Connection;
-use serde::Serialize;
+use rusqlite::{params, Connection};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use crate::calibration::{calibrer_tous_les_postes};
@@ -58,6 +58,8 @@ pub fn run() {
             choisir_dossier_surveille,
             lister_variables_affaires,
             obtenir_variables_affaire,
+            mettre_a_jour_variables_affaire,
+            lister_profils_affaire,
             lister_previsions_affaire
         ])
         .setup(|app| {
@@ -68,6 +70,8 @@ pub fn run() {
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             erp::migrer_format_dates(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_ajouter_colonnes_profil_numero_plan(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_ajouter_colonne_contre_fleche(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
 
@@ -283,12 +287,15 @@ fn lister_heures_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<H
 struct VariablesAffaireRow {
     affaire: String,
     client: Option<String>,
+    profil: Option<String>,
+    numero_plan: Option<String>,
     nb_barres: Option<f64>,
     nb_goujons: Option<f64>,
     nb_trous_manuel: Option<f64>,
     nb_trous_numerique: Option<f64>,
     diametre_moyen_numerique: Option<f64>,
     longueur_coupe: Option<f64>,
+    contre_fleche: Option<f64>,
 }
 
 #[tauri::command]
@@ -296,8 +303,9 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT affaire, client, nb_barres, nb_goujons, nb_trous_manuel,
-                    nb_trous_numerique, diametre_moyen_numerique, longueur_coupe
+            "SELECT affaire, client, profil, numero_plan, nb_barres, nb_goujons,
+                    nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
+                    contre_fleche
              FROM variables_affaires ORDER BY affaire",
         )
         .map_err(|e| e.to_string())?;
@@ -307,12 +315,15 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
             Ok(VariablesAffaireRow {
                 affaire: row.get(0)?,
                 client: row.get(1)?,
-                nb_barres: row.get(2)?,
-                nb_goujons: row.get(3)?,
-                nb_trous_manuel: row.get(4)?,
-                nb_trous_numerique: row.get(5)?,
-                diametre_moyen_numerique: row.get(6)?,
-                longueur_coupe: row.get(7)?,
+                profil: row.get(2)?,
+                numero_plan: row.get(3)?,
+                nb_barres: row.get(4)?,
+                nb_goujons: row.get(5)?,
+                nb_trous_manuel: row.get(6)?,
+                nb_trous_numerique: row.get(7)?,
+                diametre_moyen_numerique: row.get(8)?,
+                longueur_coupe: row.get(9)?,
+                contre_fleche: row.get(10)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -327,24 +338,112 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
 fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<VariablesAffaireRow, String> {
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     conn.query_row(
-        "SELECT affaire, client, nb_barres, nb_goujons, nb_trous_manuel,
-                nb_trous_numerique, diametre_moyen_numerique, longueur_coupe
+        "SELECT affaire, client, profil, numero_plan, nb_barres, nb_goujons,
+                nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
+                contre_fleche
          FROM variables_affaires WHERE affaire = ?1",
         [&affaire],
         |row| {
             Ok(VariablesAffaireRow {
                 affaire: row.get(0)?,
                 client: row.get(1)?,
-                nb_barres: row.get(2)?,
-                nb_goujons: row.get(3)?,
-                nb_trous_manuel: row.get(4)?,
-                nb_trous_numerique: row.get(5)?,
-                diametre_moyen_numerique: row.get(6)?,
-                longueur_coupe: row.get(7)?,
+                profil: row.get(2)?,
+                numero_plan: row.get(3)?,
+                nb_barres: row.get(4)?,
+                nb_goujons: row.get(5)?,
+                nb_trous_manuel: row.get(6)?,
+                nb_trous_numerique: row.get(7)?,
+                diametre_moyen_numerique: row.get(8)?,
+                longueur_coupe: row.get(9)?,
+                contre_fleche: row.get(10)?,
             })
         },
     )
     .map_err(|e| format!("Affaire '{affaire}' introuvable en base: {e}"))
+}
+
+#[derive(Deserialize)]
+struct VariablesAffaireEdition {
+    profil: Option<String>,
+    numero_plan: Option<String>,
+    nb_barres: Option<f64>,
+    nb_goujons: Option<f64>,
+    nb_trous_manuel: Option<f64>,
+    nb_trous_numerique: Option<f64>,
+    contre_fleche: Option<f64>,
+}
+
+/// Met à jour les variables modifiables manuellement depuis l'écran de
+/// prévision (les colonnes issues du parsing Excel -- diametre_moyen_numerique,
+/// longueur_coupe -- ne sont pas éditées ici). N'insère jamais de nouvelle
+/// ligne : l'affaire doit déjà exister dans `variables_affaires` (ce qui est
+/// garanti puisque l'écran ne montre le formulaire d'édition que pour une
+/// affaire déjà chargée).
+#[tauri::command]
+fn mettre_a_jour_variables_affaire(
+    app: tauri::AppHandle,
+    affaire: String,
+    variables: VariablesAffaireEdition,
+) -> Result<(), String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let n = conn
+        .execute(
+            "UPDATE variables_affaires SET
+                profil = ?1,
+                numero_plan = ?2,
+                nb_barres = ?3,
+                nb_goujons = ?4,
+                nb_trous_manuel = ?5,
+                nb_trous_numerique = ?6,
+                contre_fleche = ?7
+             WHERE affaire = ?8",
+            params![
+                variables.profil,
+                variables.numero_plan,
+                variables.nb_barres,
+                variables.nb_goujons,
+                variables.nb_trous_manuel,
+                variables.nb_trous_numerique,
+                variables.contre_fleche,
+                affaire,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+
+    if n == 0 {
+        return Err(format!("Affaire '{affaire}' introuvable en base"));
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct ProfilAffaireRow {
+    profil: String,
+    nb_barres: f64,
+}
+
+/// Détail par profil d'une affaire (table `profils_affaires`) -- utile
+/// quand une affaire mélange plusieurs profils distincts, chacun avec son
+/// propre nb_barres (`variables_affaires.profil`/`nb_barres` ne gardent
+/// qu'un résumé du premier). Vide (pas une erreur) si l'affaire n'a pas
+/// encore été parsée.
+#[tauri::command]
+fn lister_profils_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<ProfilAffaireRow>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT profil, nb_barres FROM profils_affaires WHERE affaire = ?1 ORDER BY profil")
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([&affaire], |row| {
+            Ok(ProfilAffaireRow {
+                profil: row.get(0)?,
+                nb_barres: row.get(1)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
 }
 
 #[derive(Serialize)]

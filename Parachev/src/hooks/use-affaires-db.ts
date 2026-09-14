@@ -15,12 +15,15 @@ export interface HeureRow {
 export interface VariablesAffaireRow {
   affaire: string
   client: string | null
+  profil: string | null
+  numero_plan: string | null
   nb_barres: number | null
   nb_goujons: number | null
   nb_trous_manuel: number | null
   nb_trous_numerique: number | null
   diametre_moyen_numerique: number | null
   longueur_coupe: number | null
+  contre_fleche: number | null
 }
 
 export interface HeuresParPoste {

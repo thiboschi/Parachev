@@ -1,91 +1,77 @@
 import * as React from "react"
-import { IconX } from "@tabler/icons-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { AffaireResults } from "@/components/affaires/affaires-result"
-import { AffaireSearchBar } from "@/components/affaires/affaires-search-bar"
-import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { AffaireSearchBar, type ChampVariableKey } from "@/components/affaires/affaires-search-bar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 import { useAffairesDb } from "@/hooks/use-affaires-db"
-import { PROFIL_OPTIONS } from "@/lib/profils"
+import { CHAMPS_VARIABLES_NUMERIQUES } from "@/lib/variables-affaires"
+import { TYPES_PRODUCTION, affaireCorrespondAuType } from "@/lib/flux-production"
 
-const METHODE_OPTIONS = [
-  "Redressage",
-  "Controle U.S",
-  "Building",
-  "Sciage",
-  "Parking",
-  "Presse",
-  "Fers-T",
-  "IFB",
-  "Pont PPE",
-  "Ponts Mixtes",
-  "Ponts Complexes",
-  "Caisson",
-  "Murs Anti Bruit",
-  "Chargement",
-]
-
-type PoutreRow = {
-  id: number
-  profil: string
-  nbrProfil: string
-  lgLam: string
-  lgFinie: string
-  cfl: boolean
-  rayon: string
-  methode: string
-}
+type VariableFiltres = Partial<Record<ChampVariableKey, string>>
 
 export default function Search() {
   const { affaires, clients, loading, error } = useAffairesDb()
   const [searchText, setSearchText] = React.useState("")
   const [client, setClient] = React.useState("all")
-  const [poutreRows, setPoutreRows] = React.useState<PoutreRow[]>([])
-  const nextPoutreRowId = React.useRef(0)
+  const [profil, setProfil] = React.useState("all")
+  const [type, setType] = React.useState("all")
+  const [variableFiltres, setVariableFiltres] = React.useState<VariableFiltres>({})
 
-  function addPoutreRow() {
-    nextPoutreRowId.current += 1
-    setPoutreRows((rows) => [
-      ...rows,
-      {
-        id: nextPoutreRowId.current,
-        profil: "",
-        nbrProfil: "",
-        lgLam: "",
-        lgFinie: "",
-        cfl: false,
-        rayon: "",
-        methode: "",
-      },
-    ])
+  const setVariableFiltre = (key: ChampVariableKey, value: string) => {
+    setVariableFiltres((prev) => ({ ...prev, [key]: value }))
   }
 
-  function updatePoutreRow(id: number, patch: Partial<PoutreRow>) {
-    setPoutreRows((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, ...patch } : row))
-    )
-  }
+  const profilOptions = React.useMemo(
+    () =>
+      Array.from(
+        new Set(
+          affaires
+            .map((item) => item.variables?.profil)
+            .filter((p): p is string => !!p)
+        )
+      ).sort(),
+    [affaires]
+  )
 
-  function removePoutreRow(id: number) {
-    setPoutreRows((rows) => rows.filter((row) => row.id !== id))
-  }
+  const typeSelectionne = React.useMemo(
+    () => (type === "all" ? null : TYPES_PRODUCTION.find((t) => t.nom === type) ?? null),
+    [type]
+  )
 
   const results = React.useMemo(() => {
     const query = searchText.trim().toLowerCase()
     return affaires.filter((item) => {
       const matchesQuery =
         !query ||
-        [item.numero, item.client ?? ""].join(" ").toLowerCase().includes(query)
+        [
+          item.numero,
+          item.client ?? "",
+          item.variables?.profil ?? "",
+          item.variables?.numero_plan ?? "",
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
       const matchesClient = client === "all" || item.client === client
-      return matchesQuery && matchesClient
+      const matchesProfil = profil === "all" || item.variables?.profil === profil
+      const matchesVariables = CHAMPS_VARIABLES_NUMERIQUES.every(({ key }) => {
+        const filtre = variableFiltres[key]?.trim()
+        if (!filtre) return true
+        const attendu = Number(filtre)
+        if (Number.isNaN(attendu)) return true
+        return item.variables?.[key] === attendu
+      })
+      const matchesType =
+        !typeSelectionne ||
+        affaireCorrespondAuType(
+          new Set(item.heuresParPoste.map((h) => h.poste)),
+          typeSelectionne
+        )
+      return matchesQuery && matchesClient && matchesProfil && matchesVariables && matchesType
     })
-  }, [affaires, searchText, client])
+  }, [affaires, searchText, client, profil, variableFiltres, typeSelectionne])
 
   return (
     <SidebarProvider
@@ -106,129 +92,15 @@ export default function Search() {
             client={client}
             onClientChange={setClient}
             clientOptions={clients}
-            onAddPoutreRow={addPoutreRow}
+            profil={profil}
+            onProfilChange={setProfil}
+            profilOptions={profilOptions}
+            type={type}
+            onTypeChange={setType}
+            variableFiltres={variableFiltres}
+            onVariableFiltreChange={setVariableFiltre}
+            onResetVariables={() => setVariableFiltres({})}
           />
-
-          {poutreRows.length > 0 && (
-            <div className="flex flex-col gap-3">
-              {poutreRows.map((row) => (
-                <div
-                  key={row.id}
-                  className="flex flex-col gap-3 rounded-xl border bg-card p-4 ring-1 ring-foreground/10 md:flex-row md:flex-wrap md:items-end"
-                >
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`profil-${row.id}`}>Profil</Label>
-                    <Select
-                      value={row.profil}
-                      onValueChange={(value) =>
-                        updatePoutreRow(row.id, { profil: value ?? "" })
-                      }
-                    >
-                      <SelectTrigger id={`profil-${row.id}`} className="w-full md:w-36">
-                        <SelectValue placeholder="Profil" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {PROFIL_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`nbr-profil-${row.id}`}>Nbr Profil</Label>
-                    <Input
-                      id={`nbr-profil-${row.id}`}
-                      className="w-full md:w-28"
-                      value={row.nbrProfil}
-                      onChange={(e) =>
-                        updatePoutreRow(row.id, { nbrProfil: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`lg-lam-${row.id}`}>Lg Lam</Label>
-                    <Input
-                      id={`lg-lam-${row.id}`}
-                      className="w-full md:w-28"
-                      value={row.lgLam}
-                      onChange={(e) =>
-                        updatePoutreRow(row.id, { lgLam: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`lg-finie-${row.id}`}>Lg Finie</Label>
-                    <Input
-                      id={`lg-finie-${row.id}`}
-                      className="w-full md:w-28"
-                      value={row.lgFinie}
-                      onChange={(e) =>
-                        updatePoutreRow(row.id, { lgFinie: e.target.value })
-                      }
-                    />
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor={`methode-${row.id}`}>Méthode</Label>
-                    <Select
-                      value={row.methode}
-                      onValueChange={(value) =>
-                        updatePoutreRow(row.id, { methode: value ?? "" })
-                      }
-                    >
-                      <SelectTrigger id={`methode-${row.id}`} className="w-full md:w-40">
-                        <SelectValue placeholder="Méthode" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {METHODE_OPTIONS.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="flex items-center gap-2 pb-1.5">
-                    <Checkbox
-                      id={`cfl-${row.id}`}
-                      checked={row.cfl}
-                      onCheckedChange={(value) =>
-                        updatePoutreRow(row.id, {
-                          cfl: !!value,
-                          rayon: value ? row.rayon : "",
-                        })
-                      }
-                    />
-                    <Label htmlFor={`cfl-${row.id}`}>CFL</Label>
-                  </div>
-                  {row.cfl && (
-                    <div className="flex flex-col gap-2">
-                      <Label htmlFor={`rayon-${row.id}`}>Rayon</Label>
-                      <Input
-                        id={`rayon-${row.id}`}
-                        className="w-full md:w-28"
-                        value={row.rayon}
-                        onChange={(e) =>
-                          updatePoutreRow(row.id, { rayon: e.target.value })
-                        }
-                      />
-                    </div>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground md:ml-auto"
-                    onClick={() => removePoutreRow(row.id)}
-                  >
-                    <IconX />
-                    <span className="sr-only">Supprimer la ligne</span>
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
 
           <AffaireResults results={results} loading={loading} error={error} />
         </div>

@@ -19,6 +19,11 @@ const POSTE_LABELS: Record<string, string> = {
   casse_machine: "Casse machine",
 }
 
+// Tous les postes connus (voir erp::normaliser_poste côté Rust) -- utile
+// pour afficher l'ensemble des postes possibles même quand certains n'ont
+// pas (encore) de lignes dans une table donnée (ex. coefficients calibrés).
+export const POSTE_KEYS = Object.keys(POSTE_LABELS)
+
 export function libellePoste(poste: string): string {
   return (
     POSTE_LABELS[poste] ??
