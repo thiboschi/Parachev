@@ -160,7 +160,7 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
     let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
 
-    let coeffs = CoefficientsExport::charger("/Users/thibaultboschi/Documents/School/Epitech/Tek5/Stage/Parachev/Parachev/src-tauri/coefficients.json")?;
+    let coeffs = prevision::charger_coefficients(&conn)?;
     let prevision = prevision::previsualiser_et_enregistrer(&mut conn, &coeffs, &affaire)?;
 
     let mut resultat = prevision.heures_par_poste;
