@@ -51,6 +51,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             previsualiser_affaire,
             recalibrer,
+            lister_coefficients,
             lister_heures,
             lister_heures_affaire,
             obtenir_dossier_configure,
@@ -176,6 +177,50 @@ fn recalibrer(app: tauri::AppHandle) -> Result<(), String> {
     prevision::enregistrer_coefficients(&mut conn, &export)?;
 
     Ok(())
+}
+
+#[derive(Serialize)]
+struct CoefficientLigne {
+    poste: String,
+    variable: String,
+    valeur: f64,
+}
+
+#[derive(Serialize)]
+struct CoefficientsInfo {
+    version: Option<u32>,
+    date_calibration: Option<String>,
+    lignes: Vec<CoefficientLigne>,
+}
+
+/// Liste le contenu brut de la table `coefficients`, pour affichage --
+/// `lignes` est vide (avec version/date_calibration à None) tant qu'aucune
+/// calibration n'a été lancée.
+#[tauri::command]
+fn lister_coefficients(app: tauri::AppHandle) -> Result<CoefficientsInfo, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
+
+    let version = config::lire_config(&conn, "coefficients_version")?
+        .and_then(|v| v.parse().ok());
+    let date_calibration = config::lire_config(&conn, "coefficients_date_calibration")?;
+
+    let mut stmt = conn
+        .prepare("SELECT poste, variable, valeur FROM coefficients ORDER BY poste, variable")
+        .map_err(|e| e.to_string())?;
+    let lignes = stmt
+        .query_map([], |row| {
+            Ok(CoefficientLigne {
+                poste: row.get(0)?,
+                variable: row.get(1)?,
+                valeur: row.get(2)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+
+    Ok(CoefficientsInfo { version, date_calibration, lignes })
 }
 
 #[derive(Serialize)]

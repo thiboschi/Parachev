@@ -40,12 +40,25 @@ struct LigneCalibration {
 
 /// Charge, pour un poste donné, les couples (heures réelles, variables)
 /// en joignant `heures` et `variables_affaires` sur `affaire`.
+///
+/// Exclut les affaires dont une des variables requises est NULL en base --
+/// ex. une affaire dont les heures ERP sont importées mais dont le fichier
+/// Excel n'a pas encore été parsé n'a que `affaire`/`client` de renseignés
+/// (voir erp::inserer_clients), tout le reste vaut NULL. Les inclure avec
+/// une valeur à 0 fausserait la régression (des heures réelles associées à
+/// "0 barre"/"0 trou" alors que la variable est en fait inconnue, pas
+/// nulle) ; mieux vaut les ignorer que produire un coefficient biaisé.
 fn charger_donnees_poste(
     conn: &Connection,
     poste: &str,
     variables: &[&str],
 ) -> Result<Vec<LigneCalibration>, String> {
     let colonnes_variables = variables.join(", ");
+    let conditions_non_null = variables
+        .iter()
+        .map(|v| format!("v.{v} IS NOT NULL"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
     let requete = format!(
         "SELECT h.total_heures, {colonnes_variables}
          FROM (
@@ -53,7 +66,8 @@ fn charger_donnees_poste(
              FROM heures WHERE poste = ?1
              GROUP BY affaire
          ) h
-         JOIN variables_affaires v ON v.affaire = h.affaire"
+         JOIN variables_affaires v ON v.affaire = h.affaire
+         WHERE {conditions_non_null}"
     );
 
     let mut stmt = conn.prepare(&requete).map_err(|e| e.to_string())?;
