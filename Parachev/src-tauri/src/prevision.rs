@@ -147,12 +147,7 @@ pub fn charger_coefficients(conn: &Connection) -> Result<CoefficientsExport, Str
         return Err("Aucun coefficient en base -- calibrer d'abord".to_string());
     }
 
-    Ok(CoefficientsExport {
-        version,
-        date_calibration,
-        seuil_diametre_manuel_mm,
-        postes,
-    })
+    Ok(CoefficientsExport {version, date_calibration, seuil_diametre_manuel_mm, postes})
 }
 
 // ---------------------------------------------------------------------------
@@ -165,10 +160,7 @@ pub type VariablesAffaire = HashMap<String, f64>;
 /// Lit les variables d'une affaire directement depuis la table SQLite.
 /// Retourne une erreur si l'affaire n'existe pas encore dans la base
 /// (ex. devis pas encore importé).
-pub fn charger_variables_affaire(
-    conn: &Connection,
-    affaire: &str,
-) -> Result<VariablesAffaire, String> {
+pub fn charger_variables_affaire(conn: &Connection, affaire: &str) -> Result<VariablesAffaire, String> {
     let mut stmt = conn
         .prepare(
             "SELECT nb_barres, nb_goujons, nb_trous_manuel, nb_trous_numerique,
@@ -262,12 +254,7 @@ pub fn initialiser_schema_previsions(conn: &Connection) -> rusqlite::Result<()> 
 /// cette affaire puis insère les nouvelles. Idempotent -- si les variables
 /// de l'affaire ont changé entre deux appels (ex. plus de goujons en V2
 /// qu'en V1), l'ancien résultat est intégralement remplacé, pas fusionné.
-pub fn enregistrer_prevision(
-    conn: &mut Connection,
-    affaire: &str,
-    prevision: &Prevision,
-    version_coefficients: &str,
-) -> Result<(), String> {
+pub fn enregistrer_prevision(conn: &mut Connection, affaire: &str, prevision: &Prevision, version_coefficients: &str) -> Result<(), String> {
     println!("Prevision enregistrée");
     let date_prevision = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -293,11 +280,7 @@ pub fn enregistrer_prevision(
 
 /// Combine calcul de la prévision + enregistrement en base, en une seule
 /// opération -- c'est cette fonction que la commande Tauri doit appeler.
-pub fn previsualiser_et_enregistrer(
-    conn: &mut Connection,
-    coeffs: &CoefficientsExport,
-    affaire: &str,
-) -> Result<Prevision, String> {
+pub fn previsualiser_et_enregistrer(conn: &mut Connection, coeffs: &CoefficientsExport, affaire: &str) -> Result<Prevision, String> {
     println!("About to previ and register");
     let variables = charger_variables_affaire(conn, affaire)?;
     let prevision = predire(coeffs, &variables);

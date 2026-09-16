@@ -98,10 +98,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
 /// incluses : un None reflète maintenant un poste réellement absent de
 /// l'affaire (feuille FT-MAN/FT-NUM manquante), pas un parser non
 /// implémenté, donc plus de raison de le préserver artificiellement.
-pub fn inserer_variables_affaire(
-    conn: &Connection,
-    variables: &VariablesAffaire,
-) -> Result<(), String> {
+pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire) -> Result<(), String> {
     conn.execute(
         "INSERT INTO variables_affaires
             (affaire, client, profil, numero_plan, nb_barres, nb_goujons, longueur_coupe,
@@ -144,11 +141,7 @@ pub fn inserer_variables_affaire(
 /// `profils_affaires` (DELETE puis INSERT, comme enregistrer_prevision) --
 /// un remplacement complet plutôt qu'un upsert car le nombre de profils
 /// distincts peut changer d'une extraction à l'autre (fichier corrigé).
-pub fn inserer_profils_affaire(
-    conn: &mut Connection,
-    affaire: &str,
-    groupes: &[GroupeProfil],
-) -> Result<(), String> {
+pub fn inserer_profils_affaire(conn: &mut Connection, affaire: &str, groupes: &[GroupeProfil]) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM profils_affaires WHERE affaire = ?1", params![affaire])
         .map_err(|e| e.to_string())?;

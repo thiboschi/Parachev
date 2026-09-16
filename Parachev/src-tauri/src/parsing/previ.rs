@@ -140,12 +140,7 @@ fn trouver_colonne_la_plus_proche_avant(
 /// (insensible à la casse). Retourne sa ligne. Contrairement à
 /// `trouver_ligne_par_texte_col_a`, ne se limite pas à la colonne A --
 /// utile pour la feuille SUIVI, où PROFIL n'est jamais en première colonne.
-fn trouver_ligne_par_texte_cellule(
-    range: &calamine::Range<calamine::Data>,
-    texte: &str,
-    max_ligne: u32,
-    max_col: u32,
-) -> Option<u32> {
+fn trouver_ligne_par_texte_cellule(range: &calamine::Range<calamine::Data>, texte: &str, max_ligne: u32, max_col: u32) -> Option<u32> {
     for r in 0..max_ligne.min(range.height() as u32) {
         for c in 0..max_col.min(range.width() as u32) {
             if let Some(v) = range.get_value((r, c)) {
@@ -166,9 +161,7 @@ fn trouver_ligne_par_texte_cellule(
 /// erreur) si la feuille SUIVI est absente ou n'a pas le format attendu --
 /// L-LAM est une donnée complémentaire, son absence ne doit pas faire
 /// échouer tout le parsing PREVI.
-fn construire_correlation_l_lam(
-    range: &calamine::Range<calamine::Data>,
-) -> HashMap<(String, String), f64> {
+fn construire_correlation_l_lam(range: &calamine::Range<calamine::Data>) -> HashMap<(String, String), f64> {
     let mut correlation = HashMap::new();
 
     const MAX_COLONNES_ENTETE: u32 = 30;
@@ -328,15 +321,7 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         }
     }
 
-    Ok(Some(InfoPrevi {
-        commande,
-        client,
-        profil,
-        numero_plan,
-        nb_barres_total,
-        groupes_profil,
-        colonne_nbr_trouvee,
-    }))
+    Ok(Some(InfoPrevi {commande, client, profil, numero_plan, nb_barres_total, groupes_profil, colonne_nbr_trouvee}))
 }
 
 #[cfg(test)]

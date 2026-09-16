@@ -34,12 +34,7 @@ pub struct ResultatOxycoupage {
 /// Cherche la première ligne (0-based) contenant une cellule dont le texte
 /// (trim, casse ignorée) vaut exactement `motif`, dans les `max_ligne`
 /// premières lignes et `max_col` premières colonnes.
-fn trouver_ligne_entete(
-    range: &Range<calamine::Data>,
-    motif: &str,
-    max_ligne: u32,
-    max_col: u32,
-) -> Option<u32> {
+fn trouver_ligne_entete(range: &Range<calamine::Data>, motif: &str, max_ligne: u32, max_col: u32) -> Option<u32> {
     let hauteur = max_ligne.min(range.height() as u32);
     let largeur = max_col.min(range.width() as u32);
     for r in 0..hauteur {
@@ -56,12 +51,7 @@ fn trouver_ligne_entete(
 
 /// Cherche, sur une ligne donnée, la colonne dont le texte contient
 /// `motif` (insensible à la casse).
-fn trouver_colonne(
-    range: &Range<calamine::Data>,
-    ligne: u32,
-    motif: &str,
-    max_col: u32,
-) -> Option<u32> {
+fn trouver_colonne(range: &Range<calamine::Data>, ligne: u32, motif: &str, max_col: u32) -> Option<u32> {
     for c in 0..max_col.min(range.width() as u32) {
         if let Some(v) = range.get_value((ligne, c)) {
             if cellule_vers_texte(v).to_uppercase().contains(&motif.to_uppercase()) {

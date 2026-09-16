@@ -322,10 +322,7 @@ pub fn inserer_heures(conn: &mut Connection, lignes: &[LigneHeure]) -> rusqlite:
 /// Excel (voir parsing::previ, encodage fiable) prime sur celui-ci, donc on
 /// n'écrase jamais un client déjà renseigné -- seulement les affaires pour
 /// lesquelles aucun Excel n'a encore été traité.
-pub fn inserer_clients(
-    conn: &Connection,
-    clients: &std::collections::HashMap<String, String>,
-) -> rusqlite::Result<()> {
+pub fn inserer_clients(conn: &Connection, clients: &std::collections::HashMap<String, String>) -> rusqlite::Result<()> {
     for (affaire, client) in clients {
         conn.execute(
             "INSERT INTO variables_affaires (affaire, client) VALUES (?1, ?2)

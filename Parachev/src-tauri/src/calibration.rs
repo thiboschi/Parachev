@@ -48,11 +48,7 @@ struct LigneCalibration {
 /// une valeur à 0 fausserait la régression (des heures réelles associées à
 /// "0 barre"/"0 trou" alors que la variable est en fait inconnue, pas
 /// nulle) ; mieux vaut les ignorer que produire un coefficient biaisé.
-fn charger_donnees_poste(
-    conn: &Connection,
-    poste: &str,
-    variables: &[&str],
-) -> Result<Vec<LigneCalibration>, String> {
+fn charger_donnees_poste(conn: &Connection, poste: &str, variables: &[&str]) -> Result<Vec<LigneCalibration>, String> {
     let colonnes_variables = variables.join(", ");
     let conditions_non_null = variables
         .iter()
@@ -123,11 +119,7 @@ fn regression_lineaire(donnees: &[LigneCalibration], n_variables: usize) -> (f64
 }
 
 /// Calibre un seul poste. Retourne None si l'échantillon est insuffisant.
-pub fn calibrer_poste(
-    conn: &Connection,
-    poste: &str,
-    variables: &[&str],
-) -> Result<Option<ResultatCalibration>, String> {
+pub fn calibrer_poste(conn: &Connection, poste: &str, variables: &[&str]) -> Result<Option<ResultatCalibration>, String> {
     let donnees = charger_donnees_poste(conn, poste, variables)?;
 
     let seuil_min = (MIN_OBS_PAR_VARIABLE * variables.len()).max(variables.len() + 2);

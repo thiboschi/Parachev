@@ -177,10 +177,7 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
 /// que les coefficients déjà calibrés : c'est une simulation, pas une
 /// prévision persistée.
 #[tauri::command]
-fn chiffrer_manuellement(
-    app: tauri::AppHandle,
-    variables: HashMap<String, f64>,
-) -> Result<HashMap<String, f64>, String> {
+fn chiffrer_manuellement(app: tauri::AppHandle, variables: HashMap<String, f64>) -> Result<HashMap<String, f64>, String> {
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let coeffs = prevision::charger_coefficients(&conn)?;
     let prevision = prevision::predire(&coeffs, &variables);

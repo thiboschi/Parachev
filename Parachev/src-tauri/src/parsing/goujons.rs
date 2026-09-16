@@ -99,10 +99,5 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
         r += 1;
     }
 
-    Ok(Some(ResultatGoujons {
-        affaire,
-        nb_barres,
-        nb_goujons_total,
-        detail,
-    }))
+    Ok(Some(ResultatGoujons {affaire, nb_barres, nb_goujons_total, detail}))
 }
