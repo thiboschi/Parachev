@@ -4,6 +4,7 @@ import Page from "./pages/dashboard";
 import Prevision from "./pages/prevision";
 import Search from "./pages/search";
 import Coefficients from "./pages/coefficients";
+import Chiffrage from "./pages/chiffrage";
 
 import "./App.css";
 
@@ -18,6 +19,7 @@ function App() {
           <Route path="/prevision/:affaire" element={<Prevision/>} />
           <Route path="/search" element={<Search/>} />
           <Route path="/coefficients" element={<Coefficients/>} />
+          <Route path="/chiffrage" element={<Chiffrage/>} />
         </Routes>
       </BrowserRouter>
 

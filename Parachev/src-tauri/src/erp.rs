@@ -33,15 +33,19 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             contre_fleche               REAL
         );
 
-        -- Une affaire peut regrouper plusieurs profils distincts (ex. HEB
-        -- 600 et HEM 700 sur la même commande) ; `variables_affaires.profil`
-        -- ne garde que le premier comme résumé rapide, cette table porte le
-        -- détail complet (un profil = une ligne, avec son propre nb_barres).
+        -- Une affaire peut regrouper plusieurs groupes profil+longueur
+        -- distincts (ex. HEB 600/11000mm et HEB 600/12800mm sur la même
+        -- commande) ; `variables_affaires.profil` ne garde que le premier
+        -- comme résumé rapide, cette table porte le détail complet (un
+        -- groupe profil+longueur = une ligne, avec son propre nb_barres et
+        -- son L-LAM, la longueur brute livrée par le laminoir).
         CREATE TABLE IF NOT EXISTS profils_affaires (
             affaire   TEXT NOT NULL,
             profil    TEXT NOT NULL,
+            longueur  REAL NOT NULL,
+            l_lam     REAL,
             nb_barres REAL NOT NULL,
-            PRIMARY KEY (affaire, profil)
+            PRIMARY KEY (affaire, profil, longueur)
         );
         ",
     )?;
@@ -91,6 +95,40 @@ pub fn migrer_ajouter_colonne_contre_fleche(conn: &Connection) -> rusqlite::Resu
         }
         Err(e) => Err(e),
     }
+}
+
+/// Recrée `profils_affaires` avec les colonnes `longueur`/`l_lam` et une clé
+/// primaire élargie (affaire, profil, longueur) -- une même affaire peut
+/// désormais avoir plusieurs lignes pour un même profil si ses longueurs
+/// diffèrent (ex. HEB 600 en 11000mm ET en 12800mm), alors que l'ancien
+/// schéma ("affaire, profil") les aurait fait entrer en conflit.
+/// SQLite ne permet pas de changer une clé primaire via ALTER TABLE, d'où
+/// la recréation complète plutôt qu'un ADD COLUMN idempotent comme les
+/// autres migrations de ce fichier. Les anciennes lignes ne sont pas
+/// reprises (elles n'ont pas de longueur connue) mais c'est sans perte :
+/// `profils_affaires` n'est qu'un cache régénéré en intégralité (DELETE +
+/// INSERT) à chaque ré-extraction Excel, et `scanner_dossier_initial` la
+/// repeuple automatiquement au démarrage. Idempotente : ne fait rien si la
+/// colonne `longueur` existe déjà.
+pub fn migrer_profils_affaires_ajouter_longueur(conn: &Connection) -> rusqlite::Result<()> {
+    let colonne_longueur_existe = conn
+        .prepare("SELECT 1 FROM pragma_table_info('profils_affaires') WHERE name = 'longueur'")?
+        .exists([])?;
+    if colonne_longueur_existe {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "DROP TABLE IF EXISTS profils_affaires;
+        CREATE TABLE profils_affaires (
+            affaire   TEXT NOT NULL,
+            profil    TEXT NOT NULL,
+            longueur  REAL NOT NULL,
+            l_lam     REAL,
+            nb_barres REAL NOT NULL,
+            PRIMARY KEY (affaire, profil, longueur)
+        );",
+    )
 }
 
 /// Reformate en ISO ("YYYY-MM-DD") les dates encore stockées sous l'ancien
@@ -279,6 +317,11 @@ pub fn inserer_heures(conn: &mut Connection, lignes: &[LigneHeure]) -> rusqlite:
 /// Insère ou met à jour le nom client pour chaque affaire, sans jamais
 /// toucher aux autres colonnes de variables_affaires (nb_barres,
 /// nb_goujons... alimentées séparément par le parsing Excel). Idempotent.
+///
+/// Ne sert que de repli : le nom client extrait de la feuille PREVI des
+/// Excel (voir parsing::previ, encodage fiable) prime sur celui-ci, donc on
+/// n'écrase jamais un client déjà renseigné -- seulement les affaires pour
+/// lesquelles aucun Excel n'a encore été traité.
 pub fn inserer_clients(
     conn: &Connection,
     clients: &std::collections::HashMap<String, String>,
@@ -286,7 +329,8 @@ pub fn inserer_clients(
     for (affaire, client) in clients {
         conn.execute(
             "INSERT INTO variables_affaires (affaire, client) VALUES (?1, ?2)
-             ON CONFLICT(affaire) DO UPDATE SET client = excluded.client",
+             ON CONFLICT(affaire) DO UPDATE SET
+                client = COALESCE(variables_affaires.client, excluded.client)",
             params![affaire, client],
         )?;
     }

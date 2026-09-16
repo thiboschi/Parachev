@@ -1,5 +1,5 @@
 import * as React from "react"
-import { IconAdjustmentsHorizontal, IconDashboard, IconSearch } from "@tabler/icons-react"
+import { IconAdjustmentsHorizontal, IconCalculator, IconDashboard, IconSearch } from "@tabler/icons-react"
 import { NavMain } from "@/components/dashboard/nav-main"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 
@@ -19,6 +19,11 @@ export const data = {
       title: "Coefficients",
       url: "/coefficients",
       icon: IconAdjustmentsHorizontal,
+    },
+    {
+      title: "Chiffrage",
+      url: "/chiffrage",
+      icon: IconCalculator,
     },
   ]
 }

@@ -10,9 +10,19 @@
 //! - Une ou plusieurs lignes de données juste en dessous (une par groupe
 //!   profil/longueur/lot), jusqu'à une ligne "TOTAL" en colonne A qui
 //!   marque la fin du tableau.
+//!
+//! LONG (longueur finale de la barre, après parachèvement) est disponible
+//! directement dans ce tableau, juste à côté de PROFIL. L-LAM (longueur de
+//! la barre telle que livrée par le laminoir, avant parachèvement) n'existe
+//! en revanche pas dans PREVI -- elle est allée chercher dans la feuille
+//! "SUIVI" (SUIVI JOURNALIER), qui détaille chaque barre individuellement
+//! avec son PROFIL/L-LAM/LONG ; toutes les barres d'un même groupe
+//! profil/longueur y partagent la même valeur de L-LAM, d'où la corrélation
+//! par (PROFIL, LONG) plutôt qu'un simple index de ligne.
 
 use super::cellule_vers_texte;
 use calamine::{open_workbook, DataType, Reader, Xlsx};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct InfoPrevi {
@@ -30,11 +40,11 @@ pub struct InfoPrevi {
     /// fichiers réels disponibles) -- identifié par son préfixe "19".
     pub numero_plan: Option<String>,
     pub nb_barres_total: f64,
-    /// Répartition de nb_barres_total par profil distinct (ex. HEB 600:23,
-    /// HEM 700:16 si l'affaire mélange plusieurs profils) -- les groupes
-    /// partageant le même texte de profil (ex. deux longueurs différentes
-    /// du même profil) sont fusionnés en une seule entrée dont nb_barres
-    /// est la somme. Ordre d'apparition dans le fichier, pas alphabétique.
+    /// Répartition de nb_barres_total par groupe profil+longueur distinct
+    /// (ex. HEB 600/11000mm:6, HEB 600/12800mm:12 si l'affaire mélange
+    /// plusieurs longueurs d'un même profil) -- deux lignes ne sont
+    /// fusionnées que si profil ET longueur coïncident tous les deux.
+    /// Ordre d'apparition dans le fichier, pas alphabétique.
     pub groupes_profil: Vec<GroupeProfil>,
     /// false si la colonne NBR n'a pas pu être localisée dans ce fichier
     /// (structure de template différente) -- nb_barres_total vaut alors 0.0
@@ -45,6 +55,12 @@ pub struct InfoPrevi {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupeProfil {
     pub profil: String,
+    /// Longueur finale de la barre (colonne LONG de PREVI), en mm.
+    pub longueur: f64,
+    /// Longueur brute livrée par le laminoir (colonne L-LAM de la feuille
+    /// SUIVI), en mm. None si la feuille SUIVI est absente ou ne contient
+    /// pas ce groupe profil/longueur (ex. affaire pas encore suivie).
+    pub l_lam: Option<f64>,
     pub nb_barres: f64,
 }
 
@@ -119,6 +135,78 @@ fn trouver_colonne_la_plus_proche_avant(
     None
 }
 
+/// Cherche, dans les `max_ligne` premières lignes de `range`, une cellule
+/// (n'importe quelle colonne dans `max_col`) valant exactement `texte`
+/// (insensible à la casse). Retourne sa ligne. Contrairement à
+/// `trouver_ligne_par_texte_col_a`, ne se limite pas à la colonne A --
+/// utile pour la feuille SUIVI, où PROFIL n'est jamais en première colonne.
+fn trouver_ligne_par_texte_cellule(
+    range: &calamine::Range<calamine::Data>,
+    texte: &str,
+    max_ligne: u32,
+    max_col: u32,
+) -> Option<u32> {
+    for r in 0..max_ligne.min(range.height() as u32) {
+        for c in 0..max_col.min(range.width() as u32) {
+            if let Some(v) = range.get_value((r, c)) {
+                if cellule_vers_texte(v).eq_ignore_ascii_case(texte) {
+                    return Some(r);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Construit, à partir de la feuille SUIVI (SUIVI JOURNALIER, une ligne par
+/// barre individuelle), la corrélation (PROFIL, LONG en texte) -> L-LAM.
+/// Toutes les barres d'un même groupe profil/longueur y partagent la même
+/// valeur de L-LAM (confirmé sur les 4 fichiers réels disponibles), d'où la
+/// clé texte plutôt qu'un index de ligne. Retourne une map vide (pas une
+/// erreur) si la feuille SUIVI est absente ou n'a pas le format attendu --
+/// L-LAM est une donnée complémentaire, son absence ne doit pas faire
+/// échouer tout le parsing PREVI.
+fn construire_correlation_l_lam(
+    range: &calamine::Range<calamine::Data>,
+) -> HashMap<(String, String), f64> {
+    let mut correlation = HashMap::new();
+
+    const MAX_COLONNES_ENTETE: u32 = 30;
+    let Some(ligne_entete) =
+        trouver_ligne_par_texte_cellule(range, "PROFIL", MAX_LIGNES_RECHERCHE_ENTETE, MAX_COLONNES_ENTETE)
+    else {
+        return correlation;
+    };
+
+    let Some(col_profil) = trouver_colonne_par_motif(range, ligne_entete, "PROFIL", MAX_COLONNES_ENTETE)
+    else {
+        return correlation;
+    };
+    let Some(col_l_lam) = trouver_colonne_par_motif(range, ligne_entete, "L-LAM", MAX_COLONNES_ENTETE)
+    else {
+        return correlation;
+    };
+    let Some(col_long) = trouver_colonne_par_motif(range, ligne_entete, "LONG", MAX_COLONNES_ENTETE)
+    else {
+        return correlation;
+    };
+
+    for r in (ligne_entete + 1)..range.height() as u32 {
+        let profil = range
+            .get_value((r, col_profil))
+            .map(cellule_vers_texte)
+            .filter(|s| !s.is_empty());
+        let longueur_texte = range.get_value((r, col_long)).map(cellule_vers_texte);
+        let l_lam = range.get_value((r, col_l_lam)).and_then(|v| v.as_f64());
+
+        if let (Some(profil), Some(longueur_texte), Some(l_lam)) = (profil, longueur_texte, l_lam) {
+            correlation.insert((profil, longueur_texte), l_lam);
+        }
+    }
+
+    correlation
+}
+
 pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, String> {
     let mut workbook: Xlsx<_> =
         open_workbook(chemin_fichier).map_err(|e| format!("Ouverture impossible: {e}"))?;
@@ -139,6 +227,19 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
     let col_profil = trouver_colonne_par_motif(&range, ligne_entete, "PROFIL", 20);
     let col_nbr = col_profil
         .and_then(|cp| trouver_colonne_la_plus_proche_avant(&range, ligne_entete, cp, "NBR"));
+    // Détection dynamique de la colonne CLIENT (comme PROFIL/NBR) plutôt
+    // qu'un index fixe -- même principe que les autres colonnes du tableau,
+    // dont la position varie d'un fichier à l'autre.
+    let col_client = trouver_colonne_par_motif(&range, ligne_entete, "CLIENT", 20);
+    let col_long = trouver_colonne_par_motif(&range, ligne_entete, "LONG", 20);
+
+    // Corrélation profil/longueur -> L-LAM, depuis la feuille SUIVI (absente
+    // de PREVI). Récupérée sur le classeur avant de consommer `range` --
+    // voir la doc de `construire_correlation_l_lam`.
+    let correlation_l_lam = match workbook.worksheet_range("SUIVI") {
+        Ok(suivi) => construire_correlation_l_lam(&suivi),
+        Err(_) => HashMap::new(),
+    };
 
     // La commande et le client sont sur la première ligne de données,
     // juste en dessous de l'en-tête.
@@ -149,10 +250,12 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         .filter(|s| !s.is_empty())
         .ok_or_else(|| format!("Numéro de commande introuvable dans PREVI de {chemin_fichier}"))?;
 
-    let client = range
-        .get_value((ligne_premiere_donnee, 2))
-        .map(cellule_vers_texte)
-        .filter(|s| !s.is_empty());
+    let client = col_client.and_then(|col_client| {
+        range
+            .get_value((ligne_premiere_donnee, col_client))
+            .map(cellule_vers_texte)
+            .filter(|s| !s.is_empty())
+    });
 
     let profil = col_profil.and_then(|col_profil| {
         range
@@ -193,10 +296,28 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
                 if let Some(profil_ligne) = profil_ligne {
                     if let Some(v) = range.get_value((r, col_nbr)).and_then(|v| v.as_f64()) {
                         nb_barres_total += v;
-                        match groupes_profil.iter_mut().find(|g| g.profil == profil_ligne) {
+
+                        let longueur_ligne = col_long
+                            .and_then(|c| range.get_value((r, c)))
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.0);
+                        let longueur_texte = col_long
+                            .and_then(|c| range.get_value((r, c)))
+                            .map(cellule_vers_texte)
+                            .unwrap_or_default();
+                        let l_lam = correlation_l_lam
+                            .get(&(profil_ligne.clone(), longueur_texte))
+                            .copied();
+
+                        match groupes_profil
+                            .iter_mut()
+                            .find(|g| g.profil == profil_ligne && g.longueur == longueur_ligne)
+                        {
                             Some(groupe) => groupe.nb_barres += v,
                             None => groupes_profil.push(GroupeProfil {
                                 profil: profil_ligne,
+                                longueur: longueur_ligne,
+                                l_lam,
                                 nb_barres: v,
                             }),
                         }
@@ -231,10 +352,15 @@ mod tests {
         assert_eq!(info.numero_plan.as_deref(), Some("1900016822"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 23.0);
-        // Un seul profil réel sur cette affaire -> un seul groupe.
+        // Un seul groupe profil/longueur sur cette affaire.
         assert_eq!(
             info.groupes_profil,
-            vec![GroupeProfil { profil: "HEB 600".into(), nb_barres: 23.0 }]
+            vec![GroupeProfil {
+                profil: "HEB 600".into(),
+                longueur: 27419.0,
+                l_lam: Some(27900.0),
+                nb_barres: 23.0,
+            }]
         );
     }
 
@@ -258,11 +384,25 @@ mod tests {
         assert_eq!(info.numero_plan.as_deref(), Some("1900015874"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 18.0);
-        // Les 2 groupes partagent le même profil "HEB 600" (seule la
-        // longueur diffère) -> fusionnés en une seule entrée.
+        // Les 2 groupes partagent le même profil "HEB 600" mais ont des
+        // longueurs différentes -> restent 2 entrées distinctes, chacune
+        // avec son propre L-LAM (issu de la feuille SUIVI).
         assert_eq!(
             info.groupes_profil,
-            vec![GroupeProfil { profil: "HEB 600".into(), nb_barres: 18.0 }]
+            vec![
+                GroupeProfil {
+                    profil: "HEB 600".into(),
+                    longueur: 11000.0,
+                    l_lam: Some(11100.0),
+                    nb_barres: 6.0,
+                },
+                GroupeProfil {
+                    profil: "HEB 600".into(),
+                    longueur: 12800.0,
+                    l_lam: Some(12900.0),
+                    nb_barres: 12.0,
+                },
+            ]
         );
     }
 
@@ -277,10 +417,16 @@ mod tests {
         assert_eq!(info.numero_plan.as_deref(), Some("1900013594"));
         assert!(info.colonne_nbr_trouvee);
         assert_eq!(info.nb_barres_total, 39.0);
-        // Là aussi les 2 groupes partagent le même profil "HEM 700".
+        // Là aussi les 2 lignes partagent le même profil "HEM 700" ET la
+        // même longueur (14600) -> fusionnées en une seule entrée.
         assert_eq!(
             info.groupes_profil,
-            vec![GroupeProfil { profil: "HEM 700".into(), nb_barres: 39.0 }]
+            vec![GroupeProfil {
+                profil: "HEM 700".into(),
+                longueur: 14600.0,
+                l_lam: Some(14800.0),
+                nb_barres: 39.0,
+            }]
         );
     }
 }

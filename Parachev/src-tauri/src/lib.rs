@@ -50,6 +50,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             previsualiser_affaire,
+            chiffrer_manuellement,
             recalibrer,
             lister_coefficients,
             lister_heures,
@@ -72,6 +73,7 @@ pub fn run() {
             erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonnes_profil_numero_plan(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonne_contre_fleche(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_profils_affaires_ajouter_longueur(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
 
@@ -162,6 +164,26 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
 
     let coeffs = prevision::charger_coefficients(&conn)?;
     let prevision = prevision::previsualiser_et_enregistrer(&mut conn, &coeffs, &affaire)?;
+
+    let mut resultat = prevision.heures_par_poste;
+    resultat.insert("total".into(), prevision.total_heures);
+    Ok(resultat)
+}
+
+/// Chiffre un projet à partir de variables saisies à la main, sans passer
+/// par `variables_affaires` -- pour estimer une affaire qui n'a pas encore
+/// de fichier Excel dans le dossier surveillé (devis, avant-projet...).
+/// Contrairement à `previsualiser_affaire`, ne lit ni n'écrit rien d'autre
+/// que les coefficients déjà calibrés : c'est une simulation, pas une
+/// prévision persistée.
+#[tauri::command]
+fn chiffrer_manuellement(
+    app: tauri::AppHandle,
+    variables: HashMap<String, f64>,
+) -> Result<HashMap<String, f64>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let coeffs = prevision::charger_coefficients(&conn)?;
+    let prevision = prevision::predire(&coeffs, &variables);
 
     let mut resultat = prevision.heures_par_poste;
     resultat.insert("total".into(), prevision.total_heures);
@@ -419,26 +441,33 @@ fn mettre_a_jour_variables_affaire(
 #[derive(Serialize)]
 struct ProfilAffaireRow {
     profil: String,
+    longueur: f64,
+    l_lam: Option<f64>,
     nb_barres: f64,
 }
 
-/// Détail par profil d'une affaire (table `profils_affaires`) -- utile
-/// quand une affaire mélange plusieurs profils distincts, chacun avec son
-/// propre nb_barres (`variables_affaires.profil`/`nb_barres` ne gardent
-/// qu'un résumé du premier). Vide (pas une erreur) si l'affaire n'a pas
-/// encore été parsée.
+/// Détail par profil+longueur d'une affaire (table `profils_affaires`) --
+/// utile quand une affaire mélange plusieurs profils ou longueurs
+/// distincts, chacun avec son propre nb_barres/L-LAM
+/// (`variables_affaires.profil`/`nb_barres` ne gardent qu'un résumé du
+/// premier). Vide (pas une erreur) si l'affaire n'a pas encore été parsée.
 #[tauri::command]
 fn lister_profils_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<ProfilAffaireRow>, String> {
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let mut stmt = conn
-        .prepare("SELECT profil, nb_barres FROM profils_affaires WHERE affaire = ?1 ORDER BY profil")
+        .prepare(
+            "SELECT profil, longueur, l_lam, nb_barres FROM profils_affaires
+             WHERE affaire = ?1 ORDER BY profil, longueur",
+        )
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
         .query_map([&affaire], |row| {
             Ok(ProfilAffaireRow {
                 profil: row.get(0)?,
-                nb_barres: row.get(1)?,
+                longueur: row.get(1)?,
+                l_lam: row.get(2)?,
+                nb_barres: row.get(3)?,
             })
         })
         .map_err(|e| e.to_string())?;

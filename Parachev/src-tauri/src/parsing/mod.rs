@@ -37,6 +37,11 @@ use rusqlite::{params, Connection};
 #[derive(Debug, Default)]
 pub struct VariablesAffaire {
     pub affaire: String,
+    /// Nom du client, extrait de la feuille PREVI -- source de vérité
+    /// préférée sur le nom du client ERP (voir erp::inserer_clients), qui
+    /// peut souffrir d'une corruption d'encodage préexistante sur les
+    /// caractères accentués.
+    pub client: Option<String>,
     /// Profil du premier groupe barre/longueur (ex. "HEB 600"), et n° de
     /// plan ArcelorMittal (ex. "1900016822") -- tous deux extraits de la
     /// feuille PREVI, voir previ::InfoPrevi. None si non trouvés.
@@ -73,6 +78,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
 
     Ok(VariablesAffaire {
         affaire: info.commande,
+        client: info.client,
         profil: info.profil,
         numero_plan: info.numero_plan,
         groupes_profil: info.groupes_profil,
@@ -98,10 +104,14 @@ pub fn inserer_variables_affaire(
 ) -> Result<(), String> {
     conn.execute(
         "INSERT INTO variables_affaires
-            (affaire, profil, numero_plan, nb_barres, nb_goujons, longueur_coupe,
+            (affaire, client, profil, numero_plan, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, contre_fleche)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT(affaire) DO UPDATE SET
+            -- Le nom client extrait de l'Excel (encodage fiable) prime sur
+            -- celui du fichier ERP (voir erp::inserer_clients) -- on ne
+            -- l'écrase donc que quand l'Excel en fournit un.
+            client = COALESCE(excluded.client, variables_affaires.client),
             profil = excluded.profil,
             numero_plan = excluded.numero_plan,
             nb_barres = excluded.nb_barres,
@@ -113,6 +123,7 @@ pub fn inserer_variables_affaire(
             contre_fleche = excluded.contre_fleche",
         params![
             variables.affaire,
+            variables.client,
             variables.profil,
             variables.numero_plan,
             variables.nb_barres,
@@ -144,8 +155,9 @@ pub fn inserer_profils_affaire(
 
     for groupe in groupes {
         tx.execute(
-            "INSERT INTO profils_affaires (affaire, profil, nb_barres) VALUES (?1, ?2, ?3)",
-            params![affaire, groupe.profil, groupe.nb_barres],
+            "INSERT INTO profils_affaires (affaire, profil, longueur, l_lam, nb_barres)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![affaire, groupe.profil, groupe.longueur, groupe.l_lam, groupe.nb_barres],
         )
         .map_err(|e| e.to_string())?;
     }
@@ -208,15 +220,16 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(
             "CREATE TABLE variables_affaires (
-                affaire TEXT PRIMARY KEY, profil TEXT, numero_plan TEXT,
+                affaire TEXT PRIMARY KEY, client TEXT, profil TEXT, numero_plan TEXT,
                 nb_barres REAL, nb_goujons REAL,
                 nb_trous_manuel REAL, nb_trous_numerique REAL,
                 diametre_moyen_numerique REAL, longueur_coupe REAL,
                 contre_fleche REAL
             );
             CREATE TABLE profils_affaires (
-                affaire TEXT NOT NULL, profil TEXT NOT NULL, nb_barres REAL NOT NULL,
-                PRIMARY KEY (affaire, profil)
+                affaire TEXT NOT NULL, profil TEXT NOT NULL, longueur REAL NOT NULL,
+                l_lam REAL, nb_barres REAL NOT NULL,
+                PRIMARY KEY (affaire, profil, longueur)
             );",
         )
         .unwrap();
@@ -276,16 +289,30 @@ mod tests {
             .unwrap();
         assert_eq!(contre_fleche_546190, Some(1.0));
 
-        // Le détail par profil de 1100706839 (profil unique "HEB 600") doit
-        // aussi avoir été inséré dans profils_affaires.
-        let (profil, profil_nb_barres): (String, f64) = conn
+        // Le nom client doit être extrait de la feuille PREVI et inséré.
+        let client_706839: Option<String> = conn
             .query_row(
-                "SELECT profil, nb_barres FROM profils_affaires WHERE affaire = '1100706839'",
+                "SELECT client FROM variables_affaires WHERE affaire = '1100706839'",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(client_706839.as_deref(), Some("KINZIGFLUTBRÜCKE"));
+
+        // Le détail par profil de 1100706839 (profil unique "HEB 600") doit
+        // aussi avoir été inséré dans profils_affaires, longueur et L-LAM
+        // compris.
+        let (profil, longueur, l_lam, profil_nb_barres): (String, f64, Option<f64>, f64) = conn
+            .query_row(
+                "SELECT profil, longueur, l_lam, nb_barres FROM profils_affaires
+                 WHERE affaire = '1100706839'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .unwrap();
         assert_eq!(profil, "HEB 600");
+        assert_eq!(longueur, 27419.0);
+        assert_eq!(l_lam, Some(27900.0));
         assert_eq!(profil_nb_barres, 23.0);
     }
 

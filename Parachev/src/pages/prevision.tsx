@@ -226,12 +226,17 @@ export default function Prevision() {
                         {profils.length > 1 && (
                           <div className="flex flex-col gap-1 pb-1.5">
                             <span className="text-muted-foreground">Profils</span>
-                            {profils.map(({ profil, nb_barres }) => (
+                            {profils.map(({ profil, longueur, l_lam, nb_barres }) => (
                               <div
-                                key={profil}
+                                key={`${profil}-${longueur}`}
                                 className="flex items-center justify-between pl-2"
                               >
-                                <span>{profil}</span>
+                                <span>
+                                  {profil} · {longueur}mm
+                                  {l_lam != null && (
+                                    <span className="text-muted-foreground"> (L-LAM {l_lam})</span>
+                                  )}
+                                </span>
                                 <span className="tabular-nums">{nb_barres}</span>
                               </div>
                             ))}

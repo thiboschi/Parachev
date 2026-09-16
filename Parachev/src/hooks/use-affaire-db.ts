@@ -13,9 +13,14 @@ export interface PrevisionRow {
 }
 
 // Shape returned by the `lister_profils_affaire` Tauri command
-// (ProfilAffaireRow in lib.rs) -- détail par profil distinct d'une affaire.
+// (ProfilAffaireRow in lib.rs) -- détail par profil+longueur distinct
+// d'une affaire. `longueur` est la longueur finale de la barre, `l_lam` la
+// longueur brute livrée par le laminoir (null si la feuille SUIVI de
+// l'Excel ne couvre pas encore ce groupe).
 export interface ProfilAffaireRow {
   profil: string
+  longueur: number
+  l_lam: number | null
   nb_barres: number
 }
 
