@@ -16,7 +16,7 @@ pub use goujons::{extraire_goujons_fc_gouj};
 pub use oxycoupage::{extraire_oxycoupage};
 pub use presse::{extraire_presse};
 pub use previ::{extraire_info_previ, GroupeProfil};
-pub use variables_parcing::{extraire_variables_forage, VariablesForage};
+pub use variables_parcing::{extraire_variables_forage};
 
 use calamine::Data;
 use rusqlite::{params, Connection};

@@ -45,7 +45,7 @@ pub struct VariablesForage {
 /// l'absence des feuilles FT-MAN/FT-NUM est un cas normal (poste non
 /// utilisé), pas une erreur.
 pub fn extraire_variables_forage(chemin_fichier: &str) -> Result<VariablesForage, String> {
-    let mut workbook: Xlsx<_> =
+    let workbook: Xlsx<_> =
         open_workbook(chemin_fichier).map_err(|e| format!("Ouverture impossible: {e}"))?;
 
     let feuilles = workbook.sheet_names().to_owned();
