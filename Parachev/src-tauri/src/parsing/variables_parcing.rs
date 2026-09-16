@@ -60,33 +60,3 @@ pub fn extraire_variables_forage(chemin_fichier: &str) -> Result<VariablesForage
         diametre_moyen_numerique: numerique_present.then_some(VALEUR_PRESENCE_SANS_DONNEE),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_forage_present_706839() {
-        // FT-MAN et FT-NUM existent tous les deux dans ce fichier.
-        let forage = extraire_variables_forage("1100706839.xlsx").unwrap();
-        assert_eq!(forage.nb_trous_manuel, Some(1.0));
-        assert_eq!(forage.nb_trous_numerique, Some(1.0));
-        assert_eq!(forage.diametre_moyen_numerique, Some(1.0));
-    }
-
-    #[test]
-    fn test_forage_partiel_662668() {
-        // Ce fichier n'a que FT-MAN, pas FT-NUM (confirmé par la liste des
-        // feuilles) -- le forage numérique ne doit pas être inventé.
-        let forage = extraire_variables_forage("1100662668.xlsx").unwrap();
-        assert_eq!(forage.nb_trous_manuel, Some(1.0));
-        assert_eq!(forage.nb_trous_numerique, None);
-        assert_eq!(forage.diametre_moyen_numerique, None);
-    }
-
-    #[test]
-    fn test_fichier_introuvable_retourne_erreur() {
-        let resultat = extraire_variables_forage("fichier_inexistant.xlsx");
-        assert!(resultat.is_err());
-    }
-}

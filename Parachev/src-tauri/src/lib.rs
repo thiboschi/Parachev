@@ -399,11 +399,7 @@ struct VariablesAffaireEdition {
 /// garanti puisque l'écran ne montre le formulaire d'édition que pour une
 /// affaire déjà chargée).
 #[tauri::command]
-fn mettre_a_jour_variables_affaire(
-    app: tauri::AppHandle,
-    affaire: String,
-    variables: VariablesAffaireEdition,
-) -> Result<(), String> {
+fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, variables: VariablesAffaireEdition) -> Result<(), String> {
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let n = conn
         .execute(

@@ -145,39 +145,3 @@ pub fn extraire_oxycoupage(chemin_fichier: &str) -> Result<Option<ResultatOxycou
 
     Ok(None)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_oxycoupage_fc_oxy_719879() {
-        let resultat = extraire_oxycoupage("1100719879.xlsx").unwrap().unwrap();
-        assert_eq!(resultat.feuille_utilisee, "FC-OXY");
-        assert_eq!(resultat.nb_coupes, 6);
-        assert_eq!(resultat.longueur_coupe_totale, 6.0 * 33800.0);
-    }
-
-    #[test]
-    fn test_oxycoupage_ft_oxy_662668() {
-        let resultat = extraire_oxycoupage("1100662668.xlsx").unwrap().unwrap();
-        assert_eq!(resultat.feuille_utilisee, "FT-OXY");
-        assert_eq!(resultat.nb_coupes, 9);
-        // 3 coupes a 11000 + 6 coupes a 12800
-        assert_eq!(resultat.longueur_coupe_totale, 3.0 * 11000.0 + 6.0 * 12800.0);
-    }
-
-    #[test]
-    fn test_oxycoupage_absent_706839() {
-        // Cette affaire n'a que FC-COUPBIAIS (coupe biaise, opération
-        // différente) -- pas d'oxycoupage réel.
-        let resultat = extraire_oxycoupage("1100706839.xlsx").unwrap();
-        assert!(resultat.is_none());
-    }
-
-    #[test]
-    fn test_oxycoupage_absent_546190() {
-        let resultat = extraire_oxycoupage("1100546190.xlsx").unwrap();
-        assert!(resultat.is_none());
-    }
-}

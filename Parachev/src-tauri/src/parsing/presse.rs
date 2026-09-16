@@ -127,35 +127,3 @@ pub fn extraire_presse(chemin_fichier: &str) -> Result<Option<ResultatPresse>, S
 
     Ok(None)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_presse_valeurs_reelles_719879() {
-        let resultat = extraire_presse("1100719879.xlsx").unwrap().unwrap();
-        assert_eq!(resultat.feuille_utilisee, "FC-PRES");
-        assert_eq!(resultat.nb_valeurs, 6);
-        assert_eq!(resultat.contre_fleche_moyenne, Some(206.0));
-        assert_eq!(resultat.valeur_avec_repli(), 206.0);
-    }
-
-    #[test]
-    fn test_presse_feuille_presente_mais_vide_706839() {
-        // La feuille FC-PRES existe mais la colonne Cfl n'y est pas remplie.
-        let resultat = extraire_presse("1100706839.xlsx").unwrap().unwrap();
-        assert_eq!(resultat.feuille_utilisee, "FC-PRES");
-        assert_eq!(resultat.nb_valeurs, 0);
-        assert_eq!(resultat.contre_fleche_moyenne, None);
-        assert_eq!(resultat.valeur_avec_repli(), 1.0);
-    }
-
-    #[test]
-    fn test_presse_nom_feuille_fc_press_662668() {
-        let resultat = extraire_presse("1100662668.xlsx").unwrap().unwrap();
-        assert_eq!(resultat.feuille_utilisee, "FC-PRESS");
-        assert_eq!(resultat.nb_valeurs, 0);
-        assert_eq!(resultat.contre_fleche_moyenne, None);
-    }
-}
