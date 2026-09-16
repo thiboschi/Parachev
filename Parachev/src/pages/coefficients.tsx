@@ -4,14 +4,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table"
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { libellePoste, POSTE_KEYS } from "@/lib/postes"
 
 // Miroir de CoefficientLigne / CoefficientsInfo (src-tauri/src/lib.rs).

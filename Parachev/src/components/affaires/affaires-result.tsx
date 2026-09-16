@@ -1,12 +1,6 @@
 import { useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+import {Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { AffaireResume } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
 import { CHAMPS_VARIABLES_NUMERIQUES, CHAMPS_VARIABLES_TEXTE } from "@/lib/variables-affaires"

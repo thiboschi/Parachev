@@ -4,7 +4,6 @@ import { SiteHeader } from "@/components/dashboard/site-header"
 import { AffaireResults } from "@/components/affaires/affaires-result"
 import { AffaireSearchBar, type ChampVariableKey } from "@/components/affaires/affaires-search-bar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-
 import { useAffairesDb } from "@/hooks/use-affaires-db"
 import { CHAMPS_VARIABLES_NUMERIQUES } from "@/lib/variables-affaires"
 import { TYPES_PRODUCTION, affaireCorrespondAuType } from "@/lib/flux-production"

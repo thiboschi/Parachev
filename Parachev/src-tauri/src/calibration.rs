@@ -27,8 +27,6 @@ const DIAMETRE_SEUIL_MANUEL_MM: f64 = 40.0;
 #[derive(Debug)]
 pub struct ResultatCalibration {
     pub poste: String,
-    // pub n: usize,
-    // pub r2: f64,
     pub coefficients: PosteCoefficients,
 }
 

@@ -1,45 +1,12 @@
 import { useEffect, useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts"
-import {
-  IconArrowNarrowDown,
-  IconArrowNarrowUp,
-  IconArrowsSort,
-  IconCalendar,
-  IconChevronLeft,
-  IconChevronRight,
-  IconSearch,
-  IconX,
-} from "@tabler/icons-react"
-import {
-  type ColumnDef,
-  type SortingState,
-  flexRender,
-  getCoreRowModel,
-  getPaginationRowModel,
-  getSortedRowModel,
-  useReactTable,
-} from "@tanstack/react-table"
-
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { IconArrowNarrowDown, IconArrowNarrowUp, IconArrowsSort,IconCalendar, IconChevronLeft, IconChevronRight, IconSearch, IconX } from "@tabler/icons-react"
+import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, getPaginationRowModel, getSortedRowModel, useReactTable } from "@tanstack/react-table"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/ui/table"
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 
 // Miroir de la struct HeureRow définie côté Rust (src-tauri/src/lib.rs).
 type HeureRow = {
