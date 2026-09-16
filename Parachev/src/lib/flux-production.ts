@@ -75,80 +75,37 @@ export const TYPES_PRODUCTION: TypeProduction[] = [
     nom: "IFB",
     itineraires: [
       [["oxycoupage"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"]],
-      [
-        ["oxycoupage"],
-        ["presse_cintrage"],
-        ["assemblage_tracage"],
-        ["soudage"],
-        ["mise_a_longueur"],
-      ],
+      [["oxycoupage"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"], ["mise_a_longueur"]],
     ],
   },
   {
     nom: "Pont PPE",
     itineraires: [
-      [
-        ["mise_a_longueur"],
-        ["forage_numerique"],
-        ["presse_cintrage"],
-        ["forage_manuel", "robot"],
-        ["p3"],
-        ["soudage"],
-      ],
+      [["mise_a_longueur"], ["forage_numerique"], ["presse_cintrage"], ["forage_manuel", "robot"], ["p3"], ["soudage"]],
     ],
   },
   {
     nom: "Ponts Mixtes",
     itineraires: [
-      [
-        ["forage_numerique"],
-        ["controle_cnd"],
-        ["presse_cintrage"],
-        ["robot"],
-        ["p3"],
-        ["goujonnage"],
-      ],
+      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["robot"], ["p3"], ["goujonnage"]],
     ],
   },
   {
     nom: "Ponts Complexes",
     itineraires: [
-      [
-        ["forage_numerique"],
-        ["controle_cnd"],
-        ["presse_cintrage"],
-        ["robot"],
-        ["p3"],
-        ["assemblage_tracage"],
-        ["soudage"],
-        ["goujonnage"],
-      ],
+      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["robot"], ["p3"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
     ],
   },
   {
     nom: "Caisson",
     itineraires: [
-      [
-        ["forage_numerique"],
-        ["controle_cnd"],
-        ["presse_cintrage"],
-        ["assemblage_tracage"],
-        ["soudage"],
-        ["goujonnage"],
-      ],
+      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
     ],
   },
   {
     nom: "Murs Anti Bruit",
     itineraires: [
-      [
-        ["oxycoupage"],
-        ["presse_cintrage"],
-        ["assemblage_tracage"],
-        ["soudage"],
-        ["soudage_sous_flux"],
-        ["mise_a_longueur"],
-      ],
+      [["oxycoupage"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"], ["soudage_sous_flux"], ["mise_a_longueur"]],
     ],
   },
   // Chargement : le fichier ne décrit que de la logistique de parc
