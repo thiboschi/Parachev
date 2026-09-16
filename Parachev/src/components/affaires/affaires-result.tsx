@@ -64,10 +64,15 @@ export function AffaireResults({ results, loading, error }: AffaireResultsProps)
             >
               <CardHeader>
                 <CardTitle>{item.client ?? "Client inconnu"}</CardTitle>
-                <CardDescription>
+                <CardDescription className="flex flex-wrap gap-1.5">
                   <Badge variant="outline" className="px-1.5 text-muted-foreground">
                     {item.numero}
                   </Badge>
+                  {variables?.numero_plan && (
+                    <Badge variant="outline" className="px-1.5 text-muted-foreground">
+                      {variables.numero_plan}
+                    </Badge>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent className="flex flex-col gap-2 text-sm">

@@ -30,10 +30,8 @@ export const CHAMPS_VARIABLES_NUMERIQUES: {
 ]
 
 // Champs texte (hors client, déjà filtré séparément).
+// numero_plan est affiché à part, sous forme de tag (voir affaires-result.tsx).
 export const CHAMPS_VARIABLES_TEXTE: {
-  key: keyof Pick<VariablesAffaireRow, "profil" | "numero_plan">
+  key: keyof Pick<VariablesAffaireRow, "profil">
   label: string
-}[] = [
-  { key: "profil", label: "Profil" },
-  { key: "numero_plan", label: "N° de plan" },
-]
+}[] = [{ key: "profil", label: "Profil" }]
