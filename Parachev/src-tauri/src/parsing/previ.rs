@@ -39,6 +39,8 @@ pub struct InfoPrevi {
     /// groupes profil/longueur réellement renseignés (confirmé sur les 4
     /// fichiers réels disponibles) -- identifié par son préfixe "19".
     pub numero_plan: Option<String>,
+    /// N° d'offre au format 0000AA00 (ex. 5301ST26), lu dans l'en-tête de PREVI (cellule à droite de "OFFRE N°"). Sert à relier l'affaire aux mails de demande de prix. None si non renseigné.
+    pub numero_offre: Option<String>,
     pub nb_barres_total: f64,
     /// Répartition de nb_barres_total par groupe profil+longueur distinct
     /// (ex. HEB 600/11000mm:6, HEB 600/12800mm:12 si l'affaire mélange
@@ -69,6 +71,15 @@ pub struct GroupeProfil {
 /// (ex. année ou petit compteur qui commencerait aussi par "19").
 fn ressemble_a_un_numero_plan(s: &str) -> bool {
     s.len() >= 8 && s.starts_with("19") && s.chars().take(4).all(|c| c.is_ascii_digit())
+}
+
+/// true si `s` est un n° d'offre au format 0000AA00.
+pub fn est_un_numero_offre(s: &str) -> bool {
+    let b = s.trim().as_bytes();
+    b.len() == 8
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4..6].iter().all(u8::is_ascii_alphabetic)
+        && b[6..].iter().all(u8::is_ascii_digit)
 }
 
 const MAX_LIGNES_RECHERCHE_ENTETE: u32 = 15;
@@ -266,6 +277,17 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
     let mut nb_barres_total = 0.0;
     let mut groupes_profil: Vec<GroupeProfil> = Vec::new();
     let mut numero_plan = None;
+    // Le n° d'offre est saisi dans l'en-tête de la feuille, au-dessus du
+    // tableau : on le cherche dans toutes les cellules de ces lignes.
+    let numero_offre = (0..ligne_entete.min(range.height() as u32)).find_map(|r| {
+        (0..range.width() as u32).find_map(|c| {
+            range
+                .get_value((r, c))
+                .map(cellule_vers_texte)
+                .filter(|t| est_un_numero_offre(t))
+                .map(|t| t.trim().to_uppercase())
+        })
+    });
     let colonne_nbr_trouvee = col_nbr.is_some();
 
     {
@@ -321,5 +343,5 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         }
     }
 
-    Ok(Some(InfoPrevi {commande, client, profil, numero_plan, nb_barres_total, groupes_profil, colonne_nbr_trouvee}))
+    Ok(Some(InfoPrevi {commande, client, profil, numero_plan, numero_offre, nb_barres_total, groupes_profil, colonne_nbr_trouvee}))
 }

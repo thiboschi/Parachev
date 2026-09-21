@@ -47,6 +47,8 @@ pub struct VariablesAffaire {
     /// feuille PREVI, voir previ::InfoPrevi. None si non trouvés.
     pub profil: Option<String>,
     pub numero_plan: Option<String>,
+    /// N° d'offre 0000AA00 (voir previ::InfoPrevi), lien avec les mails de demande de prix.
+    pub numero_offre: Option<String>,
     /// Détail de nb_barres par profil distinct -- voir previ::GroupeProfil.
     /// Stocké séparément (table `profils_affaires`), pas dans cette ligne.
     pub groupes_profil: Vec<GroupeProfil>,
@@ -81,6 +83,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         client: info.client,
         profil: info.profil,
         numero_plan: info.numero_plan,
+        numero_offre: info.numero_offre,
         groupes_profil: info.groupes_profil,
         nb_barres: info.nb_barres_total,
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
@@ -101,9 +104,9 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
 pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire) -> Result<(), String> {
     conn.execute(
         "INSERT INTO variables_affaires
-            (affaire, client, profil, numero_plan, nb_barres, nb_goujons, longueur_coupe,
+            (affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, contre_fleche)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT(affaire) DO UPDATE SET
             -- Le nom client extrait de l'Excel (encodage fiable) prime sur
             -- celui du fichier ERP (voir erp::inserer_clients) -- on ne
@@ -111,6 +114,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             client = COALESCE(excluded.client, variables_affaires.client),
             profil = excluded.profil,
             numero_plan = excluded.numero_plan,
+            numero_offre = COALESCE(excluded.numero_offre, variables_affaires.numero_offre),
             nb_barres = excluded.nb_barres,
             nb_goujons = excluded.nb_goujons,
             longueur_coupe = excluded.longueur_coupe,
@@ -130,6 +134,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             variables.nb_trous_numerique,
             variables.diametre_moyen_numerique,
             variables.contre_fleche,
+            variables.numero_offre,
         ],
     )
     .map_err(|e| format!("Erreur insertion variables_affaires: {e}"))?;

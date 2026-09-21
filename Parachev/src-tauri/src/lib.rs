@@ -309,6 +309,7 @@ struct VariablesAffaireRow {
     client: Option<String>,
     profil: Option<String>,
     numero_plan: Option<String>,
+    numero_offre: Option<String>,
     nb_barres: Option<f64>,
     nb_goujons: Option<f64>,
     nb_trous_manuel: Option<f64>,
@@ -323,7 +324,7 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     let mut stmt = conn
         .prepare(
-            "SELECT affaire, client, profil, numero_plan, nb_barres, nb_goujons,
+            "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
                     nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
                     contre_fleche
              FROM variables_affaires ORDER BY affaire",
@@ -337,13 +338,14 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
                 client: row.get(1)?,
                 profil: row.get(2)?,
                 numero_plan: row.get(3)?,
-                nb_barres: row.get(4)?,
-                nb_goujons: row.get(5)?,
-                nb_trous_manuel: row.get(6)?,
-                nb_trous_numerique: row.get(7)?,
-                diametre_moyen_numerique: row.get(8)?,
-                longueur_coupe: row.get(9)?,
-                contre_fleche: row.get(10)?,
+                numero_offre: row.get(4)?,
+                nb_barres: row.get(5)?,
+                nb_goujons: row.get(6)?,
+                nb_trous_manuel: row.get(7)?,
+                nb_trous_numerique: row.get(8)?,
+                diametre_moyen_numerique: row.get(9)?,
+                longueur_coupe: row.get(10)?,
+                contre_fleche: row.get(11)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -358,7 +360,7 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
 fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<VariablesAffaireRow, String> {
     let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
     conn.query_row(
-        "SELECT affaire, client, profil, numero_plan, nb_barres, nb_goujons,
+        "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
                 nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
                 contre_fleche
          FROM variables_affaires WHERE affaire = ?1",
@@ -369,13 +371,14 @@ fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
                 client: row.get(1)?,
                 profil: row.get(2)?,
                 numero_plan: row.get(3)?,
-                nb_barres: row.get(4)?,
-                nb_goujons: row.get(5)?,
-                nb_trous_manuel: row.get(6)?,
-                nb_trous_numerique: row.get(7)?,
-                diametre_moyen_numerique: row.get(8)?,
-                longueur_coupe: row.get(9)?,
-                contre_fleche: row.get(10)?,
+                numero_offre: row.get(4)?,
+                nb_barres: row.get(5)?,
+                nb_goujons: row.get(6)?,
+                nb_trous_manuel: row.get(7)?,
+                nb_trous_numerique: row.get(8)?,
+                diametre_moyen_numerique: row.get(9)?,
+                longueur_coupe: row.get(10)?,
+                contre_fleche: row.get(11)?,
             })
         },
     )
@@ -386,6 +389,7 @@ fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
 struct VariablesAffaireEdition {
     profil: Option<String>,
     numero_plan: Option<String>,
+    numero_offre: Option<String>,
     nb_barres: Option<f64>,
     nb_goujons: Option<f64>,
     nb_trous_manuel: Option<f64>,
@@ -407,6 +411,7 @@ fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, varia
             "UPDATE variables_affaires SET
                 profil = ?1,
                 numero_plan = ?2,
+                numero_offre = ?9,
                 nb_barres = ?3,
                 nb_goujons = ?4,
                 nb_trous_manuel = ?5,
@@ -422,6 +427,7 @@ fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, varia
                 variables.nb_trous_numerique,
                 variables.contre_fleche,
                 affaire,
+                variables.numero_offre,
             ],
         )
         .map_err(|e| e.to_string())?;

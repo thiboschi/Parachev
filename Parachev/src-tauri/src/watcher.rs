@@ -119,8 +119,8 @@ fn traiter_evenement(path: &Path, chemin_db: &str) {
     }
 }
 
-/// Traite un e-mail Outlook (.msg) : variables du corps (rattachées à
-/// l'affaire citée) puis pièces jointes, écrites dans un dossier temporaire
+/// Traite un e-mail Outlook (.msg) : pièces jointes utiles (.xlsx/.txt/.msg),
+/// puis demande de prix du corps. Les pièces jointes écrites dans un dossier temporaire
 /// et traitées comme des fichiers normaux.
 fn traiter_msg(path: &Path, chemin_db: &str) {
     let msg = match crate::msg::load_msg(path) {
@@ -131,9 +131,15 @@ fn traiter_msg(path: &Path, chemin_db: &str) {
         }
     };
 
-    // Les pièces jointes d'abord : un Excel joint crée/met à jour la ligne
-    // de l'affaire, que les valeurs du corps viennent ensuite compléter.
-    if !msg.attachments.is_empty() {
+    let utiles: Vec<_> = msg
+        .attachments
+        .iter()
+        .filter(|a| {
+            let n = a.filename.to_lowercase();
+            n.ends_with(".xlsx") || n.ends_with(".txt") || n.ends_with(".msg")
+        })
+        .collect();
+    if !utiles.is_empty() {
         let mut hash = std::collections::hash_map::DefaultHasher::new();
         std::hash::Hash::hash(&path, &mut hash);
         let tmp = std::env::temp_dir().join(format!(
@@ -144,12 +150,12 @@ fn traiter_msg(path: &Path, chemin_db: &str) {
         if let Err(e) = fs::create_dir_all(&tmp) {
             eprintln!("Impossible de créer {tmp:?}: {e}");
         } else {
-            for pj in msg.attachments {
+            for pj in utiles {
                 let Some(nom) = Path::new(&pj.filename).file_name() else {
                     continue;
                 };
                 let cible = tmp.join(nom);
-                if fs::write(&cible, pj.bytes).is_ok() {
+                if fs::write(&cible, &pj.bytes).is_ok() {
                     println!("{path:?} : pièce jointe {nom:?}");
                     traiter_evenement(&cible, chemin_db);
                 }
@@ -158,16 +164,16 @@ fn traiter_msg(path: &Path, chemin_db: &str) {
         }
     }
 
-    let vars = crate::msg::extraire_variables_depuis_texte(&msg.subject, &msg.body_text);
-    let conn = match Connection::open(chemin_db) {
+    let demande = crate::msg::extraire_demande(&msg.subject, &msg.body_text);
+    let mut conn = match Connection::open(chemin_db) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("Impossible d'ouvrir la base: {e}");
             return;
         }
     };
-    match crate::msg::appliquer_variables_mail(&conn, &vars) {
-        Ok(Some(affaire)) => println!("{path:?} : variables du mail appliquées à l'affaire {affaire}"),
+    match crate::msg::enregistrer_demande(&mut conn, &msg.subject, &demande) {
+        Ok(Some(reference)) => println!("{path:?} : demande {reference} enregistrée"),
         Ok(None) => {}
         Err(e) => eprintln!("Erreur mail {path:?}: {e}"),
     }

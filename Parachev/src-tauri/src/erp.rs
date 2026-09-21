@@ -24,6 +24,7 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             client                      TEXT,
             profil                      TEXT,
             numero_plan                 TEXT,
+            numero_offre                TEXT,
             nb_barres                   REAL,
             nb_goujons                  REAL,
             nb_trous_manuel             REAL,
@@ -70,7 +71,7 @@ pub fn migrer_ajouter_colonne_client(conn: &Connection) -> rusqlite::Result<()> 
 /// elles n'existent pas déjà -- même migration idempotente que pour
 /// `client`, pour les bases créées avant ce correctif.
 pub fn migrer_ajouter_colonnes_profil_numero_plan(conn: &Connection) -> rusqlite::Result<()> {
-    for colonne in ["profil", "numero_plan"] {
+    for colonne in ["profil", "numero_plan", "numero_offre"] {
         match conn.execute(
             &format!("ALTER TABLE variables_affaires ADD COLUMN {colonne} TEXT"),
             [],

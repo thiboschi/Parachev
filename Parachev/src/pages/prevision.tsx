@@ -22,6 +22,7 @@ const formatHeures = (value: number) =>
 type ChampEditable =
   | "profil"
   | "numero_plan"
+  | "numero_offre"
   | "nb_barres"
   | "nb_goujons"
   | "nb_trous_manuel"
@@ -35,6 +36,7 @@ function versEdition(variables: VariablesAffaireRow | null): VariablesEdition {
   return {
     profil: valeur(variables?.profil),
     numero_plan: valeur(variables?.numero_plan),
+    numero_offre: valeur(variables?.numero_offre),
     nb_barres: valeur(variables?.nb_barres),
     nb_goujons: valeur(variables?.nb_goujons),
     nb_trous_manuel: valeur(variables?.nb_trous_manuel),
@@ -107,6 +109,7 @@ export default function Prevision() {
         variables: {
           profil: versTexte(edition.profil),
           numero_plan: versTexte(edition.numero_plan),
+          numero_offre: versTexte(edition.numero_offre),
           nb_barres: versNombre(edition.nb_barres),
           nb_goujons: versNombre(edition.nb_goujons),
           nb_trous_manuel: versNombre(edition.nb_trous_manuel),
@@ -256,6 +259,14 @@ export default function Prevision() {
                             className="h-7 max-w-32 text-right tabular-nums"
                             value={edition.numero_plan}
                             onChange={(e) => modifierChamp("numero_plan", e.target.value)}
+                          />
+                        </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="shrink-0 text-muted-foreground">N° d'offre</span>
+                          <Input
+                            className="h-7 max-w-32 text-right tabular-nums"
+                            value={edition.numero_offre}
+                            onChange={(e) => modifierChamp("numero_offre", e.target.value)}
                           />
                         </div>
                         <div className="flex items-center justify-between gap-2">

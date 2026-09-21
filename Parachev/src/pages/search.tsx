@@ -49,6 +49,7 @@ export default function Search() {
           item.client ?? "",
           item.variables?.profil ?? "",
           item.variables?.numero_plan ?? "",
+          item.variables?.numero_offre ?? "",
         ]
           .join(" ")
           .toLowerCase()

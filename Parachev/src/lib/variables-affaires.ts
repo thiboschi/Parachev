@@ -8,7 +8,7 @@ const formatNombre = (value: number) =>
 // des résultats (affaires-result.tsx) et les options de recherche
 // (affaires-search-bar.tsx) pour ne pas dupliquer les libellés.
 export const CHAMPS_VARIABLES_NUMERIQUES: {
-  key: keyof Omit<VariablesAffaireRow, "affaire" | "client" | "profil" | "numero_plan">
+  key: keyof Omit<VariablesAffaireRow, "affaire" | "client" | "profil" | "numero_plan" | "numero_offre">
   label: string
   format?: (value: number) => string
 }[] = [

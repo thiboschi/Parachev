@@ -62,6 +62,11 @@ export function AffaireResults({ results, loading, error }: AffaireResultsProps)
                   <Badge variant="outline" className="px-1.5 text-muted-foreground">
                     {item.numero}
                   </Badge>
+                  {variables?.numero_offre && (
+                    <Badge variant="outline" className="px-1.5 text-muted-foreground">
+                      {variables.numero_offre}
+                    </Badge>
+                  )}
                   {variables?.numero_plan && (
                     <Badge variant="outline" className="px-1.5 text-muted-foreground">
                       {variables.numero_plan}
