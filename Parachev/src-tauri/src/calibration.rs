@@ -21,7 +21,7 @@ pub fn poste_variables() -> HashMap<&'static str, Vec<&'static str>> {
     ])
 }
 
-const MIN_OBS_PAR_VARIABLE: usize = 15;
+const MIN_OBS_PAR_VARIABLE: usize = 10;
 const DIAMETRE_SEUIL_MANUEL_MM: f64 = 40.0;
 
 #[derive(Debug)]

@@ -114,7 +114,62 @@ fn traiter_evenement(path: &Path, chemin_db: &str) {
                 Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
             }
         }
+        "msg" => traiter_msg(path, chemin_db),
         _ => {}
+    }
+}
+
+/// Traite un e-mail Outlook (.msg) : variables du corps (rattachées à
+/// l'affaire citée) puis pièces jointes, écrites dans un dossier temporaire
+/// et traitées comme des fichiers normaux.
+fn traiter_msg(path: &Path, chemin_db: &str) {
+    let msg = match crate::msg::load_msg(path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Erreur lecture {path:?}: {e}");
+            return;
+        }
+    };
+
+    // Les pièces jointes d'abord : un Excel joint crée/met à jour la ligne
+    // de l'affaire, que les valeurs du corps viennent ensuite compléter.
+    if !msg.attachments.is_empty() {
+        let mut hash = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&path, &mut hash);
+        let tmp = std::env::temp_dir().join(format!(
+            "parachev_msg_{}_{:x}",
+            std::process::id(),
+            std::hash::Hasher::finish(&hash)
+        ));
+        if let Err(e) = fs::create_dir_all(&tmp) {
+            eprintln!("Impossible de créer {tmp:?}: {e}");
+        } else {
+            for pj in msg.attachments {
+                let Some(nom) = Path::new(&pj.filename).file_name() else {
+                    continue;
+                };
+                let cible = tmp.join(nom);
+                if fs::write(&cible, pj.bytes).is_ok() {
+                    println!("{path:?} : pièce jointe {nom:?}");
+                    traiter_evenement(&cible, chemin_db);
+                }
+            }
+            let _ = fs::remove_dir_all(&tmp);
+        }
+    }
+
+    let vars = crate::msg::extraire_variables_depuis_texte(&msg.subject, &msg.body_text);
+    let conn = match Connection::open(chemin_db) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Impossible d'ouvrir la base: {e}");
+            return;
+        }
+    };
+    match crate::msg::appliquer_variables_mail(&conn, &vars) {
+        Ok(Some(affaire)) => println!("{path:?} : variables du mail appliquées à l'affaire {affaire}"),
+        Ok(None) => {}
+        Err(e) => eprintln!("Erreur mail {path:?}: {e}"),
     }
 }
 
