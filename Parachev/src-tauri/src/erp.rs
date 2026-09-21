@@ -40,6 +40,19 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         -- comme résumé rapide, cette table porte le détail complet (un
         -- groupe profil+longueur = une ligne, avec son propre nb_barres et
         -- son L-LAM, la longueur brute livrée par le laminoir).
+        -- Goujons par poutre : une ligne par poutre (rep de FC-GOUJ) et par
+        -- type de goujon (diamètre x hauteur), avec son nombre.
+        CREATE TABLE IF NOT EXISTS goujons_affaires (
+            affaire    TEXT NOT NULL,
+            rep        TEXT NOT NULL,
+            profil     TEXT,
+            longueur   REAL,
+            diametre   REAL,
+            hauteur    REAL,
+            nb_goujons REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_goujons_affaire ON goujons_affaires(affaire);
+
         CREATE TABLE IF NOT EXISTS profils_affaires (
             affaire   TEXT NOT NULL,
             profil    TEXT NOT NULL,

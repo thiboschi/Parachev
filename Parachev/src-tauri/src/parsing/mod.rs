@@ -12,7 +12,7 @@ mod presse;
 mod previ;
 mod variables_parcing;
 
-pub use goujons::{extraire_goujons_fc_gouj};
+pub use goujons::{extraire_goujons_fc_gouj, BarreGoujons};
 pub use oxycoupage::{extraire_oxycoupage};
 pub use presse::{extraire_presse};
 pub use previ::{extraire_info_previ, GroupeProfil};
@@ -52,6 +52,9 @@ pub struct VariablesAffaire {
     /// Détail de nb_barres par profil distinct -- voir previ::GroupeProfil.
     /// Stocké séparément (table `profils_affaires`), pas dans cette ligne.
     pub groupes_profil: Vec<GroupeProfil>,
+    /// Goujons par poutre (Rep de FC-GOUJ), chacune avec ses différents
+    /// diamètres/hauteurs et leur nombre. Table `goujons_affaires`.
+    pub goujons_par_poutre: Vec<BarreGoujons>,
     pub nb_barres: f64,
     pub nb_goujons: f64,
     pub longueur_coupe: f64,
@@ -77,6 +80,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
     let forage = extraire_variables_forage(chemin_fichier)?;
     let presse = extraire_presse(chemin_fichier)?;
     let contre_fleche = presse.map(|p| p.valeur_avec_repli());
+    let goujons_par_poutre = goujons.as_ref().map(|g| g.detail.clone()).unwrap_or_default();
 
     Ok(VariablesAffaire {
         affaire: info.commande,
@@ -85,6 +89,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         numero_plan: info.numero_plan,
         numero_offre: info.numero_offre,
         groupes_profil: info.groupes_profil,
+        goujons_par_poutre,
         nb_barres: info.nb_barres_total,
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
         longueur_coupe: oxycoupage.map(|o| o.longueur_coupe_totale).unwrap_or(0.0),
@@ -164,6 +169,26 @@ pub fn inserer_profils_affaire(conn: &mut Connection, affaire: &str, groupes: &[
     Ok(())
 }
 
+/// Remplace le détail des goujons d'une affaire dans `goujons_affaires` :
+/// une ligne par poutre (rep) et par type de goujon (diamètre x hauteur).
+pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[BarreGoujons]) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM goujons_affaires WHERE affaire = ?1", params![affaire])
+        .map_err(|e| e.to_string())?;
+    for poutre in poutres {
+        for g in &poutre.groupes {
+            tx.execute(
+                "INSERT INTO goujons_affaires (affaire, rep, profil, longueur, diametre, hauteur, nb_goujons)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![affaire, poutre.rep, poutre.profil, poutre.longueur, g.diametre, g.hauteur, g.nb_goujons],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Point d'entrée haut niveau : extrait puis insère en une seule opération.
 /// C'est cette fonction que le watcher doit appeler pour chaque fichier
 /// .xlsx détecté.
@@ -172,6 +197,7 @@ pub fn traiter_fichier_excel(chemin_fichier: &str, conn: &mut Connection) -> Res
     let affaire = variables.affaire.clone();
     inserer_variables_affaire(conn, &variables)?;
     inserer_profils_affaire(conn, &affaire, &variables.groupes_profil)?;
+    inserer_goujons_affaire(conn, &affaire, &variables.goujons_par_poutre)?;
     Ok(affaire)
 }
 
