@@ -59,6 +59,21 @@ pub fn initialiser_schema_coefficients(conn: &Connection) -> rusqlite::Result<()
     )
 }
 
+/// Modifie un coefficient (poste+variable, où `variable` peut valoir
+/// `__intercept__`) -- pour des tests manuels depuis l'écran Coefficients,
+/// sans repasser par une calibration complète. Upsert : fonctionne aussi
+/// bien pour corriger un coefficient déjà calibré que pour en ajouter un
+/// nouveau sur un poste pas encore calibré.
+pub fn modifier_coefficient(conn: &Connection, poste: &str, variable: &str, valeur: f64) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)
+         ON CONFLICT(poste, variable) DO UPDATE SET valeur = excluded.valeur",
+        params![poste, variable, valeur],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Remplace intégralement le contenu de la table `coefficients` (et les
 /// métadonnées associées dans `configuration`) par celui de `coeffs`.
 /// Un remplacement complet, plutôt qu'un upsert, garantit qu'une variable ou

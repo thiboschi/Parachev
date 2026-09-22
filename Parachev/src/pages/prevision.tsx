@@ -169,6 +169,16 @@ export default function Prevision() {
                       {affaire}
                     </Badge>
                   )}
+                  {variables?.numero_plan && (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      {variables.numero_plan}
+                    </Badge>
+                  )}
+                  {variables?.numero_offre && (
+                    <Badge variant="outline" className="text-muted-foreground">
+                      {variables.numero_offre}
+                    </Badge>
+                  )}
                 </div>
                 <Button className="w-fit" onClick={executerPrevision} disabled={!affaire}>
                   previ
@@ -276,22 +286,6 @@ export default function Prevision() {
                             className="h-7 max-w-32 text-right tabular-nums"
                             value={edition.profil}
                             onChange={(e) => modifierChamp("profil", e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="shrink-0 text-muted-foreground">N° de plan</span>
-                          <Input
-                            className="h-7 max-w-32 text-right tabular-nums"
-                            value={edition.numero_plan}
-                            onChange={(e) => modifierChamp("numero_plan", e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="shrink-0 text-muted-foreground">N° d'offre</span>
-                          <Input
-                            className="h-7 max-w-32 text-right tabular-nums"
-                            value={edition.numero_offre}
-                            onChange={(e) => modifierChamp("numero_offre", e.target.value)}
                           />
                         </div>
                         <div className="flex items-center justify-between gap-2">

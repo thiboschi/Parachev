@@ -12,7 +12,7 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::calibration::{calibrer_tous_les_postes};
+use crate::calibration::{calibrer_tous_les_postes, poste_variables};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -54,6 +54,8 @@ pub fn run() {
             chiffrer_manuellement,
             recalibrer,
             lister_coefficients,
+            modifier_coefficient,
+            lister_variables_poste,
             lister_heures,
             lister_heures_affaire,
             obtenir_dossier_configure,
@@ -246,6 +248,28 @@ fn lister_coefficients(app: tauri::AppHandle) -> Result<CoefficientsInfo, String
         .map_err(|e| e.to_string())?;
 
     Ok(CoefficientsInfo { version, date_calibration, lignes })
+}
+
+/// Modifie ou ajoute un coefficient (poste+variable), pour des tests
+/// manuels depuis l'écran Coefficients -- ne relance pas de calibration,
+/// n'incrémente pas la version, juste la valeur en base.
+#[tauri::command]
+fn modifier_coefficient(app: tauri::AppHandle, poste: String, variable: String, valeur: f64) -> Result<(), String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    prevision::modifier_coefficient(&conn, &poste, &variable, valeur)
+}
+
+/// Variables explicatives connues par poste (voir calibration::poste_variables)
+/// -- utilisé par l'écran Coefficients pour proposer les bons champs même
+/// sur un poste pas encore calibré (aucune ligne en base pour l'instant).
+#[tauri::command]
+fn lister_variables_poste() -> HashMap<String, Vec<String>> {
+    poste_variables()
+        .into_iter()
+        .map(|(poste, variables)| {
+            (poste.to_string(), variables.into_iter().map(str::to_string).collect())
+        })
+        .collect()
 }
 
 #[derive(Serialize)]

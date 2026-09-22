@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -7,7 +7,15 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useAffairesDb } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
+
+// Sentinelle pour "aucun profil sélectionné" -- un Select ne peut pas
+// prendre une valeur vide comme item.
+const PROFIL_NON_RENSEIGNE = "none"
 
 // Variables explicatives acceptées par `chiffrer_manuellement` (voir
 // poste_variables dans calibration.rs) -- les mêmes que variables_affaires,
@@ -43,22 +51,36 @@ const CHAMPS_VIDES: Record<Champ, string> = {
 // utilisés dans le calcul (comme `profil`/`contre_fleche` dans
 // variables_affaires, voir prevision.tsx) -- juste affichés à côté de
 // l'estimation pour le contexte du projet.
-type ChampInfo = "profil" | "contre_fleche" | "pourcentage"
+type ChampInfo = "profil" | "contre_fleche"
 
 const INFOS_VIDES: Record<ChampInfo, string> = {
   profil: "",
   contre_fleche: "",
-  pourcentage: "",
 }
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
 
 export default function Chiffrage() {
+  // Mêmes profils que le filtre de la page Search : distincts, non nuls,
+  // triés, tirés des affaires déjà en base.
+  const { affaires } = useAffairesDb()
+  const profilOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          affaires.map((item) => item.variables?.profil).filter((p): p is string => !!p)
+        )
+      ).sort(),
+    [affaires]
+  )
+
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
   const [infos, setInfos] = useState<Record<ChampInfo, string>>(INFOS_VIDES)
   const [resultat, setResultat] = useState<Record<string, number> | null>(null)
   const [calcul, setCalcul] = useState(false)
+  const [dbs, setDbs] = useState(false)
+  const [classeTolerance2, setClasseTolerance2] = useState(false)
 
   function modifier(champ: Champ, valeur: string) {
     setValeurs((prev) => ({ ...prev, [champ]: valeur }))
@@ -136,11 +158,24 @@ export default function Chiffrage() {
               <CardContent className="flex flex-col gap-3">
                 <div className="flex items-center justify-between gap-2">
                   <span className="shrink-0 text-sm text-muted-foreground">Profil</span>
-                  <Input
-                    className="h-8 max-w-36 text-right"
-                    value={infos.profil}
-                    onChange={(e) => modifierInfo("profil", e.target.value)}
-                  />
+                  <Select
+                    value={infos.profil === "" ? PROFIL_NON_RENSEIGNE : infos.profil}
+                    onValueChange={(value) =>
+                      modifierInfo("profil", value === PROFIL_NON_RENSEIGNE ? "" : (value ?? ""))
+                    }
+                  >
+                    <SelectTrigger className="w-36">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={PROFIL_NON_RENSEIGNE}>Non renseigné</SelectItem>
+                      {profilOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="shrink-0 text-sm text-muted-foreground">CFL</span>
@@ -164,6 +199,27 @@ export default function Chiffrage() {
                     />
                   </div>
                 ))}
+                <div className="my-1 border-t" />
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="dbs"
+                    checked={dbs}
+                    onCheckedChange={(checked) => setDbs(checked === true)}
+                  />
+                  <Label htmlFor="dbs" className="text-sm font-normal">
+                    DBS
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="classe-tolerance-2"
+                    checked={classeTolerance2}
+                    onCheckedChange={(checked) => setClasseTolerance2(checked === true)}
+                  />
+                  <Label htmlFor="classe-tolerance-2" className="text-sm font-normal">
+                    Classe Tolérance 2
+                  </Label>
+                </div>
                 <div className="mt-2 flex items-center gap-2">
                   <Button onClick={chiffrer} disabled={calcul}>
                     {calcul ? "Calcul…" : "Chiffrer"}
@@ -202,16 +258,18 @@ export default function Chiffrage() {
                     <span className="tabular-nums">{formatHeures(resultat.total ?? 0)} h</span>
                   </div>
                 )}
-
-                <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
-                  <span className="shrink-0 text-muted-foreground">%</span>
-                  <Input
-                    className="h-8 max-w-36 text-right tabular-nums"
-                    inputMode="decimal"
-                    value={infos.pourcentage}
-                    onChange={(e) => modifierInfo("pourcentage", e.target.value)}
-                  />
-                </div>
+                {resultat && dbs && (
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span>DBS (×1,20)</span>
+                    <span className="tabular-nums">{formatHeures((resultat.total ?? 0) * 1.2)} h</span>
+                  </div>
+                )}
+                {resultat && classeTolerance2 && (
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span>Classe Tolérance 2 (×1,25)</span>
+                    <span className="tabular-nums">{formatHeures((resultat.total ?? 0) * 1.25)} h</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
