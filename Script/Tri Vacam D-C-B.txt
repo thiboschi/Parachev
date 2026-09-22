@@ -331,11 +331,14 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
     const ligneDepart = 22;
     const colonneRecherche = 0;
     const largeurBordure = 5;
+
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
+
     let ligneDebut = -1;
     let ligneFin = -1;
+
     for (let i = ligneDepart; i < nbLignes; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
         for (const mot of motsDebut) {
@@ -343,36 +346,43 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
         }
         if (ligneDebut !== -1) break;
     }
+
     if (ligneDebut !== -1) {
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             if (cellule.toLowerCase().includes(motFin.toLowerCase())) { ligneFin = i; break; }
         }
     }
+
     if (ligneDebut === -1 || ligneFin === -1) { console.log("Marqueurs introuvables, bordures annulées."); return; }
+
     const estVide = (v: string | number | boolean): boolean => String(v).trim() === "" || v === null || v === undefined;
-    let valeurAPrecedente: string | number | boolean = "";
+
     let valeurDPrecedente: string | number | boolean = "";
+
     for (let i = ligneDebut + 1; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
-        if (!estTag) { valeurAPrecedente = valeurs[i][0]; valeurDPrecedente = valeurs[i][3]; break; }
+        if (!estTag) { valeurDPrecedente = valeurs[i][3]; break; }
     }
+
     for (let i = ligneDebut + 2; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
         if (estTag) continue;
-        const valeurA = valeurs[i][0];
+
         const valeurD = valeurs[i][3];
-        const changementA = !estVide(valeurA) && !estVide(valeurAPrecedente) && String(valeurA) !== String(valeurAPrecedente);
-        const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) && String(valeurD) !== String(valeurDPrecedente);
-        if (changementA || changementD) {
+        const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) &&
+                            String(valeurD) !== String(valeurDPrecedente);
+
+        if (changementD) {
             const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
             const bordure = ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop);
             bordure.setColor("#000000");
-            bordure.setStyle(changementD ? ExcelScript.BorderLineStyle.thin : ExcelScript.BorderLineStyle.dash);
+            bordure.setStyle(ExcelScript.BorderLineStyle.thin);
         }
-        if (!estVide(valeurA)) valeurAPrecedente = valeurA;
+
         if (!estVide(valeurD)) valeurDPrecedente = valeurD;
     }
+
     console.log("Bordures ajoutées !");
 }
 
