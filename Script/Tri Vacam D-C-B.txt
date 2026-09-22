@@ -388,46 +388,50 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
         return;
     }
 
-    // Initialise les valeurs précédentes sur la première ligne non-tag
+    const estVide = (v: string | number | boolean): boolean => {
+        return String(v).trim() === "" || v === null || v === undefined;
+    };
+
     let valeurAPrecedente: string | number | boolean = "";
-    let valeurCPrecedente: string | number | boolean = "";
+    let valeurDPrecedente: string | number | boolean = "";
 
     for (let i = ligneDebut + 1; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
         if (!estTag) {
-            valeurAPrecedente = valeurs[i][0]; // colonne A
-            valeurCPrecedente = valeurs[i][2]; // colonne C
+            valeurAPrecedente = valeurs[i][0]; // colonne A = index 0
+            valeurDPrecedente = valeurs[i][3]; // colonne D = index 3
             break;
         }
     }
 
     for (let i = ligneDebut + 2; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
-
         if (estTag) continue;
 
         const valeurA = valeurs[i][0]; // colonne A
-        const valeurC = valeurs[i][2]; // colonne C
+        const valeurD = valeurs[i][3]; // colonne D
 
-        const changementA = String(valeurA) !== String(valeurAPrecedente);
-        const changementC = String(valeurC) !== String(valeurCPrecedente);
+        const changementA = !estVide(valeurA) && !estVide(valeurAPrecedente) &&
+                            String(valeurA) !== String(valeurAPrecedente);
+        const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) &&
+                            String(valeurD) !== String(valeurDPrecedente);
 
-        if (changementA || changementC) {
+        if (changementA || changementD) {
             const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
             const bordure = ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop);
             bordure.setColor("#000000");
 
-            if (changementC) {
-                // Colonne C change (ou les deux changent) → bordure pleine
+            if (changementD) {
+                // D change (ou les deux) → bordure pleine
                 bordure.setStyle(ExcelScript.BorderLineStyle.thin);
             } else {
-                // Seulement colonne A change → bordure pointillée
+                // Seulement A change → bordure pointillée
                 bordure.setStyle(ExcelScript.BorderLineStyle.dash);
             }
         }
 
-        valeurAPrecedente = valeurA;
-        valeurCPrecedente = valeurC;
+        if (!estVide(valeurA)) valeurAPrecedente = valeurA;
+        if (!estVide(valeurD)) valeurDPrecedente = valeurD;
     }
 
     console.log("Bordures ajoutées !");
