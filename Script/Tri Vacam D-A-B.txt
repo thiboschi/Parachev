@@ -5,11 +5,11 @@ function main(workbook: ExcelScript.Workbook) {
     convert(ws);
     nettoyerValeurs(ws);
     tronquerDecimale(ws);
-    ajouterDecimale(ws);
     convertirEnNombre(ws);
     trierColonnes(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     ajouterBordures(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     alignerNombres(ws);
+    ajouterDecimale(ws);
 }
 
 function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], motsFin: string[]) {
@@ -228,7 +228,15 @@ function ajouterDecimale(ws: ExcelScript.Worksheet) {
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
 
-    let modifie = false;
+    const estEntier = (v: string | number | boolean): boolean => {
+        if (typeof v === "number") return Number.isInteger(v);
+        return /^\d+$/.test(String(v).trim());
+    };
+
+    const aVirgule = (v: string | number | boolean): boolean => {
+        if (typeof v === "number") return !Number.isInteger(v);
+        return String(v).includes(",") || String(v).includes(".");
+    };
 
     for (let i = ligneDepart + 1; i < nbLignes - 1; i++) {
         for (let j = 0; j < nbColonnes; j++) {
@@ -236,28 +244,15 @@ function ajouterDecimale(ws: ExcelScript.Worksheet) {
             const valeurDessus = valeurs[i - 1][j];
             const valeurDessous = valeurs[i + 1][j];
 
-            const estEntier = (v: string | number | boolean): boolean => {
-                return /^\d+$/.test(String(v).trim());
-            };
-
-            const aVirgule = (v: string | number | boolean): boolean => {
-                const str = String(v);
-                return str.includes(",") || str.includes(".");
-            };
-
             if (estEntier(valeurCourante) && aVirgule(valeurDessus) && aVirgule(valeurDessous)) {
-                valeurs[i][j] = String(valeurCourante) + ",0";
-                modifie = true;
-
+                // Écrit le nombre avec 1 décimale via le format Excel
+                // sans modifier la valeur réelle
+                ws.getRangeByIndexes(i, j, 1, 1).setNumberFormatLocal("0,0");
                 ws.getRangeByIndexes(i, j, 1, 1)
                     .getFormat()
                     .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
             }
         }
-    }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
     }
 
     console.log("Ajout de décimales terminé !");
