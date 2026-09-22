@@ -1,14 +1,13 @@
 function main(workbook: ExcelScript.Workbook) {
     const ws = workbook.getActiveWorksheet();
-
     supprimerEntreMots(ws, ["KO"], ["EN"]);
     convertirEnTableau(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     convert(ws);
     nettoyerValeurs(ws);
-    convertirEnNombre(ws);
-    trierColonnes(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     tronquerDecimale(ws);
     ajouterDecimale(ws);
+    convertirEnNombre(ws);
+    trierColonnes(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     ajouterBordures(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     alignerNombres(ws);
 }
@@ -17,19 +16,15 @@ function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], mots
     const ligneDepart = 22;
     const colonneRecherche = 0;
     const inclureBornes = false;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
-
     let lignesASupprimer: number[] = [];
     let recherche = true;
     let depart = ligneDepart;
-
     while (recherche) {
         let ligneDebut = -1;
         let ligneFin = -1;
-
         for (let i = depart; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsDebut) {
@@ -41,7 +36,6 @@ function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], mots
             if (ligneDebut !== -1) break;
         }
         if (ligneDebut === -1) { recherche = false; break; }
-
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsFin) {
@@ -53,22 +47,17 @@ function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], mots
             if (ligneFin !== -1) break;
         }
         if (ligneFin === -1) { recherche = false; break; }
-
         const debutSuppr = inclureBornes ? ligneDebut : ligneDebut + 1;
         const finSuppr = inclureBornes ? ligneFin : ligneFin - 1;
-
         for (let i = debutSuppr; i <= finSuppr; i++) {
             lignesASupprimer.push(i);
         }
-
         depart = ligneFin + 1;
     }
-
     lignesASupprimer.sort((a, b) => b - a);
     for (const ligne of lignesASupprimer) {
         ws.getRangeByIndexes(ligne, 0, 1, usedRange.getColumnCount()).delete(ExcelScript.DeleteShiftDirection.up);
     }
-
     console.log(`${lignesASupprimer.length} ligne(s) supprimée(s).`);
 }
 
@@ -77,19 +66,15 @@ function convertirEnTableau(ws: ExcelScript.Worksheet, motsDebut: string[], motF
     const colonneRecherche = 0;
     const inclureBornes = false;
     const delimiteur = " ";
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
-
     let depart = ligneDepart;
     let recherche = true;
-
     while (recherche) {
         let ligneDebut = -1;
         let ligneFin = -1;
         let motDebutTrouve = "";
-
         for (let i = depart; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsDebut) {
@@ -102,7 +87,6 @@ function convertirEnTableau(ws: ExcelScript.Worksheet, motsDebut: string[], motF
             if (ligneDebut !== -1) break;
         }
         if (ligneDebut === -1) { recherche = false; break; }
-
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             if (cellule.toLowerCase().includes(motFin.toLowerCase())) {
@@ -111,41 +95,31 @@ function convertirEnTableau(ws: ExcelScript.Worksheet, motsDebut: string[], motF
             }
         }
         if (ligneFin === -1) { recherche = false; break; }
-
         const debutConversion = inclureBornes ? ligneDebut : ligneDebut + 1;
         const finConversion = inclureBornes ? ligneFin : ligneFin - 1;
-
         console.log(`Conversion entre "${motDebutTrouve}" (ligne ${ligneDebut + 1}) et "${motFin}" (ligne ${ligneFin + 1})`);
-
         for (let i = debutConversion; i <= finConversion; i++) {
             const texte = String(valeurs[i][colonneRecherche]);
             let morceaux = texte.split(delimiteur).map(m => m.trim()).filter(m => m !== "");
-
             if (morceaux.length > 0 && !/^[a-zA-Z]/.test(morceaux[0])) {
                 morceaux = ["", ...morceaux];
             }
-
             for (let j = 0; j < morceaux.length; j++) {
                 ws.getCell(i, colonneRecherche + j).setValue(morceaux[j]);
             }
         }
-
         depart = ligneFin + 1;
     }
-
     console.log("Conversion terminée !");
 }
 
 function convert(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
-
     let modifie = false;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeur = valeurs[i][j];
@@ -155,97 +129,129 @@ function convert(ws: ExcelScript.Worksheet) {
             }
         }
     }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
-    }
-
+    if (modifie) { usedRange.setValues(valeurs); }
     console.log("Remplacement terminé !");
 }
 
 function nettoyerValeurs(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
-
     let modifie = false;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeur = valeurs[i][j];
             if (typeof valeur === "string") {
-                const match = valeur.match(/^(\d+[,.]?\d*)[a-zA-Z]+$/);
-                if (match) {
-                    valeurs[i][j] = match[1];
+                const matchLettre = valeur.match(/^(\d+[,.]?\d*)[a-zA-Z]+$/);
+                if (matchLettre) {
+                    valeurs[i][j] = matchLettre[1];
+                    modifie = true;
+                }
+                const valeurActuelle = String(valeurs[i][j]);
+                const matchVirgule = valeurActuelle.match(/^(\d+[,.])\d(\d)$/);
+                if (matchVirgule) {
+                    valeurs[i][j] = valeurActuelle.slice(0, -1);
                     modifie = true;
                 }
             }
         }
     }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
-    }
-
+    if (modifie) { usedRange.setValues(valeurs); }
     console.log("Nettoyage terminé !");
 }
 
-function ajouterDecimale(ws: ExcelScript.Worksheet) {
+function tronquerDecimale(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-
+    const abreviations = ["BO", "SI", "AK", "IK", "PU", "KO", "KA"];
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
-
     let modifie = false;
+    for (let i = ligneDepart; i < nbLignes; i++) {
+        for (let j = 0; j < nbColonnes; j++) {
+            const valeur = valeurs[i][j];
+            const str = String(valeur);
+            if (/^\d+[,.]\d{2}$/.test(str)) {
+                const nombre = parseFloat(str.replace(",", "."));
+                valeurs[i][j] = String(Math.round(nombre * 10) / 10).replace(".", ",");
+                modifie = true;
+            }
+        }
+    }
+    const sections: { debut: number, fin: number }[] = [];
+    let debutSection = ligneDepart;
+    let valeurDCourante = String(valeurs[ligneDepart][3]);
+    for (let i = ligneDepart + 1; i < nbLignes; i++) {
+        const cellule = String(valeurs[i][0]);
+        const estSeparateur = abreviations.some(a => cellule.toLowerCase().includes(a.toLowerCase()));
+        const valeurD = String(valeurs[i][3]);
+        if (estSeparateur || valeurD !== valeurDCourante) {
+            sections.push({ debut: debutSection, fin: i - 1 });
+            debutSection = i + (estSeparateur ? 1 : 0);
+            valeurDCourante = String(valeurs[debutSection]?.[3] ?? "");
+        }
+    }
+    sections.push({ debut: debutSection, fin: nbLignes - 1 });
+    for (const section of sections) {
+        for (let j = 0; j < nbColonnes; j++) {
+            let aVirgule = false;
+            for (let i = section.debut; i <= section.fin; i++) {
+                const str = String(valeurs[i][j]);
+                if (str.includes(",") || str.includes(".")) {
+                    aVirgule = true;
+                    break;
+                }
+            }
+            if (aVirgule) {
+                for (let i = section.debut; i <= section.fin; i++) {
+                    const str = String(valeurs[i][j]);
+                    if (/^\d+$/.test(str.trim())) {
+                        valeurs[i][j] = str + ",0";
+                        modifie = true;
+                    }
+                }
+            }
+        }
+    }
+    if (modifie) { usedRange.setValues(valeurs); }
+    console.log("Arrondi et harmonisation des décimales terminés !");
+}
 
+function ajouterDecimale(ws: ExcelScript.Worksheet) {
+    const ligneDepart = 22;
+    const usedRange = ws.getUsedRange();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
+    const nbColonnes = valeurs[0].length;
+    let modifie = false;
     for (let i = ligneDepart + 1; i < nbLignes - 1; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeurCourante = valeurs[i][j];
             const valeurDessus = valeurs[i - 1][j];
             const valeurDessous = valeurs[i + 1][j];
-
-            const estEntier = (v: string | number | boolean): boolean => {
-                return /^\d+$/.test(String(v).trim());
-            };
-
-            const aVirgule = (v: string | number | boolean): boolean => {
-                const str = String(v);
-                return str.includes(",") || str.includes(".");
-            };
-
+            const estEntier = (v: string | number | boolean): boolean => /^\d+$/.test(String(v).trim());
+            const aVirgule = (v: string | number | boolean): boolean => String(v).includes(",") || String(v).includes(".");
             if (estEntier(valeurCourante) && aVirgule(valeurDessus) && aVirgule(valeurDessous)) {
                 valeurs[i][j] = String(valeurCourante) + ",0";
                 modifie = true;
-
-                ws.getRangeByIndexes(i, j, 1, 1)
-                    .getFormat()
-                    .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
+                ws.getRangeByIndexes(i, j, 1, 1).getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
             }
         }
     }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
-    }
-
+    if (modifie) { usedRange.setValues(valeurs); }
     console.log("Ajout de décimales terminé !");
 }
 
 function convertirEnNombre(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
-
     let modifie = false;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeur = valeurs[i][j];
@@ -258,11 +264,7 @@ function convertirEnNombre(ws: ExcelScript.Worksheet) {
             }
         }
     }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
-    }
-
+    if (modifie) { usedRange.setValues(valeurs); }
     console.log("Conversion en nombre terminée !");
 }
 
@@ -270,15 +272,12 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
     const ligneDepart = 22;
     const colonneRecherche = 0;
     const inclureBornes = false;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = usedRange.getColumnCount();
-
     let ligneDebut = -1;
     let ligneFin = -1;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
         for (const mot of motsDebut) {
@@ -289,7 +288,6 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
         }
         if (ligneDebut !== -1) break;
     }
-
     if (ligneDebut !== -1) {
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
@@ -299,54 +297,33 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
             }
         }
     }
-
-    if (ligneDebut === -1 || ligneFin === -1) {
-        console.log("Marqueurs introuvables, tri annulé.");
-        return;
-    }
-
+    if (ligneDebut === -1 || ligneFin === -1) { console.log("Marqueurs introuvables, tri annulé."); return; }
     const debutTri = inclureBornes ? ligneDebut : ligneDebut + 1;
     const finTri = inclureBornes ? ligneFin : ligneFin - 1;
-
-    if (finTri < debutTri) {
-        console.log("Aucune ligne à trier entre les marqueurs.");
-        return;
-    }
-
+    if (finTri < debutTri) { console.log("Aucune ligne à trier."); return; }
     const separateurs: number[] = [ligneDebut - 1];
-
     for (let i = ligneDebut; i <= finTri; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
-        const estSeparateur = motsDebut.some(m => cellule.toLowerCase().includes(m.toLowerCase()));
-        if (estSeparateur) {
+        if (motsDebut.some(m => cellule.toLowerCase().includes(m.toLowerCase()))) {
             separateurs.push(i);
         }
     }
-
     separateurs.push(ligneFin);
-
     for (let s = 0; s < separateurs.length - 1; s++) {
         const debutSection = separateurs[s] + 1;
         const finSection = separateurs[s + 1] - 1;
-
         if (finSection < debutSection) continue;
-
         const section: (string | number | boolean)[][] = [];
-        for (let i = debutSection; i <= finSection; i++) {
-            section.push(valeurs[i]);
-        }
-
+        for (let i = debutSection; i <= finSection; i++) { section.push(valeurs[i]); }
         section.sort((a: (string | number | boolean)[], b: (string | number | boolean)[]) => {
             const triD = comparerValeurs(a[3], b[3]);
             if (triD !== 0) return triD;
-            const triA = comparerValeurs(a[0], b[0]);  // A = index 0
+            const triA = comparerValeurs(a[0], b[0]); // A
             if (triA !== 0) return triA;
-            return comparerValeurs(a[1], b[1]);         // B = index 1
+            return comparerValeurs(a[1], b[1]); // B
         });
-
         ws.getRangeByIndexes(debutSection, 0, section.length, nbColonnes).setValues(section);
-
-        console.log(`Section "${String(valeurs[separateurs[s]][0])}" triée entre les lignes ${debutSection + 1} et ${finSection + 1}.`);
+        console.log(`Section triée D-B-C entre les lignes ${debutSection + 1} et ${finSection + 1}.`);
     }
 }
 
@@ -354,197 +331,75 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
     const ligneDepart = 22;
     const colonneRecherche = 0;
     const largeurBordure = 5;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
-
     let ligneDebut = -1;
     let ligneFin = -1;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
         for (const mot of motsDebut) {
-            if (cellule.toLowerCase().includes(mot.toLowerCase())) {
-                ligneDebut = i;
-                break;
-            }
+            if (cellule.toLowerCase().includes(mot.toLowerCase())) { ligneDebut = i; break; }
         }
         if (ligneDebut !== -1) break;
     }
-
     if (ligneDebut !== -1) {
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
-            if (cellule.toLowerCase().includes(motFin.toLowerCase())) {
-                ligneFin = i;
-                break;
-            }
+            if (cellule.toLowerCase().includes(motFin.toLowerCase())) { ligneFin = i; break; }
         }
     }
-
-    if (ligneDebut === -1 || ligneFin === -1) {
-        console.log("Marqueurs introuvables, bordures annulées.");
-        return;
-    }
-
-    const estVide = (v: string | number | boolean): boolean => {
-        return String(v).trim() === "" || v === null || v === undefined;
-    };
-
+    if (ligneDebut === -1 || ligneFin === -1) { console.log("Marqueurs introuvables, bordures annulées."); return; }
+    const estVide = (v: string | number | boolean): boolean => String(v).trim() === "" || v === null || v === undefined;
     let valeurAPrecedente: string | number | boolean = "";
     let valeurDPrecedente: string | number | boolean = "";
-
     for (let i = ligneDebut + 1; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
-        if (!estTag) {
-            valeurAPrecedente = valeurs[i][0]; // colonne A = index 0
-            valeurDPrecedente = valeurs[i][3]; // colonne D = index 3
-            break;
-        }
+        if (!estTag) { valeurAPrecedente = valeurs[i][0]; valeurDPrecedente = valeurs[i][3]; break; }
     }
-
     for (let i = ligneDebut + 2; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
         if (estTag) continue;
-
-        const valeurA = valeurs[i][0]; // colonne A
-        const valeurD = valeurs[i][3]; // colonne D
-
-        const changementA = !estVide(valeurA) && !estVide(valeurAPrecedente) &&
-                            String(valeurA) !== String(valeurAPrecedente);
-        const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) &&
-                            String(valeurD) !== String(valeurDPrecedente);
-
+        const valeurA = valeurs[i][0];
+        const valeurD = valeurs[i][3];
+        const changementA = !estVide(valeurA) && !estVide(valeurAPrecedente) && String(valeurA) !== String(valeurAPrecedente);
+        const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) && String(valeurD) !== String(valeurDPrecedente);
         if (changementA || changementD) {
             const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
             const bordure = ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop);
             bordure.setColor("#000000");
-
-            if (changementD) {
-                // D change (ou les deux) → bordure pleine
-                bordure.setStyle(ExcelScript.BorderLineStyle.thin);
-            } else {
-                // Seulement A change → bordure pointillée
-                bordure.setStyle(ExcelScript.BorderLineStyle.dash);
-            }
+            bordure.setStyle(changementD ? ExcelScript.BorderLineStyle.thin : ExcelScript.BorderLineStyle.dash);
         }
-
         if (!estVide(valeurA)) valeurAPrecedente = valeurA;
         if (!estVide(valeurD)) valeurDPrecedente = valeurD;
     }
-
     console.log("Bordures ajoutées !");
-}
-
-function comparerValeurs(a: string | number | boolean, b: string | number | boolean): number {
-    const aNum = parseFloat(String(a).replace(",", "."));
-    const bNum = parseFloat(String(b).replace(",", "."));
-    return aNum - bNum;
-}
-
-function tronquerDecimale(ws: ExcelScript.Worksheet) {
-    const ligneDepart = 22;
-    const abreviations = ["BO", "SI", "AK", "IK", "PU", "KO", "KA"];
-
-    const usedRange = ws.getUsedRange();
-    const valeurs = usedRange.getValues();
-    const nbLignes = valeurs.length;
-    const nbColonnes = valeurs[0].length;
-
-    let modifie = false;
-
-    // === ÉTAPE 1 : arrondit à 1 décimale les valeurs à 2 chiffres après la virgule ===
-    for (let i = ligneDepart; i < nbLignes; i++) {
-        for (let j = 0; j < nbColonnes; j++) {
-            const valeur = valeurs[i][j];
-            const str = String(valeur);
-            if (/^\d+[,.]\d{2}$/.test(str)) {
-                const nombre = parseFloat(str.replace(",", "."));
-                valeurs[i][j] = String(Math.round(nombre * 10) / 10).replace(".", ",");
-                modifie = true;
-            }
-        }
-    }
-
-    // === ÉTAPE 2 : identifie les sections entre bordures (changement de valeur en colonne D) ===
-    // Une section = bloc de lignes ayant la même valeur en colonne D, entre deux séparateurs
-    const sections: { debut: number, fin: number }[] = [];
-
-    let debutSection = ligneDepart;
-    let valeurDCourante = String(valeurs[ligneDepart][3]);
-
-    for (let i = ligneDepart + 1; i < nbLignes; i++) {
-        const cellule = String(valeurs[i][0]);
-        const estSeparateur = abreviations.some(a => cellule.toLowerCase().includes(a.toLowerCase()));
-        const valeurD = String(valeurs[i][3]);
-
-        if (estSeparateur || valeurD !== valeurDCourante) {
-            sections.push({ debut: debutSection, fin: i - 1 });
-            debutSection = i + (estSeparateur ? 1 : 0);
-            valeurDCourante = String(valeurs[debutSection]?.[3] ?? "");
-        }
-    }
-    sections.push({ debut: debutSection, fin: nbLignes - 1 });
-
-    // === ÉTAPE 3 : pour chaque section, si une valeur d'une colonne a une virgule, toutes en ont ===
-    for (const section of sections) {
-        for (let j = 0; j < nbColonnes; j++) {
-            let aVirgule = false;
-
-            // Vérifie si au moins une valeur de la colonne dans cette section a une virgule
-            for (let i = section.debut; i <= section.fin; i++) {
-                const str = String(valeurs[i][j]);
-                if (str.includes(",") || str.includes(".")) {
-                    aVirgule = true;
-                    break;
-                }
-            }
-
-            // Si oui, ajoute ",0" aux valeurs entières de la colonne dans cette section
-            if (aVirgule) {
-                for (let i = section.debut; i <= section.fin; i++) {
-                    const str = String(valeurs[i][j]);
-                    if (/^\d+$/.test(str.trim())) {
-                        valeurs[i][j] = str + ",0";
-                        modifie = true;
-                    }
-                }
-            }
-        }
-    }
-
-    if (modifie) {
-        usedRange.setValues(valeurs);
-    }
-
-    console.log("Arrondi et harmonisation des décimales terminés !");
 }
 
 function alignerNombres(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
-
     for (let i = ligneDepart; i < nbLignes; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeur = valeurs[i][j];
-
-            // Aligne à droite si c'est un nombre ou un texte numérique (avec virgule ou point)
-            const estNumerique =
-                typeof valeur === "number" ||
+            const estNumerique = typeof valeur === "number" ||
                 (typeof valeur === "string" && /^\d+([,.]\d+)?$/.test(String(valeur).trim()));
-
             if (estNumerique) {
-                ws.getRangeByIndexes(i, j, 1, 1)
-                    .getFormat()
-                    .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
+                ws.getRangeByIndexes(i, j, 1, 1).getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
             }
         }
     }
-
     console.log("Alignement à droite terminé !");
+}
+
+function comparerValeurs(a: string | number | boolean, b: string | number | boolean): number {
+    const aStr = String(a).replace(",", ".");
+    const bStr = String(b).replace(",", ".");
+    const aNum = parseFloat(aStr);
+    const bNum = parseFloat(bStr);
+    if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
+    return aStr.localeCompare(bStr);
 }
