@@ -523,3 +523,71 @@ function alignerNombres(ws: ExcelScript.Worksheet) {
 
     console.log("Alignement à droite terminé !");
 }
+
+function ajouterBorduresPointillees(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: string) {
+    const ligneDepart = 22;
+    const colonneRecherche = 0;
+    const largeurBordure = 5;
+
+    const usedRange = ws.getUsedRange();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
+
+    let ligneDebut = -1;
+    let ligneFin = -1;
+
+    for (let i = ligneDepart; i < nbLignes; i++) {
+        const cellule = String(valeurs[i][colonneRecherche]);
+        for (const mot of motsDebut) {
+            if (cellule.toLowerCase().includes(mot.toLowerCase())) {
+                ligneDebut = i;
+                break;
+            }
+        }
+        if (ligneDebut !== -1) break;
+    }
+
+    if (ligneDebut !== -1) {
+        for (let i = ligneDebut + 1; i < nbLignes; i++) {
+            const cellule = String(valeurs[i][colonneRecherche]);
+            if (cellule.toLowerCase().includes(motFin.toLowerCase())) {
+                ligneFin = i;
+                break;
+            }
+        }
+    }
+
+    if (ligneDebut === -1 || ligneFin === -1) {
+        console.log("Marqueurs introuvables, bordures pointillées annulées.");
+        return;
+    }
+
+    // Trouve la première valeur non-tag en colonne A pour initialiser
+    let valeurPrecedente: string | number | boolean = "";
+    for (let i = ligneDebut + 1; i < ligneFin; i++) {
+        const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
+        if (!estTag) {
+            valeurPrecedente = valeurs[i][0]; // colonne A = index 0
+            break;
+        }
+    }
+
+    for (let i = ligneDebut + 2; i < ligneFin; i++) {
+        const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
+
+        // Ignore les tags, ne met pas de bordure dessus
+        if (estTag) continue;
+
+        const valeurCourante = valeurs[i][0]; // colonne A
+
+        if (String(valeurCourante) !== String(valeurPrecedente)) {
+            const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
+            ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop).setStyle(ExcelScript.BorderLineStyle.dash);
+            ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop).setColor("#000000");
+        }
+
+        valeurPrecedente = valeurCourante;
+    }
+
+    console.log("Bordures pointillées ajoutées !");
+}

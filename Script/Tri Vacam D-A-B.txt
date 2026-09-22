@@ -563,12 +563,12 @@ function ajouterBorduresPointillees(ws: ExcelScript.Worksheet, motsDebut: string
         return;
     }
 
-    // Cherche la première ligne non-tag pour initialiser la valeur précédente
+    // Trouve la première valeur non-tag en colonne A pour initialiser
     let valeurPrecedente: string | number | boolean = "";
     for (let i = ligneDebut + 1; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
         if (!estTag) {
-            valeurPrecedente = valeurs[i][1]; // compare sur colonne B par défaut
+            valeurPrecedente = valeurs[i][0]; // colonne A = index 0
             break;
         }
     }
@@ -576,19 +576,10 @@ function ajouterBorduresPointillees(ws: ExcelScript.Worksheet, motsDebut: string
     for (let i = ligneDebut + 2; i < ligneFin; i++) {
         const estTag = motsDebut.some(m => String(valeurs[i][0]).toLowerCase().includes(m.toLowerCase()));
 
-        if (estTag) {
-            // Réinitialise après chaque tag
-            for (let k = i + 1; k < ligneFin; k++) {
-                const estTagSuivant = motsDebut.some(m => String(valeurs[k][0]).toLowerCase().includes(m.toLowerCase()));
-                if (!estTagSuivant) {
-                    valeurPrecedente = valeurs[k][1];
-                    break;
-                }
-            }
-            continue;
-        }
+        // Ignore les tags, ne met pas de bordure dessus
+        if (estTag) continue;
 
-        const valeurCourante = valeurs[i][1];
+        const valeurCourante = valeurs[i][0]; // colonne A
 
         if (String(valeurCourante) !== String(valeurPrecedente)) {
             const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
