@@ -62,6 +62,7 @@ pub fn run() {
             obtenir_variables_affaire,
             mettre_a_jour_variables_affaire,
             lister_profils_affaire,
+            lister_goujons_affaire,
             lister_previsions_affaire
         ])
         .setup(|app| {
@@ -468,6 +469,47 @@ fn lister_profils_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<
                 longueur: row.get(1)?,
                 l_lam: row.get(2)?,
                 nb_barres: row.get(3)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct GoujonAffaireRow {
+    rep: String,
+    profil: String,
+    longueur: f64,
+    diametre: Option<f64>,
+    hauteur: Option<f64>,
+    nb_goujons: f64,
+}
+
+/// Détail des goujons d'une affaire (table `goujons_affaires`) : une ligne
+/// par poutre (rep) et par type de goujon (diamètre x hauteur), une même
+/// poutre pouvant mélanger plusieurs diamètres -- regroupement par rep
+/// laissé au front (voir GoujonsAffaireRow côté TS). Vide si l'affaire n'a
+/// pas de goujonnage ou n'a pas encore été parsée.
+#[tauri::command]
+fn lister_goujons_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<GoujonAffaireRow>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT rep, profil, longueur, diametre, hauteur, nb_goujons FROM goujons_affaires
+             WHERE affaire = ?1 ORDER BY rep, diametre, hauteur",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([&affaire], |row| {
+            Ok(GoujonAffaireRow {
+                rep: row.get(0)?,
+                profil: row.get(1)?,
+                longueur: row.get(2)?,
+                diametre: row.get(3)?,
+                hauteur: row.get(4)?,
+                nb_goujons: row.get(5)?,
             })
         })
         .map_err(|e| e.to_string())?;

@@ -24,10 +24,31 @@ export interface ProfilAffaireRow {
   nb_barres: number
 }
 
+// Shape returned by the `lister_goujons_affaire` Tauri command
+// (GoujonAffaireRow in lib.rs) -- une ligne par poutre (rep) et par type de
+// goujon (diamètre x hauteur) ; une poutre peut mélanger plusieurs
+// diamètres, d'où le regroupement par rep fait dans useAffaireDb.
+export interface GoujonAffaireRow {
+  rep: string
+  profil: string
+  longueur: number
+  diametre: number | null
+  hauteur: number | null
+  nb_goujons: number
+}
+
+export interface GoujonsPoutre {
+  rep: string
+  profil: string
+  longueur: number
+  groupes: { diametre: number | null; hauteur: number | null; nb_goujons: number }[]
+}
+
 interface UseAffaireDbResult {
   client: string | null
   variables: VariablesAffaireRow | null
   profils: ProfilAffaireRow[]
+  goujonsParPoutre: GoujonsPoutre[]
   heures: HeureRow[]
   heuresParPoste: HeuresParPoste[]
   totalHeures: number
@@ -54,6 +75,7 @@ interface UseAffaireDbResult {
 export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [variables, setVariables] = React.useState<VariablesAffaireRow | null>(null)
   const [profils, setProfils] = React.useState<ProfilAffaireRow[]>([])
+  const [goujons, setGoujons] = React.useState<GoujonAffaireRow[]>([])
   const [heures, setHeures] = React.useState<HeureRow[]>([])
   const [previsions, setPrevisions] = React.useState<PrevisionRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -71,17 +93,19 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
     async function charger() {
       try {
-        const [variablesRes, profilsRes, heuresRes, previsionsRes] = await Promise.all([
+        const [variablesRes, profilsRes, goujonsRes, heuresRes, previsionsRes] = await Promise.all([
           invoke<VariablesAffaireRow>("obtenir_variables_affaire", { affaire }).catch(
             () => null
           ),
           invoke<ProfilAffaireRow[]>("lister_profils_affaire", { affaire }),
+          invoke<GoujonAffaireRow[]>("lister_goujons_affaire", { affaire }),
           invoke<HeureRow[]>("lister_heures_affaire", { affaire }),
           invoke<PrevisionRow[]>("lister_previsions_affaire", { affaire }),
         ])
         if (!annule) {
           setVariables(variablesRes)
           setProfils(profilsRes)
+          setGoujons(goujonsRes)
           setHeures(heuresRes)
           setPrevisions(previsionsRes)
           setError(null)
@@ -111,10 +135,24 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
     return { heuresParPoste, totalHeures }
   }, [heures])
 
+  const goujonsParPoutre = React.useMemo<GoujonsPoutre[]>(() => {
+    const poutres = new Map<string, GoujonsPoutre>()
+    for (const { rep, profil, longueur, diametre, hauteur, nb_goujons } of goujons) {
+      let poutre = poutres.get(rep)
+      if (!poutre) {
+        poutre = { rep, profil, longueur, groupes: [] }
+        poutres.set(rep, poutre)
+      }
+      poutre.groupes.push({ diametre, hauteur, nb_goujons })
+    }
+    return Array.from(poutres.values())
+  }, [goujons])
+
   return {
     client: variables?.client ?? null,
     variables,
     profils,
+    goujonsParPoutre,
     heures,
     heuresParPoste,
     totalHeures,

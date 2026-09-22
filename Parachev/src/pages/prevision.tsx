@@ -54,6 +54,7 @@ export default function Prevision() {
     client,
     variables,
     profils,
+    goujonsParPoutre,
     heuresParPoste,
     totalHeures,
     previsions,
@@ -241,6 +242,30 @@ export default function Prevision() {
                                   )}
                                 </span>
                                 <span className="tabular-nums">{nb_barres}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {goujonsParPoutre.length > 0 && (
+                          <div className="flex flex-col gap-1.5 pb-1.5">
+                            <span className="text-muted-foreground">Goujons par poutre</span>
+                            {goujonsParPoutre.map((poutre) => (
+                              <div key={poutre.rep} className="flex flex-col gap-0.5 pl-2">
+                                <span>
+                                  {poutre.rep} · {poutre.profil} · {poutre.longueur}mm
+                                </span>
+                                {poutre.groupes.map((g, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-center justify-between pl-2 text-muted-foreground"
+                                  >
+                                    <span>
+                                      {g.diametre != null ? `Ø${g.diametre}` : "Ø ?"}
+                                      {g.hauteur != null ? ` × ${g.hauteur}mm` : ""}
+                                    </span>
+                                    <span className="tabular-nums">{g.nb_goujons}</span>
+                                  </div>
+                                ))}
                               </div>
                             ))}
                           </div>
