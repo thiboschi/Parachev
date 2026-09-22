@@ -222,26 +222,45 @@ function tronquerDecimale(ws: ExcelScript.Worksheet) {
 
 function ajouterDecimale(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
+
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
     const nbLignes = valeurs.length;
     const nbColonnes = valeurs[0].length;
+
     let modifie = false;
+
+    const estEntier = (v: string | number | boolean): boolean => {
+        if (typeof v === "number") return Number.isInteger(v);
+        return /^\d+$/.test(String(v).trim());
+    };
+
+    const aVirgule = (v: string | number | boolean): boolean => {
+        if (typeof v === "number") return !Number.isInteger(v);
+        const str = String(v);
+        return str.includes(",") || str.includes(".");
+    };
+
     for (let i = ligneDepart + 1; i < nbLignes - 1; i++) {
         for (let j = 0; j < nbColonnes; j++) {
             const valeurCourante = valeurs[i][j];
             const valeurDessus = valeurs[i - 1][j];
             const valeurDessous = valeurs[i + 1][j];
-            const estEntier = (v: string | number | boolean): boolean => /^\d+$/.test(String(v).trim());
-            const aVirgule = (v: string | number | boolean): boolean => String(v).includes(",") || String(v).includes(".");
+
             if (estEntier(valeurCourante) && aVirgule(valeurDessus) && aVirgule(valeurDessous)) {
                 valeurs[i][j] = String(valeurCourante) + ",0";
                 modifie = true;
-                ws.getRangeByIndexes(i, j, 1, 1).getFormat().setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
+                ws.getRangeByIndexes(i, j, 1, 1)
+                    .getFormat()
+                    .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
             }
         }
     }
-    if (modifie) { usedRange.setValues(valeurs); }
+
+    if (modifie) {
+        usedRange.setValues(valeurs);
+    }
+
     console.log("Ajout de décimales terminé !");
 }
 
