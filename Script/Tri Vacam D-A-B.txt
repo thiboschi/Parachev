@@ -322,7 +322,6 @@ function comparerValeurs(a: string | number | boolean, b: string | number | bool
 
 function formaterDecimales(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
-    const abreviations = ["BO", "SI", "AK", "IK", "PU", "KO", "KA"];
 
     const usedRange = ws.getUsedRange();
     const valeurs = usedRange.getValues();
@@ -335,23 +334,37 @@ function formaterDecimales(ws: ExcelScript.Worksheet) {
         return (num * 10) % 10 !== 0;
     };
 
-    // Identifie les sections entre les séparateurs
+    const estVide = (v: string | number | boolean): boolean => {
+        return String(v).trim() === "";
+    };
+
+    // Identifie les sections entre chaque changement de valeur en colonne D
     const separateurs: number[] = [ligneDepart - 1];
-    for (let i = ligneDepart; i < nbLignes; i++) {
-        const cellule = String(valeurs[i][0]);
-        if (abreviations.some(a => cellule.toLowerCase().includes(a.toLowerCase()))) {
+    let valeurDPrecedente: string | number | boolean = valeurs[ligneDepart][3];
+
+    for (let i = ligneDepart + 1; i < nbLignes; i++) {
+        const valeurD = valeurs[i][3];
+
+        if (!estVide(valeurD) && !estVide(valeurDPrecedente) &&
+            String(valeurD) !== String(valeurDPrecedente)) {
+            separateurs.push(i - 1);
             separateurs.push(i);
         }
-    }
-    separateurs.push(nbLignes);
 
-    for (let s = 0; s < separateurs.length - 1; s++) {
-        const debutSection = separateurs[s] + 1;
-        const finSection = separateurs[s + 1] - 1;
+        if (!estVide(valeurD)) valeurDPrecedente = valeurD;
+    }
+
+    separateurs.push(nbLignes - 1);
+    separateurs.sort((a, b) => a - b);
+
+    const separateursUniques = [...new Set(separateurs)];
+
+    for (let s = 0; s < separateursUniques.length - 1; s++) {
+        const debutSection = separateursUniques[s] + 1;
+        const finSection = separateursUniques[s + 1];
 
         if (finSection < debutSection) continue;
 
-        // Vérifie si la section contient au moins une vraie décimale
         let sectionAVraieDecimale = false;
         for (let i = debutSection; i <= finSection; i++) {
             for (let j = 0; j < nbColonnes; j++) {
