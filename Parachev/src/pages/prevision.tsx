@@ -9,11 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import {
-  Collapsible,
-  CollapsibleTrigger,
-  CollapsiblePanel,
-} from "@/components/ui/collapsible"
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible"
 import { IconChevronRight } from "@tabler/icons-react"
 import { useAffaireDb } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
@@ -61,6 +57,7 @@ export default function Prevision() {
     variables,
     profils,
     goujonsParPoutre,
+    cflParBarre,
     heuresParPoste,
     totalHeures,
     previsions,
@@ -260,7 +257,7 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_barres", e.target.value)}
                           />
                         </div>
-                        {profils.length > 1 && (
+                        {(profils.length > 1 || cflParBarre.length > 0) && (
                           <Collapsible className="flex flex-col gap-1.5 pb-1.5">
                             <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
                               <IconChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
@@ -283,6 +280,26 @@ export default function Prevision() {
                                   </div>
                                 ))}
                               </div>
+                              {cflParBarre.length > 0 && (
+                                <div className="flex flex-col gap-0.5 pt-1.5">
+                                  <span className="pl-2 text-xs text-muted-foreground">
+                                    Contre-flèche par barre
+                                  </span>
+                                  {cflParBarre.map((barre) => (
+                                    <div
+                                      key={barre.rep}
+                                      className="flex items-center justify-between pl-4 text-muted-foreground"
+                                    >
+                                      <span>
+                                        {barre.rep} · {barre.profil} · {barre.longueur}mm
+                                      </span>
+                                      <span className="tabular-nums">
+                                        {barre.cfl != null ? `${barre.cfl}` : "CFL ?"}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </CollapsiblePanel>
                           </Collapsible>
                         )}

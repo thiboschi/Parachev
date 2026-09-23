@@ -61,6 +61,18 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             nb_barres REAL NOT NULL,
             PRIMARY KEY (affaire, profil, longueur)
         );
+
+        -- Contre-flèche (Cfl axe fort) par barre, depuis FC-PRES/FC-PRESS :
+        -- une ligne par Rep, `cfl` NULL si cette barre précise n'a pas de
+        -- valeur saisie (gabarit vide).
+        CREATE TABLE IF NOT EXISTS cfl_affaires (
+            affaire  TEXT NOT NULL,
+            rep      TEXT NOT NULL,
+            profil   TEXT,
+            longueur REAL,
+            cfl      REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cfl_affaire ON cfl_affaires(affaire);
         ",
     )?;
     Ok(())

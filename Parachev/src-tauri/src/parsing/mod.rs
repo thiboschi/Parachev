@@ -14,7 +14,7 @@ mod variables_parcing;
 
 pub use goujons::{extraire_goujons_fc_gouj, BarreGoujons};
 pub use oxycoupage::{extraire_oxycoupage};
-pub use presse::{extraire_presse};
+pub use presse::{extraire_presse, BarreCfl};
 pub use previ::{extraire_info_previ, GroupeProfil};
 pub use variables_parcing::{extraire_variables_forage};
 
@@ -55,6 +55,9 @@ pub struct VariablesAffaire {
     /// Goujons par poutre (Rep de FC-GOUJ), chacune avec ses différents
     /// diamètres/hauteurs et leur nombre. Table `goujons_affaires`.
     pub goujons_par_poutre: Vec<BarreGoujons>,
+    /// Contre-flèche par barre (Rep de FC-PRES/FC-PRESS), voir
+    /// presse::BarreCfl. Table `cfl_affaires`.
+    pub cfl_par_barre: Vec<BarreCfl>,
     pub nb_barres: f64,
     pub nb_goujons: f64,
     pub longueur_coupe: f64,
@@ -79,6 +82,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
     let oxycoupage = extraire_oxycoupage(chemin_fichier)?;
     let forage = extraire_variables_forage(chemin_fichier)?;
     let presse = extraire_presse(chemin_fichier)?;
+    let cfl_par_barre = presse.as_ref().map(|p| p.detail.clone()).unwrap_or_default();
     let contre_fleche = presse.map(|p| p.valeur_avec_repli());
     let goujons_par_poutre = goujons.as_ref().map(|g| g.detail.clone()).unwrap_or_default();
 
@@ -90,6 +94,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         numero_offre: info.numero_offre,
         groupes_profil: info.groupes_profil,
         goujons_par_poutre,
+        cfl_par_barre,
         nb_barres: info.nb_barres_total,
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
         longueur_coupe: oxycoupage.map(|o| o.longueur_coupe_totale).unwrap_or(0.0),
@@ -189,6 +194,24 @@ pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[
     Ok(())
 }
 
+/// Remplace le détail de la contre-flèche d'une affaire dans `cfl_affaires` :
+/// une ligne par barre (Rep de FC-PRES/FC-PRESS).
+pub fn inserer_cfl_affaire(conn: &mut Connection, affaire: &str, barres: &[BarreCfl]) -> Result<(), String> {
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("DELETE FROM cfl_affaires WHERE affaire = ?1", params![affaire])
+        .map_err(|e| e.to_string())?;
+    for barre in barres {
+        tx.execute(
+            "INSERT INTO cfl_affaires (affaire, rep, profil, longueur, cfl)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![affaire, barre.rep, barre.profil, barre.longueur, barre.cfl],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Point d'entrée haut niveau : extrait puis insère en une seule opération.
 /// C'est cette fonction que le watcher doit appeler pour chaque fichier
 /// .xlsx détecté.
@@ -198,6 +221,7 @@ pub fn traiter_fichier_excel(chemin_fichier: &str, conn: &mut Connection) -> Res
     inserer_variables_affaire(conn, &variables)?;
     inserer_profils_affaire(conn, &affaire, &variables.groupes_profil)?;
     inserer_goujons_affaire(conn, &affaire, &variables.goujons_par_poutre)?;
+    inserer_cfl_affaire(conn, &affaire, &variables.cfl_par_barre)?;
     Ok(affaire)
 }
 

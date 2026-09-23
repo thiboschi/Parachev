@@ -65,6 +65,7 @@ pub fn run() {
             mettre_a_jour_variables_affaire,
             lister_profils_affaire,
             lister_goujons_affaire,
+            lister_cfl_affaire,
             lister_previsions_affaire
         ])
         .setup(|app| {
@@ -534,6 +535,42 @@ fn lister_goujons_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<
                 diametre: row.get(3)?,
                 hauteur: row.get(4)?,
                 nb_goujons: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[derive(Serialize)]
+struct CflAffaireRow {
+    rep: String,
+    profil: String,
+    longueur: f64,
+    cfl: Option<f64>,
+}
+
+/// Détail de la contre-flèche d'une affaire (table `cfl_affaires`) : une
+/// ligne par barre (Rep de FC-PRES/FC-PRESS), `cfl` étant `null` si cette
+/// barre précise n'a pas de valeur saisie. Vide si l'affaire n'utilise pas
+/// le poste presse/redressage ou n'a pas encore été parsée.
+#[tauri::command]
+fn lister_cfl_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<CflAffaireRow>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT rep, profil, longueur, cfl FROM cfl_affaires
+             WHERE affaire = ?1 ORDER BY rep",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([&affaire], |row| {
+            Ok(CflAffaireRow {
+                rep: row.get(0)?,
+                profil: row.get(1)?,
+                longueur: row.get(2)?,
+                cfl: row.get(3)?,
             })
         })
         .map_err(|e| e.to_string())?;

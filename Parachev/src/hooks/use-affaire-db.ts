@@ -44,11 +44,22 @@ export interface GoujonsPoutre {
   groupes: { diametre: number | null; hauteur: number | null; nb_goujons: number }[]
 }
 
+// Shape returned by the `lister_cfl_affaire` Tauri command (CflAffaireRow in
+// lib.rs) -- une ligne par barre (rep de FC-PRES/FC-PRESS). `cfl` vaut null
+// si cette barre précise n'a pas de valeur saisie.
+export interface CflAffaireRow {
+  rep: string
+  profil: string
+  longueur: number
+  cfl: number | null
+}
+
 interface UseAffaireDbResult {
   client: string | null
   variables: VariablesAffaireRow | null
   profils: ProfilAffaireRow[]
   goujonsParPoutre: GoujonsPoutre[]
+  cflParBarre: CflAffaireRow[]
   heures: HeureRow[]
   heuresParPoste: HeuresParPoste[]
   totalHeures: number
@@ -76,6 +87,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [variables, setVariables] = React.useState<VariablesAffaireRow | null>(null)
   const [profils, setProfils] = React.useState<ProfilAffaireRow[]>([])
   const [goujons, setGoujons] = React.useState<GoujonAffaireRow[]>([])
+  const [cflParBarre, setCflParBarre] = React.useState<CflAffaireRow[]>([])
   const [heures, setHeures] = React.useState<HeureRow[]>([])
   const [previsions, setPrevisions] = React.useState<PrevisionRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -93,12 +105,13 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
     async function charger() {
       try {
-        const [variablesRes, profilsRes, goujonsRes, heuresRes, previsionsRes] = await Promise.all([
+        const [variablesRes, profilsRes, goujonsRes, cflRes, heuresRes, previsionsRes] = await Promise.all([
           invoke<VariablesAffaireRow>("obtenir_variables_affaire", { affaire }).catch(
             () => null
           ),
           invoke<ProfilAffaireRow[]>("lister_profils_affaire", { affaire }),
           invoke<GoujonAffaireRow[]>("lister_goujons_affaire", { affaire }),
+          invoke<CflAffaireRow[]>("lister_cfl_affaire", { affaire }),
           invoke<HeureRow[]>("lister_heures_affaire", { affaire }),
           invoke<PrevisionRow[]>("lister_previsions_affaire", { affaire }),
         ])
@@ -106,6 +119,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
           setVariables(variablesRes)
           setProfils(profilsRes)
           setGoujons(goujonsRes)
+          setCflParBarre(cflRes)
           setHeures(heuresRes)
           setPrevisions(previsionsRes)
           setError(null)
@@ -153,6 +167,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
     variables,
     profils,
     goujonsParPoutre,
+    cflParBarre,
     heures,
     heuresParPoste,
     totalHeures,
