@@ -116,18 +116,27 @@ export function AffaireSearchBar({
           )}
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7">
-          {CHAMPS_VARIABLES_NUMERIQUES.map(({ key, label }) => (
+          {CHAMPS_VARIABLES_NUMERIQUES.map(({ key, label, seuils }) => (
             <div key={key} className="flex flex-col gap-1">
               <Label htmlFor={`variable-filtre-${key}`} className="text-xs text-muted-foreground">
                 {label}
               </Label>
-              <Input
-                id={`variable-filtre-${key}`}
-                type="number"
-                placeholder="Valeur"
-                value={variableFiltres[key] ?? ""}
-                onChange={(e) => onVariableFiltreChange(key, e.target.value)}
-              />
+              <Select
+                value={variableFiltres[key] ?? "all"}
+                onValueChange={(value) => onVariableFiltreChange(key, !value || value === "all" ? "" : value)}
+              >
+                <SelectTrigger id={`variable-filtre-${key}`} className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tous</SelectItem>
+                  {seuils.map((seuil) => (
+                    <SelectItem key={seuil} value={`>${seuil}`}>
+                      {`> ${seuil}`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           ))}
         </div>

@@ -58,10 +58,11 @@ export default function Search() {
       const matchesProfil = profil === "all" || item.variables?.profil === profil
       const matchesVariables = CHAMPS_VARIABLES_NUMERIQUES.every(({ key }) => {
         const filtre = variableFiltres[key]?.trim()
-        if (!filtre) return true
-        const attendu = Number(filtre)
-        if (Number.isNaN(attendu)) return true
-        return item.variables?.[key] === attendu
+        if (!filtre || !filtre.startsWith(">")) return true
+        const seuil = Number(filtre.slice(1))
+        if (Number.isNaN(seuil)) return true
+        const valeur = item.variables?.[key]
+        return typeof valeur === "number" && valeur > seuil
       })
       const matchesType =
         !typeSelectionne ||
