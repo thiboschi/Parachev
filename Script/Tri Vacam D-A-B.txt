@@ -27,10 +27,7 @@ function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], mots
         for (let i = depart; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsDebut) {
-                if (cellule.toLowerCase().includes(mot.toLowerCase())) {
-                    ligneDebut = i;
-                    break;
-                }
+                if (cellule.toLowerCase().includes(mot.toLowerCase())) { ligneDebut = i; break; }
             }
             if (ligneDebut !== -1) break;
         }
@@ -38,19 +35,14 @@ function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], mots
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsFin) {
-                if (cellule.toLowerCase().includes(mot.toLowerCase())) {
-                    ligneFin = i;
-                    break;
-                }
+                if (cellule.toLowerCase().includes(mot.toLowerCase())) { ligneFin = i; break; }
             }
             if (ligneFin !== -1) break;
         }
         if (ligneFin === -1) { recherche = false; break; }
         const debutSuppr = inclureBornes ? ligneDebut : ligneDebut + 1;
         const finSuppr = inclureBornes ? ligneFin : ligneFin - 1;
-        for (let i = debutSuppr; i <= finSuppr; i++) {
-            lignesASupprimer.push(i);
-        }
+        for (let i = debutSuppr; i <= finSuppr; i++) { lignesASupprimer.push(i); }
         depart = ligneFin + 1;
     }
     lignesASupprimer.sort((a, b) => b - a);
@@ -77,21 +69,14 @@ function convertirEnTableau(ws: ExcelScript.Worksheet, motsDebut: string[], motF
         for (let i = depart; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
             for (const mot of motsDebut) {
-                if (cellule.toLowerCase().includes(mot.toLowerCase())) {
-                    ligneDebut = i;
-                    motDebutTrouve = mot;
-                    break;
-                }
+                if (cellule.toLowerCase().includes(mot.toLowerCase())) { ligneDebut = i; motDebutTrouve = mot; break; }
             }
             if (ligneDebut !== -1) break;
         }
         if (ligneDebut === -1) { recherche = false; break; }
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
-            if (cellule.toLowerCase().includes(motFin.toLowerCase())) {
-                ligneFin = i;
-                break;
-            }
+            if (cellule.toLowerCase().includes(motFin.toLowerCase())) { ligneFin = i; break; }
         }
         if (ligneFin === -1) { recherche = false; break; }
         const debutConversion = inclureBornes ? ligneDebut : ligneDebut + 1;
@@ -100,12 +85,8 @@ function convertirEnTableau(ws: ExcelScript.Worksheet, motsDebut: string[], motF
         for (let i = debutConversion; i <= finConversion; i++) {
             const texte = String(valeurs[i][colonneRecherche]);
             let morceaux = texte.split(delimiteur).map(m => m.trim()).filter(m => m !== "");
-            if (morceaux.length > 0 && !/^[a-zA-Z]/.test(morceaux[0])) {
-                morceaux = ["", ...morceaux];
-            }
-            for (let j = 0; j < morceaux.length; j++) {
-                ws.getCell(i, colonneRecherche + j).setValue(morceaux[j]);
-            }
+            if (morceaux.length > 0 && !/^[a-zA-Z]/.test(morceaux[0])) { morceaux = ["", ...morceaux]; }
+            for (let j = 0; j < morceaux.length; j++) { ws.getCell(i, colonneRecherche + j).setValue(morceaux[j]); }
         }
         depart = ligneFin + 1;
     }
@@ -144,16 +125,10 @@ function nettoyerValeurs(ws: ExcelScript.Worksheet) {
             const valeur = valeurs[i][j];
             if (typeof valeur === "string") {
                 const matchLettre = valeur.match(/^(\d+[,.]?\d*)[a-zA-Z]+$/);
-                if (matchLettre) {
-                    valeurs[i][j] = matchLettre[1];
-                    modifie = true;
-                }
+                if (matchLettre) { valeurs[i][j] = matchLettre[1]; modifie = true; }
                 const valeurActuelle = String(valeurs[i][j]);
                 const matchVirgule = valeurActuelle.match(/^(\d+[,.])\d(\d)$/);
-                if (matchVirgule) {
-                    valeurs[i][j] = valeurActuelle.slice(0, -1);
-                    modifie = true;
-                }
+                if (matchVirgule) { valeurs[i][j] = valeurActuelle.slice(0, -1); modifie = true; }
             }
         }
     }
@@ -173,10 +148,7 @@ function convertirEnNombre(ws: ExcelScript.Worksheet) {
             const valeur = valeurs[i][j];
             if (typeof valeur === "string" && valeur.trim() !== "") {
                 const nombre = parseFloat(valeur.replace(",", "."));
-                if (!isNaN(nombre)) {
-                    valeurs[i][j] = nombre;
-                    modifie = true;
-                }
+                if (!isNaN(nombre)) { valeurs[i][j] = nombre; modifie = true; }
             }
         }
     }
@@ -197,20 +169,14 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
     for (let i = ligneDepart; i < nbLignes; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
         for (const mot of motsDebut) {
-            if (cellule.toLowerCase().includes(mot.toLowerCase())) {
-                ligneDebut = i;
-                break;
-            }
+            if (cellule.toLowerCase().includes(mot.toLowerCase())) { ligneDebut = i; break; }
         }
         if (ligneDebut !== -1) break;
     }
     if (ligneDebut !== -1) {
         for (let i = ligneDebut + 1; i < nbLignes; i++) {
             const cellule = String(valeurs[i][colonneRecherche]);
-            if (cellule.toLowerCase().includes(motFin.toLowerCase())) {
-                ligneFin = i;
-                break;
-            }
+            if (cellule.toLowerCase().includes(motFin.toLowerCase())) { ligneFin = i; break; }
         }
     }
     if (ligneDebut === -1 || ligneFin === -1) { console.log("Marqueurs introuvables, tri annulé."); return; }
@@ -220,9 +186,7 @@ function trierColonnes(ws: ExcelScript.Worksheet, motsDebut: string[], motFin: s
     const separateurs: number[] = [ligneDebut - 1];
     for (let i = ligneDebut; i <= finTri; i++) {
         const cellule = String(valeurs[i][colonneRecherche]);
-        if (motsDebut.some(m => cellule.toLowerCase().includes(m.toLowerCase()))) {
-            separateurs.push(i);
-        }
+        if (motsDebut.some(m => cellule.toLowerCase().includes(m.toLowerCase()))) { separateurs.push(i); }
     }
     separateurs.push(ligneFin);
     for (let s = 0; s < separateurs.length - 1; s++) {
@@ -266,7 +230,7 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
         }
     }
     if (ligneDebut === -1 || ligneFin === -1) { console.log("Marqueurs introuvables, bordures annulées."); return; }
-    const estVide = (v: string | number | boolean): boolean => String(v).trim() === "" || v === null || v === undefined;
+    const estVide = (v: string | number | boolean): boolean => String(v).trim() === "";
     let valeurAPrecedente: string | number | boolean = "";
     let valeurDPrecedente: string | number | boolean = "";
     for (let i = ligneDebut + 1; i < ligneFin; i++) {
@@ -281,10 +245,9 @@ function ajouterBordures(ws: ExcelScript.Worksheet, motsDebut: string[], motFin:
         const changementA = !estVide(valeurA) && !estVide(valeurAPrecedente) && String(valeurA) !== String(valeurAPrecedente);
         const changementD = !estVide(valeurD) && !estVide(valeurDPrecedente) && String(valeurD) !== String(valeurDPrecedente);
         if (changementA || changementD) {
-            const ligne = ws.getRangeByIndexes(i, 0, 1, largeurBordure);
-            const bordure = ligne.getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop);
+            const bordure = ws.getRangeByIndexes(i, 0, 1, largeurBordure).getFormat().getRangeBorder(ExcelScript.BorderIndex.edgeTop);
             bordure.setColor("#000000");
-            bordure.setStyle(changementD ? ExcelScript.BorderLineStyle.thin : ExcelScript.BorderLineStyle.dash);
+            bordure.setStyle(changementD ? ExcelScript.BorderLineStyle.continuous : ExcelScript.BorderLineStyle.dash);
         }
         if (!estVide(valeurA)) valeurAPrecedente = valeurA;
         if (!estVide(valeurD)) valeurDPrecedente = valeurD;
@@ -311,6 +274,52 @@ function alignerNombres(ws: ExcelScript.Worksheet) {
     console.log("Alignement à droite terminé !");
 }
 
+function formaterDecimales(ws: ExcelScript.Worksheet) {
+    const ligneDepart = 22;
+    const usedRange = ws.getUsedRange();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
+    const nbColonnes = usedRange.getColumnCount();
+    const aVraieDecimale = (v: string | number | boolean): boolean => {
+        const num = parseFloat(String(v).replace(",", "."));
+        if (isNaN(num)) return false;
+        return (num * 10) % 10 !== 0;
+    };
+    const estVide = (v: string | number | boolean): boolean => String(v).trim() === "";
+    const separateurs: number[] = [ligneDepart - 1];
+    let valeurDPrecedente: string | number | boolean = valeurs[ligneDepart][3];
+    for (let i = ligneDepart + 1; i < nbLignes; i++) {
+        const valeurD = valeurs[i][3];
+        if (!estVide(valeurD) && !estVide(valeurDPrecedente) && String(valeurD) !== String(valeurDPrecedente)) {
+            separateurs.push(i - 1);
+            separateurs.push(i);
+        }
+        if (!estVide(valeurD)) valeurDPrecedente = valeurD;
+    }
+    separateurs.push(nbLignes - 1);
+    separateurs.sort((a, b) => a - b);
+    const separateursUniques = [...new Set(separateurs)];
+    for (let s = 0; s < separateursUniques.length - 1; s++) {
+        const debutSection = separateursUniques[s] + 1;
+        const finSection = separateursUniques[s + 1];
+        if (finSection < debutSection) continue;
+        let sectionAVraieDecimale = false;
+        for (let i = debutSection; i <= finSection; i++) {
+            for (let j = 0; j < nbColonnes; j++) {
+                if (aVraieDecimale(valeurs[i][j])) { sectionAVraieDecimale = true; break; }
+            }
+            if (sectionAVraieDecimale) break;
+        }
+        const plage = ws.getRangeByIndexes(debutSection, 0, finSection - debutSection + 1, nbColonnes);
+        if (sectionAVraieDecimale) {
+            plage.setNumberFormat("0.0");
+        } else {
+            plage.setNumberFormat("0");
+        }
+    }
+    console.log("Formatage décimales terminé !");
+}
+
 function comparerValeurs(a: string | number | boolean, b: string | number | boolean): number {
     const aStr = String(a).replace(",", ".");
     const bStr = String(b).replace(",", ".");
@@ -318,74 +327,4 @@ function comparerValeurs(a: string | number | boolean, b: string | number | bool
     const bNum = parseFloat(bStr);
     if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
     return aStr.localeCompare(bStr);
-}
-
-function formaterDecimales(ws: ExcelScript.Worksheet) {
-    const ligneDepart = 22;
-
-    const usedRange = ws.getUsedRange();
-    const valeurs = usedRange.getValues();
-    const nbLignes = valeurs.length;
-    const nbColonnes = usedRange.getColumnCount();
-
-    const aVraieDecimale = (v: string | number | boolean): boolean => {
-        const num = parseFloat(String(v).replace(",", "."));
-        if (isNaN(num)) return false;
-        return (num * 10) % 10 !== 0;
-    };
-
-    const estVide = (v: string | number | boolean): boolean => {
-        return String(v).trim() === "";
-    };
-
-    // Identifie les sections entre chaque changement de valeur en colonne D
-    const separateurs: number[] = [ligneDepart - 1];
-    let valeurDPrecedente: string | number | boolean = valeurs[ligneDepart][3];
-
-    for (let i = ligneDepart + 1; i < nbLignes; i++) {
-        const valeurD = valeurs[i][3];
-
-        if (!estVide(valeurD) && !estVide(valeurDPrecedente) &&
-            String(valeurD) !== String(valeurDPrecedente)) {
-            separateurs.push(i - 1);
-            separateurs.push(i);
-        }
-
-        if (!estVide(valeurD)) valeurDPrecedente = valeurD;
-    }
-
-    separateurs.push(nbLignes - 1);
-    separateurs.sort((a, b) => a - b);
-
-    const separateursUniques = [...new Set(separateurs)];
-
-    for (let s = 0; s < separateursUniques.length - 1; s++) {
-        const debutSection = separateursUniques[s] + 1;
-        const finSection = separateursUniques[s + 1];
-
-        if (finSection < debutSection) continue;
-
-        let sectionAVraieDecimale = false;
-        for (let i = debutSection; i <= finSection; i++) {
-            for (let j = 0; j < nbColonnes; j++) {
-                if (aVraieDecimale(valeurs[i][j])) {
-                    sectionAVraieDecimale = true;
-                    break;
-                }
-            }
-            if (sectionAVraieDecimale) break;
-        }
-
-        const plage = ws.getRangeByIndexes(debutSection, 0, finSection - debutSection + 1, nbColonnes);
-
-        if (sectionAVraieDecimale) {
-            plage.setNumberFormat("0.0");
-            console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format 0.0 appliqué.`);
-        } else {
-            plage.setNumberFormat("0");
-            console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format entier appliqué.`);
-        }
-    }
-
-    console.log("Formatage décimales terminé !");
 }
