@@ -361,15 +361,6 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_trous_numerique", e.target.value)}
                           />
                         </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="shrink-0 text-muted-foreground">Contre-flèche</span>
-                          <Input
-                            type="number"
-                            className="h-7 max-w-32 text-right tabular-nums"
-                            value={edition.contre_fleche}
-                            onChange={(e) => modifierChamp("contre_fleche", e.target.value)}
-                          />
-                        </div>
                       </>
                     )}
                   </CardContent>
