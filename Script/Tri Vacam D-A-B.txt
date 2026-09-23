@@ -329,6 +329,12 @@ function formaterDecimales(ws: ExcelScript.Worksheet) {
     const nbLignes = valeurs.length;
     const nbColonnes = usedRange.getColumnCount();
 
+    const aVraieDecimale = (v: string | number | boolean): boolean => {
+        const num = parseFloat(String(v).replace(",", "."));
+        if (isNaN(num)) return false;
+        return (num * 10) % 10 !== 0;
+    };
+
     // Identifie les sections entre les séparateurs
     const separateurs: number[] = [ligneDepart - 1];
     for (let i = ligneDepart; i < nbLignes; i++) {
@@ -339,24 +345,13 @@ function formaterDecimales(ws: ExcelScript.Worksheet) {
     }
     separateurs.push(nbLignes);
 
-    // Vérifie si une valeur a une vraie décimale (pas .0)
-    const aVraieDecimale = (v: string | number | boolean): boolean => {
-        if (typeof v === "number") {
-            return !Number.isInteger(v) && (v * 10) % 1 !== 0; // exclut x.0
-        }
-        const str = String(v).replace(",", ".");
-        const num = parseFloat(str);
-        if (isNaN(num)) return false;
-        return !Number.isInteger(num) && (num * 10) % 1 !== 0;
-    };
-
     for (let s = 0; s < separateurs.length - 1; s++) {
         const debutSection = separateurs[s] + 1;
         const finSection = separateurs[s + 1] - 1;
 
         if (finSection < debutSection) continue;
 
-        // Vérifie si la section contient au moins un vrai chiffre à virgule
+        // Vérifie si la section contient au moins une vraie décimale
         let sectionAVraieDecimale = false;
         for (let i = debutSection; i <= finSection; i++) {
             for (let j = 0; j < nbColonnes; j++) {
@@ -371,11 +366,9 @@ function formaterDecimales(ws: ExcelScript.Worksheet) {
         const plage = ws.getRangeByIndexes(debutSection, 0, finSection - debutSection + 1, nbColonnes);
 
         if (sectionAVraieDecimale) {
-            // Au moins un vrai chiffre à virgule → format 0.0
             plage.setNumberFormat("0.0");
             console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format 0.0 appliqué.`);
         } else {
-            // Que des entiers → pas de décimale
             plage.setNumberFormat("0");
             console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format entier appliqué.`);
         }
