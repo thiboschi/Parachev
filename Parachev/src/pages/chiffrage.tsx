@@ -81,6 +81,7 @@ export default function Chiffrage() {
   const [calcul, setCalcul] = useState(false)
   const [dbs, setDbs] = useState(false)
   const [classeTolerance2, setClasseTolerance2] = useState(false)
+  const [multiplicateur, setMultiplicateur] = useState("")
 
   function modifier(champ: Champ, valeur: string) {
     setValeurs((prev) => ({ ...prev, [champ]: valeur }))
@@ -125,6 +126,18 @@ export default function Chiffrage() {
         .filter(([poste, heures]) => poste !== "total" && heures > 0)
         .sort(([a], [b]) => a.localeCompare(b))
     : []
+
+  // Sous-total = total après application des majorations DBS / Classe
+  // Tolérance 2 sélectionnées (cumulatives si les deux sont cochées).
+  const sousTotal = resultat
+    ? (resultat.total ?? 0) * (dbs ? 1.2 : 1) * (classeTolerance2 ? 1.25 : 1)
+    : 0
+
+  const baseMultiplicateur = dbs || classeTolerance2 ? sousTotal : resultat?.total ?? 0
+
+  const multiplicateurNombre = Number(multiplicateur.trim())
+  const multiplicateurValide =
+    multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
 
   return (
     <SidebarProvider
@@ -207,7 +220,7 @@ export default function Chiffrage() {
                     onCheckedChange={(checked) => setDbs(checked === true)}
                   />
                   <Label htmlFor="dbs" className="text-sm font-normal">
-                    DBS
+                    DBS (1,20)
                   </Label>
                 </div>
                 <div className="flex items-center gap-2">
@@ -217,7 +230,7 @@ export default function Chiffrage() {
                     onCheckedChange={(checked) => setClasseTolerance2(checked === true)}
                   />
                   <Label htmlFor="classe-tolerance-2" className="text-sm font-normal">
-                    Classe Tolérance 2
+                    Classe Tolérance 2 (1,25)
                   </Label>
                 </div>
                 <div className="mt-2 flex items-center gap-2">
@@ -235,7 +248,7 @@ export default function Chiffrage() {
               <CardHeader>
                 <CardTitle className="text-sm text-muted-foreground">Estimation</CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-col gap-1.5 text-sm">
+              <CardContent className="flex flex-1 flex-col gap-1.5 text-sm">
                 {!resultat && (
                   <span className="text-muted-foreground">
                     Renseignez les variables puis cliquez sur « Chiffrer ».
@@ -268,6 +281,32 @@ export default function Chiffrage() {
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>Classe Tolérance 2 (×1,25)</span>
                     <span className="tabular-nums">{formatHeures((resultat.total ?? 0) * 1.25)} h</span>
+                  </div>
+                )}
+                {resultat && (dbs || classeTolerance2) && (
+                  <div className="flex items-center justify-between border-t pt-1.5 font-medium">
+                    <span>Sous-total</span>
+                    <span className="tabular-nums">{formatHeures(sousTotal)} h</span>
+                  </div>
+                )}
+                <div className="mt-auto flex items-center justify-between gap-2 border-t pt-1.5">
+                  <Label htmlFor="multiplicateur" className="text-sm font-normal text-muted-foreground">
+                    Multiplicateur
+                  </Label>
+                  <Input
+                    id="multiplicateur"
+                    className="h-8 max-w-24 text-right tabular-nums"
+                    inputMode="decimal"
+                    value={multiplicateur}
+                    onChange={(e) => setMultiplicateur(e.target.value)}
+                  />
+                </div>
+                {resultat && multiplicateurValide && (
+                  <div className="flex items-center justify-between font-medium">
+                    <span>Résultat</span>
+                    <span className="tabular-nums">
+                      {formatHeures(baseMultiplicateur * multiplicateurNombre)} €
+                    </span>
                   </div>
                 )}
               </CardContent>
