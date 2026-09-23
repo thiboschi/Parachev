@@ -322,13 +322,64 @@ function comparerValeurs(a: string | number | boolean, b: string | number | bool
 
 function formaterDecimales(ws: ExcelScript.Worksheet) {
     const ligneDepart = 22;
+    const abreviations = ["BO", "SI", "AK", "IK", "PU", "KO", "KA"];
 
     const usedRange = ws.getUsedRange();
-    const nbLignes = usedRange.getRowCount();
+    const valeurs = usedRange.getValues();
+    const nbLignes = valeurs.length;
     const nbColonnes = usedRange.getColumnCount();
 
-    // Applique le format 0.0 sur toute la plage à partir de la ligne 23
-    ws.getRangeByIndexes(ligneDepart, 0, nbLignes - ligneDepart, nbColonnes).setNumberFormat("0.0");
+    // Identifie les sections entre les séparateurs
+    const separateurs: number[] = [ligneDepart - 1];
+    for (let i = ligneDepart; i < nbLignes; i++) {
+        const cellule = String(valeurs[i][0]);
+        if (abreviations.some(a => cellule.toLowerCase().includes(a.toLowerCase()))) {
+            separateurs.push(i);
+        }
+    }
+    separateurs.push(nbLignes);
+
+    // Vérifie si une valeur a une vraie décimale (pas .0)
+    const aVraieDecimale = (v: string | number | boolean): boolean => {
+        if (typeof v === "number") {
+            return !Number.isInteger(v) && (v * 10) % 1 !== 0; // exclut x.0
+        }
+        const str = String(v).replace(",", ".");
+        const num = parseFloat(str);
+        if (isNaN(num)) return false;
+        return !Number.isInteger(num) && (num * 10) % 1 !== 0;
+    };
+
+    for (let s = 0; s < separateurs.length - 1; s++) {
+        const debutSection = separateurs[s] + 1;
+        const finSection = separateurs[s + 1] - 1;
+
+        if (finSection < debutSection) continue;
+
+        // Vérifie si la section contient au moins un vrai chiffre à virgule
+        let sectionAVraieDecimale = false;
+        for (let i = debutSection; i <= finSection; i++) {
+            for (let j = 0; j < nbColonnes; j++) {
+                if (aVraieDecimale(valeurs[i][j])) {
+                    sectionAVraieDecimale = true;
+                    break;
+                }
+            }
+            if (sectionAVraieDecimale) break;
+        }
+
+        const plage = ws.getRangeByIndexes(debutSection, 0, finSection - debutSection + 1, nbColonnes);
+
+        if (sectionAVraieDecimale) {
+            // Au moins un vrai chiffre à virgule → format 0.0
+            plage.setNumberFormat("0.0");
+            console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format 0.0 appliqué.`);
+        } else {
+            // Que des entiers → pas de décimale
+            plage.setNumberFormat("0");
+            console.log(`Section ligne ${debutSection + 1}-${finSection + 1} : format entier appliqué.`);
+        }
+    }
 
     console.log("Formatage décimales terminé !");
 }
