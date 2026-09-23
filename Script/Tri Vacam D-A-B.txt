@@ -4,12 +4,11 @@ function main(workbook: ExcelScript.Workbook) {
     convertirEnTableau(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     convert(ws);
     nettoyerValeurs(ws);
-    tronquerDecimale(ws);
     convertirEnNombre(ws);
     trierColonnes(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     ajouterBordures(ws, ["BO", "SI", "AK", "IK", "PU", "KO", "KA"], "EN");
     alignerNombres(ws);
-    ajouterDecimale(ws);
+    formaterDecimales(ws);
 }
 
 function supprimerEntreMots(ws: ExcelScript.Worksheet, motsDebut: string[], motsFin: string[]) {
@@ -160,102 +159,6 @@ function nettoyerValeurs(ws: ExcelScript.Worksheet) {
     }
     if (modifie) { usedRange.setValues(valeurs); }
     console.log("Nettoyage terminé !");
-}
-
-function tronquerDecimale(ws: ExcelScript.Worksheet) {
-    const ligneDepart = 22;
-    const abreviations = ["BO", "SI", "AK", "IK", "PU", "KO", "KA"];
-    const usedRange = ws.getUsedRange();
-    const valeurs = usedRange.getValues();
-    const nbLignes = valeurs.length;
-    const nbColonnes = valeurs[0].length;
-    let modifie = false;
-    for (let i = ligneDepart; i < nbLignes; i++) {
-        for (let j = 0; j < nbColonnes; j++) {
-            const valeur = valeurs[i][j];
-            const str = String(valeur);
-            if (/^\d+[,.]\d{2}$/.test(str)) {
-                const nombre = parseFloat(str.replace(",", "."));
-                valeurs[i][j] = String(Math.round(nombre * 10) / 10).replace(".", ",");
-                modifie = true;
-            }
-        }
-    }
-    const sections: { debut: number, fin: number }[] = [];
-    let debutSection = ligneDepart;
-    let valeurDCourante = String(valeurs[ligneDepart][3]);
-    for (let i = ligneDepart + 1; i < nbLignes; i++) {
-        const cellule = String(valeurs[i][0]);
-        const estSeparateur = abreviations.some(a => cellule.toLowerCase().includes(a.toLowerCase()));
-        const valeurD = String(valeurs[i][3]);
-        if (estSeparateur || valeurD !== valeurDCourante) {
-            sections.push({ debut: debutSection, fin: i - 1 });
-            debutSection = i + (estSeparateur ? 1 : 0);
-            valeurDCourante = String(valeurs[debutSection]?.[3] ?? "");
-        }
-    }
-    sections.push({ debut: debutSection, fin: nbLignes - 1 });
-    for (const section of sections) {
-        for (let j = 0; j < nbColonnes; j++) {
-            let aVirgule = false;
-            for (let i = section.debut; i <= section.fin; i++) {
-                const str = String(valeurs[i][j]);
-                if (str.includes(",") || str.includes(".")) {
-                    aVirgule = true;
-                    break;
-                }
-            }
-            if (aVirgule) {
-                for (let i = section.debut; i <= section.fin; i++) {
-                    const str = String(valeurs[i][j]);
-                    if (/^\d+$/.test(str.trim())) {
-                        valeurs[i][j] = str + ",0";
-                        modifie = true;
-                    }
-                }
-            }
-        }
-    }
-    if (modifie) { usedRange.setValues(valeurs); }
-    console.log("Arrondi et harmonisation des décimales terminés !");
-}
-
-function ajouterDecimale(ws: ExcelScript.Worksheet) {
-    const ligneDepart = 22;
-
-    const usedRange = ws.getUsedRange();
-    const valeurs = usedRange.getValues();
-    const nbLignes = valeurs.length;
-    const nbColonnes = valeurs[0].length;
-
-    const estEntier = (v: string | number | boolean): boolean => {
-        if (typeof v === "number") return Number.isInteger(v);
-        return /^\d+$/.test(String(v).trim());
-    };
-
-    const aVirgule = (v: string | number | boolean): boolean => {
-        if (typeof v === "number") return !Number.isInteger(v);
-        return String(v).includes(",") || String(v).includes(".");
-    };
-
-    for (let i = ligneDepart + 1; i < nbLignes - 1; i++) {
-        for (let j = 0; j < nbColonnes; j++) {
-            const valeurCourante = valeurs[i][j];
-            const valeurDessus = valeurs[i - 1][j];
-            const valeurDessous = valeurs[i + 1][j];
-
-            if (estEntier(valeurCourante) && aVirgule(valeurDessus) && aVirgule(valeurDessous)) {
-                // Écrit le nombre avec 1 décimale via le format Excel
-                // sans modifier la valeur réelle
-                ws.getRangeByIndexes(i, j, 1, 1).setNumberFormatLocal("0,0");
-                ws.getRangeByIndexes(i, j, 1, 1)
-                    .getFormat()
-                    .setHorizontalAlignment(ExcelScript.HorizontalAlignment.right);
-            }
-        }
-    }
-
-    console.log("Ajout de décimales terminé !");
 }
 
 function convertirEnNombre(ws: ExcelScript.Worksheet) {
@@ -415,4 +318,17 @@ function comparerValeurs(a: string | number | boolean, b: string | number | bool
     const bNum = parseFloat(bStr);
     if (!isNaN(aNum) && !isNaN(bNum)) return aNum - bNum;
     return aStr.localeCompare(bStr);
+}
+
+function formaterDecimales(ws: ExcelScript.Worksheet) {
+    const ligneDepart = 22;
+
+    const usedRange = ws.getUsedRange();
+    const nbLignes = usedRange.getRowCount();
+    const nbColonnes = usedRange.getColumnCount();
+
+    // Applique le format 0.0 sur toute la plage à partir de la ligne 23
+    ws.getRangeByIndexes(ligneDepart, 0, nbLignes - ligneDepart, nbColonnes).setNumberFormat("0.0");
+
+    console.log("Formatage décimales terminé !");
 }
