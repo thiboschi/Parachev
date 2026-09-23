@@ -9,6 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsiblePanel,
+} from "@/components/ui/collapsible"
+import { IconChevronRight } from "@tabler/icons-react"
 import { useAffaireDb } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
@@ -237,49 +243,6 @@ export default function Prevision() {
                     )}
                     {variables && (
                       <>
-                        {profils.length > 1 && (
-                          <div className="flex flex-col gap-1 pb-1.5">
-                            <span className="text-muted-foreground">Profils</span>
-                            {profils.map(({ profil, longueur, l_lam, nb_barres }) => (
-                              <div
-                                key={`${profil}-${longueur}`}
-                                className="flex items-center justify-between pl-2"
-                              >
-                                <span>
-                                  {profil} · {longueur}mm
-                                  {l_lam != null && (
-                                    <span className="text-muted-foreground"> (L-LAM {l_lam})</span>
-                                  )}
-                                </span>
-                                <span className="tabular-nums">{nb_barres}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {goujonsParPoutre.length > 0 && (
-                          <div className="flex flex-col gap-1.5 pb-1.5">
-                            <span className="text-muted-foreground">Goujons par poutre</span>
-                            {goujonsParPoutre.map((poutre) => (
-                              <div key={poutre.rep} className="flex flex-col gap-0.5 pl-2">
-                                <span>
-                                  {poutre.rep} · {poutre.profil} · {poutre.longueur}mm
-                                </span>
-                                {poutre.groupes.map((g, i) => (
-                                  <div
-                                    key={i}
-                                    className="flex items-center justify-between pl-2 text-muted-foreground"
-                                  >
-                                    <span>
-                                      {g.diametre != null ? `Ø${g.diametre}` : "Ø ?"}
-                                      {g.hauteur != null ? ` × ${g.hauteur}mm` : ""}
-                                    </span>
-                                    <span className="tabular-nums">{g.nb_goujons}</span>
-                                  </div>
-                                ))}
-                              </div>
-                            ))}
-                          </div>
-                        )}
                         <div className="flex items-center justify-between gap-2">
                           <span className="shrink-0 text-muted-foreground">Profil</span>
                           <Input
@@ -297,6 +260,32 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_barres", e.target.value)}
                           />
                         </div>
+                        {profils.length > 1 && (
+                          <Collapsible className="flex flex-col gap-1.5 pb-1.5">
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
+                              <IconChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
+                              <span>Details</span>
+                            </CollapsibleTrigger>
+                            <CollapsiblePanel>
+                              <div className="flex flex-col gap-1 pt-1.5">
+                                {profils.map(({ profil, longueur, l_lam, nb_barres }) => (
+                                  <div
+                                    key={`${profil}-${longueur}`}
+                                    className="flex items-center justify-between pl-2"
+                                  >
+                                    <span>
+                                      {profil} · {longueur}mm
+                                      {l_lam != null && (
+                                        <span className="text-muted-foreground"> (L-LAM {l_lam})</span>
+                                      )}
+                                    </span>
+                                    <span className="tabular-nums">{nb_barres}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </CollapsiblePanel>
+                          </Collapsible>
+                        )}
                         <div className="flex items-center justify-between gap-2">
                           <span className="shrink-0 text-muted-foreground">Nb goujons</span>
                           <Input
@@ -306,6 +295,37 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_goujons", e.target.value)}
                           />
                         </div>
+                        {goujonsParPoutre.length > 0 && (
+                          <Collapsible className="flex flex-col gap-1.5 pb-1.5">
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
+                              <IconChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
+                              <span>Details</span>
+                            </CollapsibleTrigger>
+                            <CollapsiblePanel>
+                              <div className="flex flex-col gap-1.5 pt-1.5">
+                                {goujonsParPoutre.map((poutre) => (
+                                  <div key={poutre.rep} className="flex flex-col gap-0.5 pl-2">
+                                    <span>
+                                      {poutre.rep} · {poutre.profil} · {poutre.longueur}mm
+                                    </span>
+                                    {poutre.groupes.map((g, i) => (
+                                      <div
+                                        key={i}
+                                        className="flex items-center justify-between pl-2 text-muted-foreground"
+                                      >
+                                        <span>
+                                          {g.diametre != null ? `Ø${g.diametre}` : "Ø ?"}
+                                          {g.hauteur != null ? ` × ${g.hauteur}mm` : ""}
+                                        </span>
+                                        <span className="tabular-nums">{g.nb_goujons}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
+                              </div>
+                            </CollapsiblePanel>
+                          </Collapsible>
+                        )}
                         <div className="flex items-center justify-between gap-2">
                           <span className="shrink-0 text-muted-foreground">Trous (manuel)</span>
                           <Input
