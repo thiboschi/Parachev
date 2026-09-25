@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "1";
+const VERSION_INDEXEUR: &str = "3";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -153,7 +153,17 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         );
         ",
     )?;
-    migrer_colonnes_fiche(conn)
+    migrer_colonnes_fiche(conn)?;
+    // Copie d'un autre document de la même affaire, et empreinte du contenu
+    // qui le confirme (voir marquer_doublons).
+    for colonne in ["doublon_de", "empreinte"] {
+        match conn.execute(&format!("ALTER TABLE documents ADD COLUMN {colonne} TEXT"), []) {
+            Ok(_) => {}
+            Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
 }
 
 /// Colonnes de fiche ajoutées à `variables_affaires` (migration idempotente,
@@ -497,7 +507,9 @@ fn enregistrer_document(
             affaire = excluded.affaire, type = excluded.type, nom = excluded.nom,
             dossier_relatif = excluded.dossier_relatif, taille = excluded.taille,
             date_modif = excluded.date_modif, ancien = excluded.ancien,
-            reference = excluded.reference, titre = excluded.titre",
+            reference = excluded.reference, titre = excluded.titre,
+            -- Fichier relu (donc modifié) : empreinte à recalculer.
+            empreinte = NULL",
         params![chemin, affaire, type_doc, nom, ctx.dossier_relatif, taille, date_modif, ctx.ancien, ctx.reference, titre],
     )
     .map_err(|e| e.to_string())?;
@@ -548,6 +560,85 @@ pub fn purger_absents(conn: &Connection, racine: &Path, vus: &HashSet<String>) -
         oublier_fichier(conn, chemin)?;
     }
     Ok(absents.len())
+}
+
+/// Empreinte FNV-1a 64 bits du contenu d'un fichier (stable d'une version
+/// de Rust à l'autre, contrairement à DefaultHasher). None si illisible.
+fn empreinte_fichier(chemin: &str) -> Option<String> {
+    use std::io::Read;
+    let mut fichier = fs::File::open(chemin).ok()?;
+    let mut tampon = [0u8; 64 * 1024];
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    loop {
+        let n = fichier.read(&mut tampon).ok()?;
+        if n == 0 {
+            break;
+        }
+        for &octet in &tampon[..n] {
+            hash ^= octet as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    Some(format!("{hash:016x}"))
+}
+
+/// Repère les copies d'un même fichier dans le dossier d'une affaire (un
+/// mail rangé à la racine ET dans "Mails/", un plan dans "Plan/" et
+/// "Ancien/"...) : chaque copie reçoit `doublon_de` = chemin de l'exemplaire
+/// retenu, et est ensuite exclue des listes et de la recherche plein texte.
+/// Rien n'est supprimé du disque.
+///
+/// Même nom + même taille ne suffit pas (43 programmes CN / plans du dossier
+/// "1a COMMANDES FINIES 2025" ont nom et taille identiques mais un contenu
+/// différent) : le contenu est comparé par empreinte, calculée seulement
+/// pour les fichiers candidats et mise en cache dans `documents.empreinte`
+/// (remise à NULL quand le fichier est relu).
+///
+/// Exemplaire retenu : hors "Ancien", hors dossier de référence, le moins
+/// profond, puis le plus récent. Recalcul complet à chaque appel (quelques
+/// millisecondes une fois les empreintes en cache). Retourne le nombre de
+/// copies.
+pub fn marquer_doublons(conn: &Connection) -> Result<usize, String> {
+    let candidats: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT d.chemin FROM documents d
+                 WHERE d.affaire IS NOT NULL AND d.empreinte IS NULL
+                   AND EXISTS (SELECT 1 FROM documents o
+                               WHERE o.affaire = d.affaire AND o.nom = d.nom
+                                 AND o.taille = d.taille AND o.chemin <> d.chemin)",
+            )
+            .map_err(|e| e.to_string())?;
+        let chemins = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        chemins.filter_map(Result::ok).collect()
+    };
+    for chemin in &candidats {
+        if let Some(empreinte) = empreinte_fichier(chemin) {
+            conn.execute("UPDATE documents SET empreinte = ?1 WHERE chemin = ?2", params![empreinte, chemin])
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    conn.execute("UPDATE documents SET doublon_de = NULL WHERE doublon_de IS NOT NULL", [])
+        .map_err(|e| e.to_string())?;
+    // Empreinte inconnue (fichier illisible) : jamais considéré comme copie.
+    conn.execute(
+        "UPDATE documents SET doublon_de = c.original
+         FROM (
+             SELECT chemin, FIRST_VALUE(chemin) OVER (
+                 PARTITION BY affaire, nom, taille, empreinte
+                 ORDER BY ancien, reference,
+                          LENGTH(COALESCE(dossier_relatif, '')) - LENGTH(REPLACE(COALESCE(dossier_relatif, ''), '/', '')),
+                          COALESCE(dossier_relatif, '') <> '',
+                          date_modif DESC, chemin
+             ) AS original
+             FROM documents
+             WHERE affaire IS NOT NULL AND empreinte IS NOT NULL
+         ) AS c
+         WHERE c.chemin = documents.chemin AND c.original <> documents.chemin",
+        [],
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn tronquer(texte: &str, max: usize) -> String {
@@ -813,6 +904,57 @@ mod tests {
         // Hors de toute arborescence d'affaire : pas ignoré, juste sans contexte.
         let c = ctx("/racine/Para/1100546190.xlsx");
         assert!(!c.ignore && c.affaire.is_none());
+    }
+
+    #[test]
+    fn doublons_de_documents() {
+        let dossier = std::env::temp_dir().join(format!("parachev_doublons_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dossier);
+        fs::create_dir_all(&dossier).unwrap();
+        let fichier = |nom: &str, contenu: &str| {
+            let p = dossier.join(nom);
+            fs::write(&p, contenu).unwrap();
+            p.to_string_lossy().to_string()
+        };
+        let racine_m = fichier("racine_m", "mail A");
+        let mails_m = fichier("mails_m", "mail A");
+        let ancien_m = fichier("ancien_m", "mail A");
+        let autre_contenu = fichier("autre_contenu", "mail B"); // même taille, contenu différent
+        let autre_affaire = fichier("autre_affaire", "mail A");
+
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE variables_affaires (affaire TEXT PRIMARY KEY);
+             CREATE TABLE configuration (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);",
+        )
+        .unwrap();
+        initialiser_schema(&conn).unwrap();
+        let doc = |chemin: &str, affaire: &str, dossier: &str, ancien: bool| {
+            conn.execute(
+                "INSERT INTO documents (chemin, affaire, type, nom, dossier_relatif, taille, date_modif, ancien)
+                 VALUES (?1, ?2, 'mail', 'm.msg', ?3, 6, '2025-01-01', ?4)",
+                params![chemin, affaire, dossier, ancien],
+            )
+            .unwrap();
+        };
+        doc(&mails_m, "A", "Mails", false);
+        doc(&racine_m, "A", "", false);
+        doc(&ancien_m, "A", "Ancien", true);
+        doc(&autre_contenu, "A", "Mails/2", false);
+        doc(&autre_affaire, "B", "", false);
+
+        assert_eq!(marquer_doublons(&conn).unwrap(), 2);
+        let doublon = |chemin: &str| -> Option<String> {
+            conn.query_row("SELECT doublon_de FROM documents WHERE chemin = ?1", [chemin], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(doublon(&racine_m), None);
+        assert_eq!(doublon(&mails_m), Some(racine_m.clone()));
+        assert_eq!(doublon(&ancien_m), Some(racine_m.clone()));
+        assert_eq!(doublon(&autre_contenu), None);
+        assert_eq!(doublon(&autre_affaire), None);
+        // Idempotent (empreintes en cache).
+        assert_eq!(marquer_doublons(&conn).unwrap(), 2);
+        let _ = fs::remove_dir_all(&dossier);
     }
 
     #[test]

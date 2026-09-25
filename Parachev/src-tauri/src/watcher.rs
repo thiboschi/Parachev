@@ -53,6 +53,10 @@ pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
         Ok(_) => {}
         Err(e) => eprintln!("Erreur purge index: {e}"),
     }
+    match indexeur::marquer_doublons(&conn) {
+        Ok(n) => println!("{n} copie(s) de documents marquée(s) comme doublons"),
+        Err(e) => eprintln!("Erreur doublons: {e}"),
+    }
     println!(
         "Scan initial terminé ({chemin_dossier}) : {} fichier(s), {} inchangé(s), {} indexé(s) dont {} fiche(s)/RDE retenu(s), {} erreur(s)",
         bilan.examines, bilan.inchanges, bilan.indexes, bilan.principaux, bilan.erreurs
@@ -127,6 +131,13 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
 }
 
 fn traiter_evenement(conn: &mut Connection, racine: &Path, path: &Path) {
+    indexer_evenement(conn, racine, path);
+    if let Err(e) = indexeur::marquer_doublons(conn) {
+        eprintln!("Erreur doublons: {e}");
+    }
+}
+
+fn indexer_evenement(conn: &mut Connection, racine: &Path, path: &Path) {
     if path.is_dir() {
         if let Err(e) = indexeur::noter_dossier(conn, racine, path) {
             eprintln!("Erreur dossier {path:?}: {e}");
@@ -187,6 +198,8 @@ mod tests {
         println!("RDE retenus       : {}", compte("SELECT COUNT(*) FROM rde_affaires"));
         println!("documents         : {}", compte("SELECT COUNT(*) FROM documents"));
         println!("références        : {}", compte("SELECT COUNT(*) FROM affaires_references"));
+        println!("copies (doublons) : {}", compte("SELECT COUNT(*) FROM documents WHERE doublon_de IS NOT NULL"));
+        assert_eq!(compte("SELECT COUNT(*) FROM rde_laminage WHERE COALESCE(nombre, 0) <= 0 AND COALESCE(poids_kg, 0) <= 0"), 0);
         println!("fichiers en erreur: {}", compte("SELECT COUNT(*) FROM fichiers WHERE statut = 'erreur'"));
         println!("fichiers ignorés  : {}", compte("SELECT COUNT(*) FROM fichiers WHERE statut = 'ignore'"));
         let affaires = crate::recherche::lister_affaires(&conn).unwrap();

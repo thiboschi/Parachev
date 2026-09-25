@@ -55,6 +55,8 @@ interface DossierAffaireData {
     date_modif: string | null
     ancien: boolean
     reference: boolean
+    /** Autres copies du même fichier dans le dossier (non listées). */
+    nb_copies: number
   }[]
   references: { affaire: string; nom_dossier: string | null; chemin: string | null }[]
   cite_par: { affaire: string; nom_dossier: string | null; chemin: string | null }[]
@@ -288,6 +290,11 @@ export function DossierAffaire({ affaire, heuresParPoste }: DossierAffaireProps)
                         )}
                       </span>
                       <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                        {d.nb_copies > 0 && (
+                          <Badge variant="outline">
+                            +{d.nb_copies} copie{d.nb_copies > 1 ? "s" : ""}
+                          </Badge>
+                        )}
                         {d.ancien && <Badge variant="outline">ancien</Badge>}
                         {d.reference && <Badge variant="outline">référence</Badge>}
                         {formatDate(d.date_modif)}

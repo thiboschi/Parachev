@@ -7,11 +7,12 @@
 // Chaque action du fichier est mappée ici vers un poste ERP (voir
 // lib/postes.ts, alimenté par `heures`) quand une correspondance fiable
 // existe. Certaines actions n'ont PAS d'équivalent poste (contrôles
-// visuels type "Ebavurage et contrôle", "Zone de contrôle" -- distinctes
-// du poste `controle_cnd` -- et la logistique "Parc") : elles sont omises
-// des itinéraires ci-dessous, donc `affaireCorrespondAuType` ne peut
-// vérifier QUE les actions qui correspondent à un poste réellement suivi
-// par l'ERP.
+// visuels type "Ebavurage et contrôle", "Contrôle", "Contrôle et marquage
+// contreflèche" -- distincts du contrôle US `controle_cnd` -- et la
+// logistique "Parc") : elles sont omises des itinéraires ci-dessous, donc
+// `affaireCorrespondAuType` ne vérifie QUE les actions qui correspondent à
+// un poste suivi. Seul le type "Contrôle U.S." (zone de contrôle US)
+// exige `controle_cnd`.
 //
 // Une machine combinée ("Combi scie foreuse numérique") réalise plusieurs
 // opérations à la fois -> traduite en plusieurs étapes (ET). Une
@@ -75,8 +76,8 @@ export const TYPES_PRODUCTION: TypeProduction[] = [
   {
     nom: "Presse",
     itineraires: [
-      [["mise_a_longueur"], ["forage_numerique"], ["controle_cnd"], ["presse_cintrage"]],
-      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["robot"]],
+      [["mise_a_longueur"], ["forage_numerique"], ["presse_cintrage"]],
+      [["forage_numerique"], ["presse_cintrage"], ["robot"]],
     ],
   },
   {
@@ -107,19 +108,19 @@ export const TYPES_PRODUCTION: TypeProduction[] = [
     nom: "Ponts Mixtes",
     indices: { typesAffaire: ["Pont mixte"] },
     itineraires: [
-      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["robot"], ["p3"], ["goujonnage"]],
+      [["forage_numerique"], ["presse_cintrage"], ["robot"], ["p3"], ["goujonnage"]],
     ],
   },
   {
     nom: "Ponts Complexes",
     itineraires: [
-      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["robot"], ["p3"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
+      [["forage_numerique"], ["presse_cintrage"], ["robot"], ["p3"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
     ],
   },
   {
     nom: "Caisson",
     itineraires: [
-      [["forage_numerique"], ["controle_cnd"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
+      [["forage_numerique"], ["presse_cintrage"], ["assemblage_tracage"], ["soudage"], ["goujonnage"]],
     ],
   },
   {
@@ -149,18 +150,35 @@ export interface IndicesAffaire {
 const egal = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
 /**
- * true si l'affaire correspond au type :
+ * Postes ignorés par la correspondance stricte : présents sur presque
+ * toutes les affaires sans faire partie d'une gamme (manutention), ou
+ * étapes du Flux sans poste suivi dans les itinéraires ci-dessus
+ * ("Ebavurage et contrôle", "Zone de contrôle").
+ */
+export const POSTES_ANNEXES = new Set(["manutention", "controle", "ebavurage_meulage"])
+
+/**
+ * true si l'affaire correspond au type.
+ *
+ * Mode normal :
  * - soit par un indice déclaré (type d'affaire/poutre du RDE, mot du nom de
  *   dossier),
  * - soit parce que `postesAffaire` (postes prévus et réalisés) satisfait au
  *   moins un itinéraire du type -- chaque itinéraire exige que TOUTES ses
  *   étapes soient couvertes, une étape étant couverte si AU MOINS UN de ses
  *   postes alternatifs est présent. Un itinéraire vide ne reconnaît rien.
+ *
+ * Mode strict : en plus, l'affaire ne doit être passée par AUCUN autre
+ * poste que ceux de l'itinéraire (hors POSTES_ANNEXES) -- une affaire
+ * presse + robot + goujonnage n'est plus un simple "Redressage". Un indice
+ * déclaré ne suffit plus, sauf pour un type sans itinéraire (Chargement),
+ * qui exige alors qu'aucun poste de production n'ait été utilisé.
  */
 export function affaireCorrespondAuType(
   postesAffaire: ReadonlySet<string>,
   type: TypeProduction,
-  indices: IndicesAffaire = {}
+  indices: IndicesAffaire = {},
+  strict = false
 ): boolean {
   const { typesAffaire = [], typesPoutre = [], motsDossier = [] } = type.indices ?? {}
   const declare =
@@ -168,10 +186,15 @@ export function affaireCorrespondAuType(
     (indices.typePoutre != null && typesPoutre.some((t) => egal(t, indices.typePoutre!))) ||
     (indices.nomDossier != null &&
       motsDossier.some((m) => indices.nomDossier!.toUpperCase().includes(m.toUpperCase())))
-  if (declare) return true
-  return type.itineraires.some(
-    (itineraire) =>
-      itineraire.length > 0 &&
-      itineraire.every((etape) => etape.some((poste) => postesAffaire.has(poste)))
-  )
+  const postesProduction = [...postesAffaire].filter((p) => !POSTES_ANNEXES.has(p))
+
+  if (strict && type.itineraires.length === 0) return declare && postesProduction.length === 0
+  if (declare && !strict) return true
+  return type.itineraires.some((itineraire) => {
+    if (itineraire.length === 0) return false
+    if (!itineraire.every((etape) => etape.some((poste) => postesAffaire.has(poste)))) return false
+    if (!strict) return true
+    const autorises = new Set(itineraire.flat())
+    return postesProduction.every((p) => autorises.has(p))
+  })
 }

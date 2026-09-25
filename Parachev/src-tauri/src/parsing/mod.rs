@@ -313,14 +313,13 @@ fn ligne_operation<'a>(lignes: &'a mut Vec<LigneOperation>, operation: &str, lib
 /// Opérations prévues par la fiche : chaque poste A-D ramené à ses clés de
 /// poste (operations::postes_depuis_libelle), heures réparties entre les
 /// clés d'une machine combinée. Libellé non reconnu -> clé "autre".
+/// Un poste sans heures n'est pas prévu : le gabarit pré-remplit les
+/// libellés ("PRESSE", "FOR.MAN"...) même quand la case reste vide.
 pub(crate) fn operations_fiche(postes: &[PostePrevu]) -> Vec<LigneOperation> {
     let mut lignes = Vec::new();
-    for poste in postes {
+    for poste in postes.iter().filter(|p| p.heures > 0.0) {
         let mut cles = operations::postes_depuis_libelle(&poste.libelle);
         if cles.is_empty() {
-            if poste.heures <= 0.0 {
-                continue;
-            }
             cles.push("autre");
         }
         let part = poste.heures / cles.len() as f64;
@@ -467,6 +466,18 @@ pub(crate) fn numero_affaire(texte: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn postes_de_fiche_sans_heures_ignores() {
+        let postes = vec![
+            PostePrevu { libelle: "PRESSE".into(), heures: 0.0 },
+            PostePrevu { libelle: "COMBI SCIE + FOR.".into(), heures: 10.0 },
+        ];
+        let lignes = operations_fiche(&postes);
+        let cles: Vec<&str> = lignes.iter().map(|l| l.operation.as_str()).collect();
+        assert_eq!(cles, vec!["mise_a_longueur", "forage_numerique"]);
+        assert_eq!(lignes[0].heures, Some(5.0));
+    }
 
     #[test]
     fn dates_texte() {

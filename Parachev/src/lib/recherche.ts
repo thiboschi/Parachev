@@ -88,6 +88,8 @@ export interface Filtres {
   dateDu: string
   dateAu: string
   typesProduction: string[]
+  /** Correspondance stricte au Flux (aucune autre machine que l'itinéraire). */
+  fluxStrict: boolean
   /** Toutes les machines cochées doivent avoir été utilisées (ET). */
   machines: string[]
   sourceMachines: SourceMachines
@@ -126,6 +128,7 @@ export const FILTRES_VIDES: Filtres = {
   dateDu: "",
   dateAu: "",
   typesProduction: [],
+  fluxStrict: false,
   machines: [],
   sourceMachines: "toutes",
   operationsRde: [],
@@ -158,7 +161,7 @@ export const FILTRES_VIDES: Filtres = {
 export function nbFiltresAvances(f: Filtres): number {
   let n = 0
   for (const cle of Object.keys(FILTRES_VIDES) as (keyof Filtres)[]) {
-    if (["texte", "client", "champDate", "sourceMachines", "variables"].includes(cle)) continue
+    if (["texte", "client", "champDate", "sourceMachines", "fluxStrict", "variables"].includes(cle)) continue
     const v = f[cle]
     if (Array.isArray(v) ? v.length > 0 : typeof v === "boolean" ? v : v !== FILTRES_VIDES[cle]) n++
   }
@@ -209,16 +212,17 @@ export interface OptionsFiltres {
   usines: OptionFiltre[]
 }
 
-function typesProductionAffaire(a: AffaireRecherche): string[] {
+function typesProductionAffaire(a: AffaireRecherche, strict: boolean): string[] {
   const postes = machinesAffaire(a, "toutes")
   const indices = { typeAffaire: a.type_affaire, typePoutre: a.type_poutre, nomDossier: a.nom_dossier }
-  return TYPES_PRODUCTION.filter((t) => affaireCorrespondAuType(postes, t, indices)).map((t) => t.nom)
+  return TYPES_PRODUCTION.filter((t) => affaireCorrespondAuType(postes, t, indices, strict)).map((t) => t.nom)
 }
 
-export function optionsFiltres(affaires: AffaireRecherche[]): OptionsFiltres {
+/** `fluxStrict` : les nombres affichés pour les types de production suivent le mode choisi. */
+export function optionsFiltres(affaires: AffaireRecherche[], fluxStrict = false): OptionsFiltres {
   return {
     clients: Array.from(new Set(affaires.map((a) => a.client).filter((c): c is string => !!c))).sort(),
-    typesProduction: compter(affaires, typesProductionAffaire),
+    typesProduction: compter(affaires, (a) => typesProductionAffaire(a, fluxStrict)),
     machines: compter(affaires, (a) => [...machinesAffaire(a, "toutes")], libellePoste),
     operationsRde: compter(affaires, (a) => a.operations_rde, libelleOperationRde),
     typesAffaire: compter(affaires, (a) => [a.type_affaire]),
@@ -309,7 +313,7 @@ export function filtrerAffaires(
     if (typesProduction.length > 0) {
       const postes = machinesAffaire(a, "toutes")
       const indices = { typeAffaire: a.type_affaire, typePoutre: a.type_poutre, nomDossier: a.nom_dossier }
-      if (!typesProduction.some((t) => affaireCorrespondAuType(postes, t, indices))) return false
+      if (!typesProduction.some((t) => affaireCorrespondAuType(postes, t, indices, f.fluxStrict))) return false
     }
     if (!toutesParmi(f.machines, machinesAffaire(a, f.sourceMachines))) return false
     if (!toutesParmi(f.operationsRde, a.operations_rde)) return false

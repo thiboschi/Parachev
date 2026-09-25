@@ -316,7 +316,7 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         max_date(&mut p.1, fin);
     }
 
-    for (a, n) in requete(conn, "SELECT affaire, COUNT(*) FROM documents WHERE affaire IS NOT NULL GROUP BY affaire", |r| {
+    for (a, n) in requete(conn, "SELECT affaire, COUNT(*) FROM documents WHERE affaire IS NOT NULL AND doublon_de IS NULL GROUP BY affaire", |r| {
         Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
     })? {
         entree(&mut affaires, &a).nb_documents = n;
@@ -385,7 +385,7 @@ pub fn rechercher_texte(conn: &Connection, texte: &str) -> Result<Vec<ResultatTe
                     snippet(documents_fts, 3, '«', '»', '…', 12)
              FROM documents_fts f
              LEFT JOIN documents d ON d.chemin = f.chemin
-             WHERE documents_fts MATCH ?1 AND f.affaire IS NOT NULL
+             WHERE documents_fts MATCH ?1 AND f.affaire IS NOT NULL AND d.doublon_de IS NULL
              ORDER BY rank
              LIMIT 2000",
         )
@@ -466,6 +466,8 @@ pub struct DocumentLigne {
     pub date_modif: Option<String>,
     pub ancien: bool,
     pub reference: bool,
+    /// Nombre d'autres copies du même fichier dans le dossier (non listées).
+    pub nb_copies: i64,
 }
 
 #[derive(Serialize)]
@@ -607,8 +609,10 @@ pub fn obtenir_dossier(conn: &Connection, affaire: &str) -> Result<DossierAffair
 
     let documents = requete_affaire(
         conn,
-        "SELECT chemin, type, nom, titre, dossier_relatif, date_modif, ancien, reference
-         FROM documents WHERE affaire = ?1 ORDER BY type, dossier_relatif, nom",
+        "SELECT d.chemin, d.type, d.nom, d.titre, d.dossier_relatif, d.date_modif, d.ancien, d.reference,
+                (SELECT COUNT(*) FROM documents c WHERE c.doublon_de = d.chemin)
+         FROM documents d WHERE d.affaire = ?1 AND d.doublon_de IS NULL
+         ORDER BY d.type, d.dossier_relatif, d.nom",
         affaire,
         |r| {
             Ok(DocumentLigne {
@@ -620,6 +624,7 @@ pub fn obtenir_dossier(conn: &Connection, affaire: &str) -> Result<DossierAffair
                 date_modif: r.get(5)?,
                 ancien: r.get(6)?,
                 reference: r.get(7)?,
+                nb_copies: r.get(8)?,
             })
         },
     )?;

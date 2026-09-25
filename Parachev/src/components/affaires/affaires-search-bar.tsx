@@ -202,7 +202,16 @@ export function AffaireSearchBar({
             </Section>
 
             <Section titre="Production (Flux de production BFC)">
-              {multi("typesProduction", "Type de production")}
+              <div className="flex flex-col gap-1.5">
+                {multi("typesProduction", "Type de production")}
+                <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={filtres.fluxStrict}
+                    onCheckedChange={(c) => onChange({ fluxStrict: c })}
+                  />
+                  Strict : aucune autre machine que l'itinéraire
+                </label>
+              </div>
               {multi("machines", "Machines / postes", "toutes requises")}
               <div className="flex flex-col gap-1">
                 <Label className="text-xs text-muted-foreground">Machine</Label>

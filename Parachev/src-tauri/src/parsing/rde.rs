@@ -173,12 +173,18 @@ pub fn extraire_rde(chemin_fichier: &str) -> Result<Option<InfoRde>, String> {
                 break;
             }
             let Some(profil) = valeur(&r[3]) else { continue };
+            let (nb, poids) = (nombre(&r[11]), nombre(&r[8]));
+            // Ligne du gabarit laissée vide (profil pré-rempli, 0 barre et
+            // 0 kg) : pas une commande, sinon elle apparaît en double.
+            if nb.unwrap_or(0.0) <= 0.0 && poids.unwrap_or(0.0) <= 0.0 {
+                continue;
+            }
             info.laminage.push(LigneLaminage {
                 profil,
                 longueur: nombre(&r[4]),
                 nuance: valeur(&r[6]),
-                poids_kg: nombre(&r[8]),
-                nombre: nombre(&r[11]),
+                poids_kg: poids,
+                nombre: nb,
                 usine: valeur(&r[14]),
                 date_laminage: super::texte_vers_date(&r[17]),
             });

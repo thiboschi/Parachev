@@ -21,7 +21,10 @@ export default function Search() {
   const [tri, setTri] = React.useState<Tri>("affaire")
   const documentsTrouves = useRechercheTexte(filtres.texte)
 
-  const options = React.useMemo(() => optionsFiltres(affaires), [affaires])
+  const options = React.useMemo(
+    () => optionsFiltres(affaires, filtres.fluxStrict),
+    [affaires, filtres.fluxStrict]
+  )
 
   const results = React.useMemo(() => {
     const affairesTexte = documentsTrouves ? new Set(documentsTrouves.keys()) : null
