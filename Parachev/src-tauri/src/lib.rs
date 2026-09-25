@@ -14,8 +14,10 @@ use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use crate::calibration::{calibrer_tous_les_postes, poste_variables};
-use tauri::Manager;
+use crate::watcher::Progression;
+use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 /// Retourne (et crée si besoin) le dossier de données de l'application,
@@ -46,9 +48,38 @@ fn chemin_coefficients(app: &tauri::AppHandle) -> Result<String, String> {
         .to_string())
 }
 
+/// Dernier avancement connu de l'analyse des fichiers, partagé entre le
+/// thread d'indexation et la commande `obtenir_progression_indexation`
+/// (une page ouverte après le début du scan a manqué les premiers
+/// événements et lit l'état courant ici).
+type EtatProgression = Arc<Mutex<Progression>>;
+
+/// Événement émis vers l'interface à chaque rapport de progression.
+const EVENEMENT_PROGRESSION: &str = "indexation-progression";
+
+/// Lance, dans un thread dédié, le scan initial du dossier puis sa
+/// surveillance. Chaque rapport de progression met à jour l'état partagé et
+/// est émis vers l'interface (barre de chargement).
+fn lancer_indexation(app: tauri::AppHandle, chemin_dossier: String, chemin_db: String) {
+    std::thread::spawn(move || {
+        let etat = app.state::<EtatProgression>().inner().clone();
+        let rapport = |p: &Progression| {
+            if let Ok(mut e) = etat.lock() {
+                *e = p.clone();
+            }
+            let _ = app.emit(EVENEMENT_PROGRESSION, p);
+        };
+        watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db, &rapport);
+        if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db) {
+            eprintln!("Erreur watcher: {e:?}");
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(EtatProgression::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -72,7 +103,8 @@ pub fn run() {
             lister_affaires_recherche,
             rechercher_texte,
             obtenir_dossier_affaire,
-            ouvrir_document
+            ouvrir_document,
+            obtenir_progression_indexation
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -114,13 +146,7 @@ pub fn run() {
             // d'un lancement précédent -- sinon on attend que l'utilisateur
             // en choisisse un via choisir_dossier_surveille().
             if let Some(chemin_dossier) = chemin_dossier {
-                std::thread::spawn(move || {
-                    watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db_str);
-
-                    if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db_str) {
-                        eprintln!("Erreur watcher: {e:?}");
-                    }
-                });
+                lancer_indexation(app_handle, chemin_dossier, chemin_db_str);
             }
 
             Ok(())
@@ -161,15 +187,15 @@ async  fn choisir_dossier_surveille(app: tauri::AppHandle) -> Result<Option<Stri
     config::ecrire_config(&conn, config::CLE_DOSSIER_SURVEILLE, &chemin)?;
     drop(conn);
 
-    let chemin_thread = chemin.clone();
-    std::thread::spawn(move || {
-        watcher::scanner_dossier_initial(&chemin_thread, &chemin_db_str);
-        if let Err(e) = watcher::surveiller_dossier(&chemin_thread, &chemin_db_str) {
-            eprintln!("Erreur watcher: {e:?}");
-        }
-    });
+    lancer_indexation(app, chemin.clone(), chemin_db_str);
 
     Ok(Some(chemin))
+}
+
+/// Avancement courant de l'analyse des fichiers (voir EtatProgression).
+#[tauri::command]
+fn obtenir_progression_indexation(etat: tauri::State<EtatProgression>) -> Progression {
+    etat.lock().map(|p| p.clone()).unwrap_or_default()
 }
 
 #[tauri::command]

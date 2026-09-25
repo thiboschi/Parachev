@@ -3,9 +3,10 @@ use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEvent
 use rusqlite::Connection;
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Connexion dédiée au thread d'indexation : attend (au lieu d'échouer)
 /// quand l'interface écrit en même temps dans la base.
@@ -32,22 +33,94 @@ struct Bilan {
     erreurs: usize,
 }
 
+/// Avancement de l'analyse des fichiers, affiché par l'interface (barre de
+/// progression) -- voir lib.rs pour l'envoi à l'interface.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Progression {
+    pub en_cours: bool,
+    /// "comptage" (inventaire des fichiers), "analyse", "finalisation".
+    pub etape: String,
+    pub dossier: String,
+    pub total: usize,
+    pub traites: usize,
+    pub erreurs: usize,
+    /// Fichier en cours d'analyse (nom seul).
+    pub fichier: Option<String>,
+    /// Horodatage de la fin du dernier scan complet.
+    pub termine_le: Option<String>,
+}
+
+/// Intervalle minimum entre deux rapports de progression (l'interface n'a
+/// pas besoin de plus de ~10 rafraîchissements par seconde).
+const INTERVALLE_RAPPORT: Duration = Duration::from_millis(100);
+
 /// Parcourt le dossier surveillé -- ET tous ses sous-dossiers -- et indexe
 /// les fichiers nouveaux ou modifiés depuis le dernier passage (voir
 /// indexeur : un fichier inchangé n'est pas relu). Le watcher
 /// (surveiller_dossier) ne détecte que les changements FUTURS, d'où ce scan
 /// au démarrage. Retire aussi de l'index les fichiers supprimés entre-temps.
 /// À appeler une fois avant surveiller_dossier, dans le même thread.
-pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
-    let Some(mut conn) = ouvrir_base(chemin_db) else { return };
+///
+/// `rapport` reçoit l'avancement : au début, au plus toutes les 100 ms
+/// pendant l'analyse, et à la fin (`en_cours` = false).
+pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str, rapport: &dyn Fn(&Progression)) {
+    let mut progression = Progression {
+        en_cours: true,
+        etape: "comptage".into(),
+        dossier: chemin_dossier.to_string(),
+        ..Default::default()
+    };
+    rapport(&progression);
+
+    let Some(mut conn) = ouvrir_base(chemin_db) else {
+        progression.en_cours = false;
+        rapport(&progression);
+        return;
+    };
     if let Err(e) = indexeur::verifier_version(&conn) {
         eprintln!("Erreur version indexeur: {e}");
     }
     let racine = Path::new(chemin_dossier);
+
+    // Inventaire d'abord, pour connaître le total à afficher.
+    let mut fichiers = Vec::new();
+    collecter_fichiers(&conn, racine, racine, &mut fichiers);
+    progression.etape = "analyse".into();
+    progression.total = fichiers.len();
+    rapport(&progression);
+
     let mut vus = HashSet::new();
     let mut bilan = Bilan::default();
-    parcourir_recursivement(&mut conn, racine, racine, &mut vus, &mut bilan);
+    let mut dernier_rapport = Instant::now();
+    for (i, path) in fichiers.iter().enumerate() {
+        if dernier_rapport.elapsed() >= INTERVALLE_RAPPORT {
+            progression.traites = i;
+            progression.erreurs = bilan.erreurs;
+            progression.fichier = path.file_name().map(|n| n.to_string_lossy().to_string());
+            rapport(&progression);
+            dernier_rapport = Instant::now();
+        }
+        bilan.examines += 1;
+        vus.insert(path.to_string_lossy().to_string());
+        match indexeur::traiter_fichier(&mut conn, racine, path) {
+            Ok(Resultat::Inchange) => bilan.inchanges += 1,
+            Ok(Resultat::Ignore) => {}
+            Ok(Resultat::Indexe { principal, .. }) => {
+                bilan.indexes += 1;
+                bilan.principaux += principal as usize;
+            }
+            Err(e) => {
+                bilan.erreurs += 1;
+                eprintln!("Erreur {path:?}: {e}");
+            }
+        }
+    }
 
+    progression.etape = "finalisation".into();
+    progression.traites = fichiers.len();
+    progression.erreurs = bilan.erreurs;
+    progression.fichier = None;
+    rapport(&progression);
     match indexeur::purger_absents(&conn, racine, &vus) {
         Ok(n) if n > 0 => println!("{n} fichier(s) supprimé(s) retiré(s) de l'index"),
         Ok(_) => {}
@@ -61,11 +134,14 @@ pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
         "Scan initial terminé ({chemin_dossier}) : {} fichier(s), {} inchangé(s), {} indexé(s) dont {} fiche(s)/RDE retenu(s), {} erreur(s)",
         bilan.examines, bilan.inchanges, bilan.indexes, bilan.principaux, bilan.erreurs
     );
+    progression.en_cours = false;
+    progression.termine_le = Some(chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string());
+    rapport(&progression);
 }
 
-/// Parcourt récursivement un dossier : note chaque sous-dossier (dossiers
-/// d'affaire, non-conformités) et indexe chaque fichier.
-fn parcourir_recursivement(conn: &mut Connection, racine: &Path, dossier: &Path, vus: &mut HashSet<String>, bilan: &mut Bilan) {
+/// Liste récursivement les fichiers d'un dossier, et note au passage chaque
+/// sous-dossier (dossiers d'affaire, non-conformités).
+fn collecter_fichiers(conn: &Connection, racine: &Path, dossier: &Path, fichiers: &mut Vec<PathBuf>) {
     let entrees = match fs::read_dir(dossier) {
         Ok(e) => e,
         Err(e) => {
@@ -80,22 +156,9 @@ fn parcourir_recursivement(conn: &mut Connection, racine: &Path, dossier: &Path,
             if let Err(e) = indexeur::noter_dossier(conn, racine, &path) {
                 eprintln!("Erreur dossier {path:?}: {e}");
             }
-            parcourir_recursivement(conn, racine, &path, vus, bilan);
+            collecter_fichiers(conn, racine, &path, fichiers);
         } else if path.is_file() {
-            bilan.examines += 1;
-            vus.insert(path.to_string_lossy().to_string());
-            match indexeur::traiter_fichier(conn, racine, &path) {
-                Ok(Resultat::Inchange) => bilan.inchanges += 1,
-                Ok(Resultat::Ignore) => {}
-                Ok(Resultat::Indexe { principal, .. }) => {
-                    bilan.indexes += 1;
-                    bilan.principaux += principal as usize;
-                }
-                Err(e) => {
-                    bilan.erreurs += 1;
-                    eprintln!("Erreur {path:?}: {e}");
-                }
-            }
+            fichiers.push(path);
         }
     }
 }
@@ -184,11 +247,20 @@ mod tests {
         drop(conn);
 
         let debut = std::time::Instant::now();
-        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy());
-        println!("Durée scan complet : {:?}", debut.elapsed());
+        let rapports = std::cell::Cell::new(0);
+        let dernier = std::cell::RefCell::new(Progression::default());
+        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy(), &|p| {
+            rapports.set(rapports.get() + 1);
+            *dernier.borrow_mut() = p.clone();
+        });
+        println!("Durée scan complet : {:?} ({} rapports de progression)", debut.elapsed(), rapports.get());
+        let fin = dernier.borrow().clone();
+        assert!(!fin.en_cours && fin.termine_le.is_some());
+        assert_eq!(fin.traites, fin.total);
+        assert!(fin.total > 6000);
 
         let debut = std::time::Instant::now();
-        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy());
+        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy(), &|_| {});
         println!("Durée second scan (incrémental) : {:?}", debut.elapsed());
 
         let conn = Connection::open(&db).unwrap();

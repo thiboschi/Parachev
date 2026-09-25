@@ -1,6 +1,8 @@
 import * as React from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { listen } from "@tauri-apps/api/event"
 import type { VariablesAffaireRow } from "./use-affaires-db"
+import { EVENEMENT_PROGRESSION, type ProgressionIndexation } from "./use-progression-indexation"
 
 // Shape returned by the `lister_affaires_recherche` Tauri command
 // (AffaireRecherche in recherche.rs) : une ligne par affaire, toutes
@@ -63,11 +65,27 @@ export interface ResultatTexte {
   extrait: string
 }
 
-/** Charge toutes les affaires (une seule fois ; filtrage côté interface). */
+/**
+ * Charge toutes les affaires (filtrage côté interface), et les recharge à
+ * la fin de chaque analyse des fichiers pour afficher les nouvelles données
+ * sans quitter la page.
+ */
 export function useRechercheAffaires() {
   const [affaires, setAffaires] = React.useState<AffaireRecherche[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [version, setVersion] = React.useState(0)
+
+  React.useEffect(() => {
+    let actif = true
+    const arret = listen<ProgressionIndexation>(EVENEMENT_PROGRESSION, (e) => {
+      if (actif && !e.payload.en_cours) setVersion((v) => v + 1)
+    })
+    return () => {
+      actif = false
+      arret.then((f) => f()).catch(() => {})
+    }
+  }, [])
 
   React.useEffect(() => {
     let annule = false
@@ -87,7 +105,7 @@ export function useRechercheAffaires() {
     return () => {
       annule = true
     }
-  }, [])
+  }, [version])
 
   return { affaires, loading, error }
 }
