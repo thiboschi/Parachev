@@ -1,7 +1,6 @@
-//! Extraction des variables de forage (perçage manuel FT-MAN et perçage
-//! numérique FT-NUM) -- les 3 variables explicatives de `variables_affaires`
-//! que les autres sous-parsers (previ, goujons, oxycoupage, presse) ne
-//! couvrent pas.
+//! Extraction des variables de forage (perçage manuel et perçage numérique)
+//! -- les variables explicatives de `variables_affaires` que les autres
+//! sous-parsers (previ, goujons, oxycoupage, presse) ne couvrent pas.
 //!
 //! Forage manuel : la feuille "FC FMAN" (et sa variante "FC FMAN 4Ø", plus
 //! de zones) a exactement le même format que FC-GOUJ (voir goujons.rs) --
@@ -12,29 +11,26 @@
 //! invariablement 1), pas de trous -- FC FMAN est la seule source fiable.
 //!
 //! Forage numérique : aucune feuille équivalente (Diam./Nb plan) n'a été
-//! trouvée dans les fichiers réels disponibles -- "LISTE TROUS" est un
-//! gabarit toujours vide, et FT-NUM n'a pas de colonne de diamètre. Faute
-//! de donnée quantitative exploitable, on retombe sur le même signal pauvre
-//! qu'avant : la présence de FT-NUM code `nb_trous_numerique` et
-//! `diametre_moyen_numerique` à 1.0 (repli grossier, voir plus bas).
+//! trouvée dans les fichiers réels -- "LISTE TROUS" est un gabarit toujours
+//! vide, et FT-NUM n'a pas de colonne de diamètre.
+//!
+//! La simple PRÉSENCE d'une feuille ne prouve rien : la fiche de prévision
+//! est un gabarit qui contient toutes les feuilles FC-/FT- quelle que soit
+//! l'affaire (FT-NUM est présente dans 182 fiches sur 262 du dossier "1a
+//! COMMANDES FINIES 2025"). L'usage réel d'un poste se lit désormais dans
+//! la feuille SUIVI (voir suivi.rs), les postes A-D de PREVI et le RDE --
+//! ici, une variable sans donnée chiffrée vaut None, jamais un repli.
 
 use super::{cellule_est_erreur, cellule_vers_texte, cellule_vide};
 use calamine::{open_workbook, DataType, Reader, Xlsx};
 
 const FEUILLES_FORAGE_MANUEL: [&str; 2] = ["FC FMAN", "FC FMAN 4Ø"];
-const FEUILLE_FORAGE_NUMERIQUE: &str = "FT-NUM";
 
 const COL_REP: u32 = 2;
 const COL_PROFIL: u32 = 3;
 const LIGNE_DEBUT_DONNEES: u32 = 16; // ligne 17 en 1-based
 const LIGNE_ENTETE: u32 = 12; // ligne 13 en 1-based -- porte les cellules "Diam."
 const MAX_COLONNES_ENTETE: u32 = 25;
-
-/// Valeur de repli utilisée quand une feuille de forage est présente mais
-/// qu'aucune donnée quantitative n'a pu en être extraite (numérique
-/// uniquement -- le manuel dispose maintenant d'un vrai comptage via
-/// FC FMAN, voir extraire_trous_fc_fman).
-const VALEUR_PRESENCE_SANS_DONNEE: f64 = 1.0;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct VariablesForage {
@@ -53,25 +49,19 @@ pub fn extraire_variables_forage(chemin_fichier: &str) -> Result<VariablesForage
 
     let nb_trous_manuel = extraire_trous_fc_fman(&mut workbook)?;
 
-    let feuilles = workbook.sheet_names().to_owned();
-    let numerique_present = feuilles.iter().any(|f| f == FEUILLE_FORAGE_NUMERIQUE);
-
+    // Forage numérique : aucune source chiffrée connue (voir en-tête).
     Ok(VariablesForage {
         nb_trous_manuel,
-        nb_trous_numerique: numerique_present.then_some(VALEUR_PRESENCE_SANS_DONNEE),
-        // Même feuille (FT-NUM) que nb_trous_numerique pour la présence du
-        // poste -- aucune des deux ne dispose de donnée quantitative propre.
-        diametre_moyen_numerique: numerique_present.then_some(VALEUR_PRESENCE_SANS_DONNEE),
+        nb_trous_numerique: None,
+        diametre_moyen_numerique: None,
     })
 }
 
 /// Somme les "Nb plan" de toutes les zones Diam./Nb plan de FC FMAN (ou
 /// FC FMAN 4Ø), toutes barres confondues -- même format que FC-GOUJ, donc
-/// même lecture (voir goujons::extraire_goujons_fc_gouj). Si la feuille
-/// existe mais que la somme est nulle (fichiers actuellement disponibles :
-/// gabarit jamais rempli), retombe sur VALEUR_PRESENCE_SANS_DONNEE plutôt
-/// que de rapporter 0 trou pour un poste manifestement utilisé. None si
-/// aucune des deux feuilles n'existe (poste non utilisé sur l'affaire).
+/// même lecture (voir goujons::extraire_goujons_fc_gouj). None si la
+/// feuille est absente OU vide (gabarit non rempli) : dans les deux cas le
+/// nombre de trous est inconnu.
 fn extraire_trous_fc_fman<R: std::io::Read + std::io::Seek>(
     workbook: &mut Xlsx<R>,
 ) -> Result<Option<f64>, String> {
@@ -120,7 +110,7 @@ fn extraire_trous_fc_fman<R: std::io::Read + std::io::Seek>(
         r += 1;
     }
 
-    Ok(Some(if total > 0.0 { total } else { VALEUR_PRESENCE_SANS_DONNEE }))
+    Ok((total > 0.0).then_some(total))
 }
 
 #[cfg(test)]
@@ -128,7 +118,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn repli_sur_fichiers_reels_sans_donnee_de_trou() {
+    fn fichiers_reels_sans_donnee_de_trou() {
         for chemin in [
             "../../Para/1100546190.xlsx",
             "../../Para/1100662668.xlsx",
@@ -137,8 +127,9 @@ mod tests {
         ] {
             let v = extraire_variables_forage(chemin).unwrap();
             // FC FMAN existe dans ces 4 fichiers mais n'a jamais de Nb plan
-            // rempli -- doit retomber sur le repli, pas planter ni renvoyer 0.
-            assert_eq!(v.nb_trous_manuel, Some(VALEUR_PRESENCE_SANS_DONNEE), "{chemin}");
+            // rempli : nombre de trous inconnu, pas 0 ni un repli arbitraire.
+            assert_eq!(v.nb_trous_manuel, None, "{chemin}");
+            assert_eq!(v.nb_trous_numerique, None, "{chemin}");
         }
     }
 }

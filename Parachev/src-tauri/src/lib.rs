@@ -6,6 +6,8 @@ mod watcher;
 mod prevision;
 mod calibration;
 mod config;
+mod indexeur;
+mod recherche;
 
 use crate::prevision::{CoefficientsExport};
 use rusqlite::{params, Connection};
@@ -66,13 +68,20 @@ pub fn run() {
             lister_profils_affaire,
             lister_goujons_affaire,
             lister_cfl_affaire,
-            lister_previsions_affaire
+            lister_previsions_affaire,
+            lister_affaires_recherche,
+            rechercher_texte,
+            obtenir_dossier_affaire,
+            ouvrir_document
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
             let chemin_db_str = chemin_db(&app_handle)?;
 
             let mut conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
+            // WAL : l'interface peut lire pendant que le thread d'indexation
+            // écrit (sinon "database is locked" pendant le scan initial).
+            conn.pragma_update(None, "journal_mode", "WAL").map_err(|e| e.to_string())?;
             erp::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             erp::migrer_format_dates(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
@@ -81,6 +90,7 @@ pub fn run() {
             erp::migrer_profils_affaires_ajouter_longueur(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
+            indexeur::initialiser_schema(&conn).map_err(|e| e.to_string())?;
 
             // Migration ponctuelle depuis coefficients.json vers la table
             // `coefficients` -- si un fichier existe déjà (installation
@@ -614,4 +624,38 @@ fn lister_previsions_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+/// Une ligne par affaire, toutes sources fusionnées (dossier, RDE, fiche,
+/// SUIVI, ERP) -- voir recherche::lister_affaires. Filtrée côté interface.
+#[tauri::command]
+fn lister_affaires_recherche(app: tauri::AppHandle) -> Result<Vec<recherche::AffaireRecherche>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    recherche::lister_affaires(&conn)
+}
+
+/// Recherche plein texte dans les documents indexés (mails, RDE, fiches,
+/// noms de fichiers et de dossiers).
+#[tauri::command]
+fn rechercher_texte(app: tauri::AppHandle, texte: String) -> Result<Vec<recherche::ResultatTexte>, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    recherche::rechercher_texte(&conn, &texte)
+}
+
+/// Détail du dossier d'une affaire : RDE, laminage, opérations par source,
+/// documents, affaires de référence.
+#[tauri::command]
+fn obtenir_dossier_affaire(app: tauri::AppHandle, affaire: String) -> Result<recherche::DossierAffaire, String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    recherche::obtenir_dossier(&conn, &affaire)
+}
+
+/// Ouvre un document avec l'application par défaut du système. Limité aux
+/// fichiers présents dans l'index (pas de chemin arbitraire venant de l'UI).
+#[tauri::command]
+fn ouvrir_document(app: tauri::AppHandle, chemin: String) -> Result<(), String> {
+    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    if !recherche::est_document_indexe(&conn, &chemin)? {
+        return Err("Document inconnu de l'index".into());
+    }
+    tauri_plugin_opener::open_path(&chemin, None::<&str>).map_err(|e| e.to_string())
 }

@@ -1,29 +1,67 @@
-use crate::erp::traiter_fichier_erp;
-use crate::parsing::traiter_fichier_excel;
+use crate::indexeur::{self, Resultat};
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebouncedEventKind};
 use rusqlite::Connection;
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 use std::sync::mpsc;
 use std::time::Duration;
 
-/// Parcourt le dossier surveillé -- ET tous ses sous-dossiers -- et traite
-/// tous les fichiers déjà présents, qu'ils aient changé ou non depuis le
-/// dernier lancement -- le watcher (surveiller_dossier) ne détecte que les
-/// changements FUTURS, donc sans ce scan initial, un fichier déjà présent
-/// et inchangé au démarrage de l'app ne serait jamais (re)traité tant
-/// qu'il n'est pas modifié une nouvelle fois.
-/// À appeler une fois avant surveiller_dossier, idéalement dans le même
-/// thread d'arrière-plan.
-pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
-    let mut n_traites = 0;
-    parcourir_recursivement(Path::new(chemin_dossier), chemin_db, &mut n_traites);
-    println!("Scan initial terminé : {n_traites} fichier(s) examiné(s) dans {chemin_dossier} (sous-dossiers inclus)");
+/// Connexion dédiée au thread d'indexation : attend (au lieu d'échouer)
+/// quand l'interface écrit en même temps dans la base.
+fn ouvrir_base(chemin_db: &str) -> Option<Connection> {
+    match Connection::open(chemin_db) {
+        Ok(conn) => {
+            let _ = conn.busy_timeout(Duration::from_secs(10));
+            Some(conn)
+        }
+        Err(e) => {
+            eprintln!("Impossible d'ouvrir la base: {e}");
+            None
+        }
+    }
 }
 
-/// Parcourt récursivement un dossier : traite chaque fichier rencontré,
-/// et redescend dans chaque sous-dossier trouvé.
-fn parcourir_recursivement(dossier: &Path, chemin_db: &str, n_traites: &mut usize) {
+/// Compteurs d'un scan, pour le résumé final.
+#[derive(Default)]
+struct Bilan {
+    examines: usize,
+    inchanges: usize,
+    indexes: usize,
+    principaux: usize,
+    erreurs: usize,
+}
+
+/// Parcourt le dossier surveillé -- ET tous ses sous-dossiers -- et indexe
+/// les fichiers nouveaux ou modifiés depuis le dernier passage (voir
+/// indexeur : un fichier inchangé n'est pas relu). Le watcher
+/// (surveiller_dossier) ne détecte que les changements FUTURS, d'où ce scan
+/// au démarrage. Retire aussi de l'index les fichiers supprimés entre-temps.
+/// À appeler une fois avant surveiller_dossier, dans le même thread.
+pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str) {
+    let Some(mut conn) = ouvrir_base(chemin_db) else { return };
+    if let Err(e) = indexeur::verifier_version(&conn) {
+        eprintln!("Erreur version indexeur: {e}");
+    }
+    let racine = Path::new(chemin_dossier);
+    let mut vus = HashSet::new();
+    let mut bilan = Bilan::default();
+    parcourir_recursivement(&mut conn, racine, racine, &mut vus, &mut bilan);
+
+    match indexeur::purger_absents(&conn, racine, &vus) {
+        Ok(n) if n > 0 => println!("{n} fichier(s) supprimé(s) retiré(s) de l'index"),
+        Ok(_) => {}
+        Err(e) => eprintln!("Erreur purge index: {e}"),
+    }
+    println!(
+        "Scan initial terminé ({chemin_dossier}) : {} fichier(s), {} inchangé(s), {} indexé(s) dont {} fiche(s)/RDE retenu(s), {} erreur(s)",
+        bilan.examines, bilan.inchanges, bilan.indexes, bilan.principaux, bilan.erreurs
+    );
+}
+
+/// Parcourt récursivement un dossier : note chaque sous-dossier (dossiers
+/// d'affaire, non-conformités) et indexe chaque fichier.
+fn parcourir_recursivement(conn: &mut Connection, racine: &Path, dossier: &Path, vus: &mut HashSet<String>, bilan: &mut Bilan) {
     let entrees = match fs::read_dir(dossier) {
         Ok(e) => e,
         Err(e) => {
@@ -35,15 +73,30 @@ fn parcourir_recursivement(dossier: &Path, chemin_db: &str, n_traites: &mut usiz
     for entree in entrees.flatten() {
         let path = entree.path();
         if path.is_dir() {
-            parcourir_recursivement(&path, chemin_db, n_traites);
+            if let Err(e) = indexeur::noter_dossier(conn, racine, &path) {
+                eprintln!("Erreur dossier {path:?}: {e}");
+            }
+            parcourir_recursivement(conn, racine, &path, vus, bilan);
         } else if path.is_file() {
-            traiter_evenement(&path, chemin_db);
-            *n_traites += 1;
+            bilan.examines += 1;
+            vus.insert(path.to_string_lossy().to_string());
+            match indexeur::traiter_fichier(conn, racine, &path) {
+                Ok(Resultat::Inchange) => bilan.inchanges += 1,
+                Ok(Resultat::Ignore) => {}
+                Ok(Resultat::Indexe { principal, .. }) => {
+                    bilan.indexes += 1;
+                    bilan.principaux += principal as usize;
+                }
+                Err(e) => {
+                    bilan.erreurs += 1;
+                    eprintln!("Erreur {path:?}: {e}");
+                }
+            }
         }
     }
 }
 
-/// Lance la surveillance du dossier local (synchronisé OneDrive) et traite
+/// Lance la surveillance du dossier local (synchronisé OneDrive) et indexe
 /// chaque fichier créé ou modifié. Fonction bloquante : à lancer dans son
 /// propre thread (std::thread::spawn), pas besoin de tokio.
 pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Result<()> {
@@ -54,6 +107,8 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
         .watcher()
         .watch(Path::new(chemin_dossier), RecursiveMode::Recursive)?;
 
+    let Some(mut conn) = ouvrir_base(chemin_db) else { return Ok(()) };
+    let racine = Path::new(chemin_dossier);
     println!("Surveillance active sur : {chemin_dossier}");
     for evenement in rx {
         match evenement {
@@ -62,7 +117,7 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
                     if e.kind != DebouncedEventKind::Any {
                         continue;
                     }
-                    traiter_evenement(&e.path, chemin_db);
+                    traiter_evenement(&mut conn, racine, &e.path);
                 }
             }
             Err(erreur) => eprintln!("Erreur watcher: {erreur:?}"),
@@ -71,114 +126,78 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str) -> notify::Resu
     Ok(())
 }
 
-fn traiter_evenement(path: &Path, chemin_db: &str) {
-    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+fn traiter_evenement(conn: &mut Connection, racine: &Path, path: &Path) {
+    if path.is_dir() {
+        if let Err(e) = indexeur::noter_dossier(conn, racine, path) {
+            eprintln!("Erreur dossier {path:?}: {e}");
+        }
         return;
-    };
-
-    // Garde-fou basique contre les fichiers OneDrive "à la demande"
-    // (placeholders cloud pas encore téléchargés) : on vérifie que le
-    // fichier a une taille non nulle avant de tenter de le parser.
-    match fs_metadata_taille(path) {
-        Some(0) | None => {
-            eprintln!("Fichier vide ou inaccessible, ignoré: {path:?}");
-            return;
-        }
-        _ => {}
     }
-
-    match ext {
-        "txt" => {
-            let mut conn = match Connection::open(chemin_db) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Impossible d'ouvrir la base: {e}");
-                    return;
-                }
-            };
-            match traiter_fichier_erp(path, &mut conn) {
-                Ok(n) => println!("{path:?} : {n} lignes traitées"),
-                Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
-            }
+    if !path.exists() {
+        if let Err(e) = indexeur::oublier_fichier(conn, &path.to_string_lossy()) {
+            eprintln!("Erreur suppression {path:?}: {e}");
         }
-        "xlsx" => {
-            let mut conn = match Connection::open(chemin_db) {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Impossible d'ouvrir la base: {e}");
-                    return;
-                }
-            };
-            match traiter_fichier_excel(&path.to_string_lossy(), &mut conn) {
-                Ok(affaire) => println!("{path:?} : variables extraites pour l'affaire {affaire}"),
-                Err(e) => eprintln!("Erreur parsing {path:?}: {e}"),
-            }
-        }
-        "msg" => traiter_msg(path, chemin_db),
-        _ => {}
+        return;
+    }
+    match indexeur::traiter_fichier(conn, racine, path) {
+        Ok(Resultat::Indexe { type_doc, affaire, principal }) => println!(
+            "{path:?} : {type_doc} indexé (affaire {}){}",
+            affaire.as_deref().unwrap_or("?"),
+            if principal { ", données retenues" } else { "" }
+        ),
+        Ok(_) => {}
+        Err(e) => eprintln!("Erreur {path:?}: {e}"),
     }
 }
 
-/// Traite un e-mail Outlook (.msg) : pièces jointes utiles (.xlsx/.txt/.msg),
-/// puis demande de prix du corps. Les pièces jointes écrites dans un dossier temporaire
-/// et traitées comme des fichiers normaux.
-fn traiter_msg(path: &Path, chemin_db: &str) {
-    let msg = match crate::msg::load_msg(path) {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Erreur lecture {path:?}: {e}");
-            return;
-        }
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let utiles: Vec<_> = msg
-        .attachments
-        .iter()
-        .filter(|a| {
-            let n = a.filename.to_lowercase();
-            n.ends_with(".xlsx") || n.ends_with(".txt") || n.ends_with(".msg")
-        })
-        .collect();
-    if !utiles.is_empty() {
-        let mut hash = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&path, &mut hash);
-        let tmp = std::env::temp_dir().join(format!(
-            "parachev_msg_{}_{:x}",
-            std::process::id(),
-            std::hash::Hasher::finish(&hash)
-        ));
-        if let Err(e) = fs::create_dir_all(&tmp) {
-            eprintln!("Impossible de créer {tmp:?}: {e}");
-        } else {
-            for pj in utiles {
-                let Some(nom) = Path::new(&pj.filename).file_name() else {
-                    continue;
-                };
-                let cible = tmp.join(nom);
-                if fs::write(&cible, &pj.bytes).is_ok() {
-                    println!("{path:?} : pièce jointe {nom:?}");
-                    traiter_evenement(&cible, chemin_db);
-                }
-            }
-            let _ = fs::remove_dir_all(&tmp);
-        }
+    const DOSSIER_REEL: &str = "../../1a COMMANDES FINIES 2025";
+
+    /// Indexation complète du dossier réel dans une base temporaire (long :
+    /// `cargo test --release -- --ignored --nocapture indexation_dossier_reel`).
+    #[test]
+    #[ignore]
+    fn indexation_dossier_reel() {
+        let racine = std::fs::canonicalize(DOSSIER_REEL).expect("dossier réel absent");
+        let db = std::env::temp_dir().join("parachev_test_index.db");
+        let _ = std::fs::remove_file(&db);
+        let conn = Connection::open(&db).unwrap();
+        crate::erp::initialiser_schema(&conn).unwrap();
+        crate::config::initialiser_schema(&conn).unwrap();
+        indexeur::initialiser_schema(&conn).unwrap();
+        let mut conn = conn;
+        crate::erp::traiter_fichier_erp(Path::new("../../Para/ERP.txt"), &mut conn).unwrap();
+        drop(conn);
+
+        let debut = std::time::Instant::now();
+        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy());
+        println!("Durée scan complet : {:?}", debut.elapsed());
+
+        let debut = std::time::Instant::now();
+        scanner_dossier_initial(&racine.to_string_lossy(), &db.to_string_lossy());
+        println!("Durée second scan (incrémental) : {:?}", debut.elapsed());
+
+        let conn = Connection::open(&db).unwrap();
+        let compte = |sql: &str| conn.query_row(sql, [], |r| r.get::<_, i64>(0)).unwrap();
+        println!("dossiers_affaires : {}", compte("SELECT COUNT(*) FROM dossiers_affaires"));
+        println!("fiches retenues   : {}", compte("SELECT COUNT(*) FROM variables_affaires WHERE chemin_fiche IS NOT NULL"));
+        println!("RDE retenus       : {}", compte("SELECT COUNT(*) FROM rde_affaires"));
+        println!("documents         : {}", compte("SELECT COUNT(*) FROM documents"));
+        println!("références        : {}", compte("SELECT COUNT(*) FROM affaires_references"));
+        println!("fichiers en erreur: {}", compte("SELECT COUNT(*) FROM fichiers WHERE statut = 'erreur'"));
+        println!("fichiers ignorés  : {}", compte("SELECT COUNT(*) FROM fichiers WHERE statut = 'ignore'"));
+        let affaires = crate::recherche::lister_affaires(&conn).unwrap();
+        println!("lignes de recherche : {}", affaires.len());
+        let export = std::env::temp_dir().join("parachev_affaires.json");
+        std::fs::write(&export, serde_json::to_string(&affaires).unwrap()).unwrap();
+        let hofmann = affaires.iter().find(|a| a.affaire == "1100725621").unwrap();
+        println!("{}", serde_json::to_string_pretty(hofmann).unwrap());
+        let textes = crate::recherche::rechercher_texte(&conn, "double redressage").unwrap();
+        println!("plein texte 'double redressage' : {} document(s)", textes.len());
+        assert!(compte("SELECT COUNT(*) FROM rde_affaires") > 100);
+        assert!(compte("SELECT COUNT(*) FROM variables_affaires WHERE chemin_fiche IS NOT NULL") > 100);
     }
-
-    let demande = crate::msg::extraire_demande(&msg.subject, &msg.body_text);
-    let mut conn = match Connection::open(chemin_db) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("Impossible d'ouvrir la base: {e}");
-            return;
-        }
-    };
-    match crate::msg::enregistrer_demande(&mut conn, &msg.subject, &demande) {
-        Ok(Some(reference)) => println!("{path:?} : demande {reference} enregistrée"),
-        Ok(None) => {}
-        Err(e) => eprintln!("Erreur mail {path:?}: {e}"),
-    }
-}
-
-fn fs_metadata_taille(path: &Path) -> Option<u64> {
-    std::fs::metadata(path).ok().map(|m| m.len())
 }

@@ -14,9 +14,10 @@
 //! Sur les 5 fichiers réels disponibles : seul 1100719879.xlsx a la colonne
 //! Cfl (axe fort) réellement renseignée (206 pour ses 6 barres) ; les 3
 //! autres qui ont la feuille laissent la colonne vide (gabarit non rempli),
-//! et 1100633635-636 n'a pas la feuille du tout. D'où le repli à deux
-//! niveaux dans `extraire_contre_fleche` : donnée réelle si disponible,
-//! sinon simple signal de présence (voir variables_parcing.rs).
+//! et 1100633635-636 n'a pas la feuille du tout. Une feuille présente mais
+//! vide ne prouve pas que le poste presse est utilisé (la fiche est un
+//! gabarit qui contient toutes les feuilles) : la contre-flèche vaut alors
+//! None, sans valeur de repli.
 
 use super::{cellule_est_erreur, cellule_vers_texte, cellule_vide};
 use calamine::{open_workbook, DataType, Range, Reader, Xlsx};
@@ -26,27 +27,12 @@ const MAX_LIGNES_RECHERCHE_ENTETE: u32 = 25;
 const MAX_COL_RECHERCHE_ENTETE: u32 = 20;
 const MAX_LIGNES_DONNEES: u32 = 220; // garde-fou si jamais aucune fin nette n'est trouvée
 
-/// Valeur de repli quand la feuille FC-PRES/FC-PRESS existe mais que sa
-/// colonne Cfl n'est pas renseignée (gabarit vide) -- même sémantique de
-/// "présence sans donnée" que pour le Forage, voir variables_parcing.rs.
-const VALEUR_PRESENCE_SANS_DONNEE: f64 = 1.0;
-
 #[derive(Debug)]
 pub struct ResultatPresse {
     pub feuille_utilisee: String,
     pub nb_valeurs: usize,
     pub contre_fleche_moyenne: Option<f64>,
     pub detail: Vec<BarreCfl>,
-}
-
-impl ResultatPresse {
-    /// La contre-flèche moyenne si elle a pu être calculée, sinon la valeur
-    /// de repli "présence sans donnée" (la feuille existe donc le poste
-    /// presse/redressage est utilisé sur cette affaire, mais aucune valeur
-    /// n'y a été saisie).
-    pub fn valeur_avec_repli(&self) -> f64 {
-        self.contre_fleche_moyenne.unwrap_or(VALEUR_PRESENCE_SANS_DONNEE)
-    }
 }
 
 fn trouver_ligne_entete(range: &Range<calamine::Data>, motif: &str) -> Option<u32> {

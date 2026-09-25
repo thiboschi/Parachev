@@ -14,6 +14,7 @@ import { IconChevronRight } from "@tabler/icons-react"
 import { useAffaireDb } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
+import { DossierAffaire } from "@/components/affaires/dossier-affaire"
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
@@ -387,6 +388,10 @@ export default function Prevision() {
                   ))}
                 </CardContent>
               </Card>
+
+              {affaire && (
+                <DossierAffaire key={affaire} affaire={affaire} heuresParPoste={heuresParPoste} />
+              )}
             </div>
           </div>
         </div>
