@@ -74,6 +74,8 @@ pub struct AffaireRecherche {
     pub heures_reelles: f64,
     pub heures_prevues: Option<f64>,
     pub heures_par_poste: Vec<HeuresPoste>,
+    /// Heures allouées par la fiche, par poste (vide sans fiche).
+    pub heures_prevues_par_poste: Vec<HeuresPoste>,
     // Dates (ISO)
     pub date_commande: Option<String>,
     pub date_fiche: Option<String>,
@@ -261,9 +263,9 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         entree(&mut affaires, &a).profils.push(profil);
     }
 
-    for (a, source, operation, date_debut, date_fin) in requete(
+    for (a, source, operation, date_debut, date_fin, heures) in requete(
         conn,
-        "SELECT affaire, source, operation, date_debut, date_fin FROM affaire_operations",
+        "SELECT affaire, source, operation, date_debut, date_fin, heures FROM affaire_operations",
         |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -271,6 +273,7 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<String>>(3)?,
                 r.get::<_, Option<String>>(4)?,
+                r.get::<_, Option<f64>>(5)?,
             ))
         },
     )? {
@@ -278,7 +281,12 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         match (source.as_str(), operation.as_str()) {
             ("rde", _) => x.operations_rde.push(operation),
             (_, "autre") => {}
-            ("fiche", _) => x.postes_prevus.push(operation),
+            ("fiche", _) => {
+                if let Some(h) = heures.filter(|h| *h > 0.0) {
+                    x.heures_prevues_par_poste.push(HeuresPoste { poste: operation.clone(), heures: h });
+                }
+                x.postes_prevus.push(operation)
+            }
             ("suivi", "expedition") => max_date(&mut x.date_expedition, date_fin),
             ("suivi", _) => {
                 x.postes_realises.push(operation);

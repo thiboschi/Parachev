@@ -45,6 +45,8 @@ export interface AffaireRecherche {
   heures_reelles: number
   heures_prevues: number | null
   heures_par_poste: { poste: string; heures: number }[]
+  /** Heures allouées par la fiche, par poste (vide sans fiche). */
+  heures_prevues_par_poste: { poste: string; heures: number }[]
   date_commande: string | null
   date_fiche: string | null
   date_laminage: string | null
