@@ -473,6 +473,14 @@ pub fn traiter_fichier(conn: &mut Connection, racine: &Path, chemin: &Path) -> R
     Ok(Resultat::Indexe { type_doc, affaire, principal: extraction.principal })
 }
 
+/// Enregistre un fichier dont l'analyse a planté (panique d'un parseur sur
+/// un classeur corrompu...) : avec sa taille et sa date actuelles, il n'est
+/// plus retenté aux scans suivants tant qu'il n'est pas modifié.
+pub fn marquer_plantage(conn: &Connection, chemin: &Path, message: &str) -> Result<(), String> {
+    let meta = fs::metadata(chemin).map_err(|e| e.to_string())?;
+    marquer_fichier(conn, &chemin.to_string_lossy(), meta.len() as i64, mtime(&meta), "plantage", Some(message))
+}
+
 fn marquer_fichier(conn: &Connection, chemin: &str, taille: i64, mtime: i64, statut: &str, erreur: Option<&str>) -> Result<(), String> {
     let maintenant = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     conn.execute(
@@ -562,24 +570,43 @@ pub fn purger_absents(conn: &Connection, racine: &Path, vus: &HashSet<String>) -
     Ok(absents.len())
 }
 
-/// Empreinte FNV-1a 64 bits du contenu d'un fichier (stable d'une version
-/// de Rust à l'autre, contrairement à DefaultHasher). None si illisible.
+/// Taille lue au début et à la fin d'un fichier pour son empreinte.
+const OCTETS_EMPREINTE: u64 = 64 * 1024;
+/// Préfixe de version des empreintes : une empreinte d'une autre version
+/// (ex. calculée sur le fichier entier) est recalculée.
+const VERSION_EMPREINTE: &str = "p1:";
+
+/// Empreinte FNV-1a 64 bits (stable d'une version de Rust à l'autre,
+/// contrairement à DefaultHasher) des 64 premiers et 64 derniers Ko du
+/// fichier, plus sa taille : lire le fichier entier forcerait OneDrive à
+/// télécharger des Go de plans/PDF "à la demande" juste pour comparer des
+/// copies. Un fichier de moins de 128 Ko (programmes CN, textes, où les
+/// faux doublons ont été observés) est lu en entier. None si illisible.
 fn empreinte_fichier(chemin: &str) -> Option<String> {
-    use std::io::Read;
+    use std::io::{Read, Seek, SeekFrom};
     let mut fichier = fs::File::open(chemin).ok()?;
-    let mut tampon = [0u8; 64 * 1024];
+    let taille = fichier.metadata().ok()?.len();
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    loop {
-        let n = fichier.read(&mut tampon).ok()?;
-        if n == 0 {
-            break;
-        }
-        for &octet in &tampon[..n] {
+    let mut melanger = |octets: &[u8]| {
+        for &octet in octets {
             hash ^= octet as u64;
             hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
         }
+    };
+    melanger(&taille.to_le_bytes());
+    let mut lire = |fichier: &mut fs::File, n: u64| -> Option<Vec<u8>> {
+        let mut tampon = Vec::with_capacity(n as usize);
+        fichier.take(n).read_to_end(&mut tampon).ok()?;
+        Some(tampon)
+    };
+    if taille <= 2 * OCTETS_EMPREINTE {
+        melanger(&lire(&mut fichier, taille)?);
+    } else {
+        melanger(&lire(&mut fichier, OCTETS_EMPREINTE)?);
+        fichier.seek(SeekFrom::End(-(OCTETS_EMPREINTE as i64))).ok()?;
+        melanger(&lire(&mut fichier, OCTETS_EMPREINTE)?);
     }
-    Some(format!("{hash:016x}"))
+    Some(format!("{VERSION_EMPREINTE}{hash:016x}"))
 }
 
 /// Repère les copies d'un même fichier dans le dossier d'une affaire (un
@@ -590,9 +617,10 @@ fn empreinte_fichier(chemin: &str) -> Option<String> {
 ///
 /// Même nom + même taille ne suffit pas (43 programmes CN / plans du dossier
 /// "1a COMMANDES FINIES 2025" ont nom et taille identiques mais un contenu
-/// différent) : le contenu est comparé par empreinte, calculée seulement
-/// pour les fichiers candidats et mise en cache dans `documents.empreinte`
-/// (remise à NULL quand le fichier est relu).
+/// différent) : le contenu est comparé par empreinte (début + fin du
+/// fichier, voir empreinte_fichier), calculée seulement pour les fichiers
+/// candidats et mise en cache dans `documents.empreinte` (remise à NULL
+/// quand le fichier est relu).
 ///
 /// Exemplaire retenu : hors "Ancien", hors dossier de référence, le moins
 /// profond, puis le plus récent. Recalcul complet à chaque appel (quelques
@@ -603,13 +631,16 @@ pub fn marquer_doublons(conn: &Connection) -> Result<usize, String> {
         let mut stmt = conn
             .prepare(
                 "SELECT d.chemin FROM documents d
-                 WHERE d.affaire IS NOT NULL AND d.empreinte IS NULL
+                 WHERE d.affaire IS NOT NULL
+                   AND (d.empreinte IS NULL OR d.empreinte NOT LIKE ?1 || '%')
                    AND EXISTS (SELECT 1 FROM documents o
                                WHERE o.affaire = d.affaire AND o.nom = d.nom
                                  AND o.taille = d.taille AND o.chemin <> d.chemin)",
             )
             .map_err(|e| e.to_string())?;
-        let chemins = stmt.query_map([], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+        let chemins = stmt
+            .query_map([VERSION_EMPREINTE], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
         chemins.filter_map(Result::ok).collect()
     };
     for chemin in &candidats {
@@ -744,7 +775,7 @@ fn traiter_rde(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64) 
 }
 
 fn enregistrer_rde(conn: &mut Connection, affaire: &str, info: &rde::InfoRde, chemin: &str, rang: &str) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute(
         "INSERT OR REPLACE INTO rde_affaires (
             affaire, chemin, rang, date_rde, projet, offre, client, donneur_ordre, cde_laminage,

@@ -326,7 +326,7 @@ pub fn inserer_heures(conn: &mut Connection, lignes: &[LigneHeure]) -> rusqlite:
     let affaires: std::collections::HashSet<&str> =
         lignes.iter().map(|l| l.affaire.as_str()).collect();
 
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     for affaire in &affaires {
         tx.execute("DELETE FROM heures WHERE affaire = ?1", params![affaire])?;
     }

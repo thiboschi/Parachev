@@ -238,7 +238,7 @@ pub fn enregistrer_demande(conn: &mut Connection, sujet: &str, d: &DemandeMail) 
         );",
     )
     .map_err(|e| e.to_string())?;
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM demandes_mail_lignes WHERE reference = ?1", params![reference])
         .map_err(|e| e.to_string())?;
     tx.execute(

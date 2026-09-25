@@ -41,6 +41,15 @@ fn chemin_db(app: &tauri::AppHandle) -> Result<String, String> {
         .to_string())
 }
 
+/// Connexion pour une commande de l'interface. Le thread d'indexation
+/// écrit par lots de ~2 s : sans délai d'attente, une écriture de
+/// l'interface pendant un lot échouerait ("database is locked").
+fn ouvrir_db(app: &tauri::AppHandle) -> Result<Connection, String> {
+    let conn = Connection::open(chemin_db(app)?).map_err(|e| e.to_string())?;
+    conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(|e| e.to_string())?;
+    Ok(conn)
+}
+
 fn chemin_coefficients(app: &tauri::AppHandle) -> Result<String, String> {
     Ok(dossier_donnees(app)?
         .join("coefficients.json")
@@ -57,21 +66,34 @@ type EtatProgression = Arc<Mutex<Progression>>;
 /// Événement émis vers l'interface à chaque rapport de progression.
 const EVENEMENT_PROGRESSION: &str = "indexation-progression";
 
+/// Intervalle minimum entre deux envois de progression à l'interface (le
+/// scan en produit un par fichier ; ~10 rafraîchissements/s suffisent).
+const INTERVALLE_ENVOI_PROGRESSION: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// Lance, dans un thread dédié, le scan initial du dossier puis sa
-/// surveillance. Chaque rapport de progression met à jour l'état partagé et
-/// est émis vers l'interface (barre de chargement).
+/// surveillance. Chaque rapport de progression met à jour l'état partagé
+/// (lu aussi par `obtenir_progression_indexation`) et est envoyé à
+/// l'interface au plus toutes les 100 ms. Journal : `indexation.log` dans
+/// le dossier de données de l'app.
 fn lancer_indexation(app: tauri::AppHandle, chemin_dossier: String, chemin_db: String) {
     std::thread::spawn(move || {
         let etat = app.state::<EtatProgression>().inner().clone();
+        let chemin_journal = dossier_donnees(&app).ok().map(|d| d.join("indexation.log"));
+        let journal = watcher::Journal::ouvrir(chemin_journal.as_deref());
+        let dernier_envoi = Mutex::new(std::time::Instant::now() - INTERVALLE_ENVOI_PROGRESSION);
         let rapport = |p: &Progression| {
             if let Ok(mut e) = etat.lock() {
                 *e = p.clone();
             }
-            let _ = app.emit(EVENEMENT_PROGRESSION, p);
+            let Ok(mut dernier) = dernier_envoi.lock() else { return };
+            if !p.en_cours || p.etape != "analyse" || dernier.elapsed() >= INTERVALLE_ENVOI_PROGRESSION {
+                let _ = app.emit(EVENEMENT_PROGRESSION, p);
+                *dernier = std::time::Instant::now();
+            }
         };
-        watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db, &rapport);
-        if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db) {
-            eprintln!("Erreur watcher: {e:?}");
+        watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db, &rapport, &journal);
+        if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db, &journal) {
+            journal.ecrire(&format!("Erreur watcher: {e:?}"));
         }
     });
 }
@@ -159,7 +181,7 @@ pub fn run() {
 /// l'UI : afficher le chemin actuel au chargement de la page.
 #[tauri::command]
 fn obtenir_dossier_configure(app: tauri::AppHandle) -> Result<Option<String>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
     config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
 }
@@ -200,7 +222,7 @@ fn obtenir_progression_indexation(etat: tauri::State<EtatProgression>) -> Progre
 
 #[tauri::command]
 fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashMap<String, f64>, String> {
-    let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut conn = ouvrir_db(&app)?;
     prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
 
     let coeffs = prevision::charger_coefficients(&conn)?;
@@ -219,7 +241,7 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
 /// prévision persistée.
 #[tauri::command]
 fn chiffrer_manuellement(app: tauri::AppHandle, variables: HashMap<String, f64>) -> Result<HashMap<String, f64>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let coeffs = prevision::charger_coefficients(&conn)?;
     let prevision = prevision::predire(&coeffs, &variables);
 
@@ -230,7 +252,7 @@ fn chiffrer_manuellement(app: tauri::AppHandle, variables: HashMap<String, f64>)
 
 #[tauri::command]
 fn recalibrer(app: tauri::AppHandle) -> Result<(), String> {
-    let mut conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let mut conn = ouvrir_db(&app)?;
     let export = calibrer_tous_les_postes(&conn)?;
 
     // Le JSON reste écrit pour inspection/débogage, mais la base est
@@ -262,7 +284,7 @@ struct CoefficientsInfo {
 /// calibration n'a été lancée.
 #[tauri::command]
 fn lister_coefficients(app: tauri::AppHandle) -> Result<CoefficientsInfo, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
 
     let version = config::lire_config(&conn, "coefficients_version")?
@@ -292,7 +314,7 @@ fn lister_coefficients(app: tauri::AppHandle) -> Result<CoefficientsInfo, String
 /// n'incrémente pas la version, juste la valeur en base.
 #[tauri::command]
 fn modifier_coefficient(app: tauri::AppHandle, poste: String, variable: String, valeur: f64) -> Result<(), String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     prevision::modifier_coefficient(&conn, &poste, &variable, valeur)
 }
 
@@ -320,7 +342,7 @@ struct HeureRow {
 
 #[tauri::command]
 fn lister_heures(app: tauri::AppHandle) -> Result<Vec<HeureRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare("SELECT affaire, ot, date, poste, heures FROM heures ORDER BY rowid")
         .map_err(|e| e.to_string())?;
@@ -345,7 +367,7 @@ fn lister_heures(app: tauri::AppHandle) -> Result<Vec<HeureRow>, String> {
 /// que de l'affaire actuellement affichée.
 #[tauri::command]
 fn lister_heures_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<HeureRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare("SELECT affaire, ot, date, poste, heures FROM heures WHERE affaire = ?1 ORDER BY rowid")
         .map_err(|e| e.to_string())?;
@@ -383,7 +405,7 @@ struct VariablesAffaireRow {
 
 #[tauri::command]
 fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffaireRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare(
             "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
@@ -420,7 +442,7 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
 /// pas encore en base (ex. devis pas encore importé).
 #[tauri::command]
 fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<VariablesAffaireRow, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     conn.query_row(
         "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
                 nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
@@ -467,7 +489,7 @@ struct VariablesAffaireEdition {
 /// affaire déjà chargée).
 #[tauri::command]
 fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, variables: VariablesAffaireEdition) -> Result<(), String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let n = conn
         .execute(
             "UPDATE variables_affaires SET
@@ -515,7 +537,7 @@ struct ProfilAffaireRow {
 /// premier). Vide (pas une erreur) si l'affaire n'a pas encore été parsée.
 #[tauri::command]
 fn lister_profils_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<ProfilAffaireRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare(
             "SELECT profil, longueur, l_lam, nb_barres FROM profils_affaires
@@ -554,7 +576,7 @@ struct GoujonAffaireRow {
 /// pas de goujonnage ou n'a pas encore été parsée.
 #[tauri::command]
 fn lister_goujons_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<GoujonAffaireRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare(
             "SELECT rep, profil, longueur, diametre, hauteur, nb_goujons FROM goujons_affaires
@@ -592,7 +614,7 @@ struct CflAffaireRow {
 /// le poste presse/redressage ou n'a pas encore été parsée.
 #[tauri::command]
 fn lister_cfl_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<CflAffaireRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare(
             "SELECT rep, profil, longueur, cfl FROM cfl_affaires
@@ -627,7 +649,7 @@ struct PrevisionRow {
 /// seule affaire (clé privée `affaire`), une ligne par poste.
 #[tauri::command]
 fn lister_previsions_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<PrevisionRow>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     prevision::initialiser_schema_previsions(&conn).map_err(|e| e.to_string())?;
 
     let mut stmt = conn
@@ -655,7 +677,7 @@ fn lister_previsions_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
 /// SUIVI, ERP) -- voir recherche::lister_affaires. Filtrée côté interface.
 #[tauri::command]
 fn lister_affaires_recherche(app: tauri::AppHandle) -> Result<Vec<recherche::AffaireRecherche>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     recherche::lister_affaires(&conn)
 }
 
@@ -663,7 +685,7 @@ fn lister_affaires_recherche(app: tauri::AppHandle) -> Result<Vec<recherche::Aff
 /// noms de fichiers et de dossiers).
 #[tauri::command]
 fn rechercher_texte(app: tauri::AppHandle, texte: String) -> Result<Vec<recherche::ResultatTexte>, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     recherche::rechercher_texte(&conn, &texte)
 }
 
@@ -671,7 +693,7 @@ fn rechercher_texte(app: tauri::AppHandle, texte: String) -> Result<Vec<recherch
 /// documents, affaires de référence.
 #[tauri::command]
 fn obtenir_dossier_affaire(app: tauri::AppHandle, affaire: String) -> Result<recherche::DossierAffaire, String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     recherche::obtenir_dossier(&conn, &affaire)
 }
 
@@ -679,7 +701,7 @@ fn obtenir_dossier_affaire(app: tauri::AppHandle, affaire: String) -> Result<rec
 /// fichiers présents dans l'index (pas de chemin arbitraire venant de l'UI).
 #[tauri::command]
 fn ouvrir_document(app: tauri::AppHandle, chemin: String) -> Result<(), String> {
-    let conn = Connection::open(chemin_db(&app)?).map_err(|e| e.to_string())?;
+    let conn = ouvrir_db(&app)?;
     if !recherche::est_document_indexe(&conn, &chemin)? {
         return Err("Document inconnu de l'index".into());
     }

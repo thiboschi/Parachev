@@ -191,7 +191,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
 /// un remplacement complet plutôt qu'un upsert car le nombre de profils
 /// distincts peut changer d'une extraction à l'autre (fichier corrigé).
 pub fn inserer_profils_affaire(conn: &mut Connection, affaire: &str, groupes: &[GroupeProfil]) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM profils_affaires WHERE affaire = ?1", params![affaire])
         .map_err(|e| e.to_string())?;
 
@@ -211,7 +211,7 @@ pub fn inserer_profils_affaire(conn: &mut Connection, affaire: &str, groupes: &[
 /// Remplace le détail des goujons d'une affaire dans `goujons_affaires` :
 /// une ligne par poutre (rep) et par type de goujon (diamètre x hauteur).
 pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[BarreGoujons]) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM goujons_affaires WHERE affaire = ?1", params![affaire])
         .map_err(|e| e.to_string())?;
     for poutre in poutres {
@@ -231,7 +231,7 @@ pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[
 /// Remplace le détail de la contre-flèche d'une affaire dans `cfl_affaires` :
 /// une ligne par barre (Rep de FC-PRES/FC-PRESS).
 pub fn inserer_cfl_affaire(conn: &mut Connection, affaire: &str, barres: &[BarreCfl]) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM cfl_affaires WHERE affaire = ?1", params![affaire])
         .map_err(|e| e.to_string())?;
     for barre in barres {
@@ -248,7 +248,7 @@ pub fn inserer_cfl_affaire(conn: &mut Connection, affaire: &str, barres: &[Barre
 
 /// Postes planifiés de la fiche (table `fiche_postes`), dans l'ordre A-D.
 pub fn inserer_fiche_postes(conn: &mut Connection, affaire: &str, postes: &[PostePrevu]) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM fiche_postes WHERE affaire = ?1", params![affaire])
         .map_err(|e| e.to_string())?;
     for (ordre, poste) in postes.iter().enumerate() {
@@ -276,7 +276,7 @@ pub(crate) struct LigneOperation {
 /// Remplace les opérations d'une affaire pour une source donnée ("rde",
 /// "fiche" ou "suivi") dans `affaire_operations`.
 pub(crate) fn remplacer_operations(conn: &mut Connection, affaire: &str, source: &str, lignes: &[LigneOperation]) -> Result<(), String> {
-    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute(
         "DELETE FROM affaire_operations WHERE affaire = ?1 AND source = ?2",
         params![affaire, source],
