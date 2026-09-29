@@ -38,6 +38,43 @@ const CHAMPS: { key: Champ; label: string }[] = [
   { key: "longueur_coupe", label: "Longueur de coupe totale (mm)" },
 ]
 
+// Cases "Opérations de fabrication" du RDE qui rendent des postes
+// nécessaires (clés de operations::operation_rde, correspondance dans
+// operations::postes_depuis_operation_rde) : contre-flèche -> presse et
+// forage numérique, assemblage/soudage -> soudage et assemblage, etc.
+const OPERATIONS_RDE: { key: string; label: string }[] = [
+  { key: "contre_fleche", label: "Contre-flèche" },
+  { key: "double_redressage", label: "Double redressage" },
+  { key: "usinage_tetes", label: "Usinage des têtes" },
+  { key: "assemblage", label: "Assemblage" },
+  { key: "soudage", label: "Soudage" },
+  { key: "goujonnage", label: "Goujonnage" },
+  { key: "grugeage", label: "Grugeage" },
+  { key: "preparation_bord", label: "Préparation bord" },
+]
+
+// Postes cochables directement, en plus de ceux déduits des cases du RDE :
+// leur temps dépend de leur présence dans le projet (voir POSTES_PAR_BARRE /
+// POSTES_FORFAIT dans prevision.rs) -- envoyés à `chiffrer_manuellement`,
+// qui en dérive les variables de ces postes (nombre de barres qui passent
+// à la presse, forfait CND...).
+const POSTES_COCHABLES = [
+  "presse_cintrage",
+  "forage_numerique",
+  "robot",
+  "p3",
+  "soudage_sous_flux",
+  "controle_cnd",
+]
+
+// Ajoute ou retire `cle` d'un ensemble de cases cochées.
+function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<string> {
+  const suivant = new Set(ensemble)
+  if (coche) suivant.add(cle)
+  else suivant.delete(cle)
+  return suivant
+}
+
 const CHAMPS_VIDES: Record<Champ, string> = {
   nb_barres: "",
   nb_goujons: "",
@@ -77,6 +114,8 @@ export default function Chiffrage() {
 
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
   const [infos, setInfos] = useState<Record<ChampInfo, string>>(INFOS_VIDES)
+  const [postes, setPostes] = useState<Set<string>>(new Set())
+  const [operationsRde, setOperationsRde] = useState<Set<string>>(new Set())
   const [resultat, setResultat] = useState<Record<string, number> | null>(null)
   const [calcul, setCalcul] = useState(false)
   const [dbs, setDbs] = useState(false)
@@ -94,6 +133,8 @@ export default function Chiffrage() {
   function reinitialiser() {
     setValeurs(CHAMPS_VIDES)
     setInfos(INFOS_VIDES)
+    setPostes(new Set())
+    setOperationsRde(new Set())
     setResultat(null)
   }
 
@@ -112,7 +153,11 @@ export default function Chiffrage() {
     )
 
     setCalcul(true)
-    invoke<Record<string, number>>("chiffrer_manuellement", { variables })
+    invoke<Record<string, number>>("chiffrer_manuellement", {
+      variables,
+      postes: Array.from(postes),
+      operationsRde: Array.from(operationsRde),
+    })
       .then(setResultat)
       .catch((e) => {
         setResultat(null)
@@ -212,6 +257,42 @@ export default function Chiffrage() {
                     />
                   </div>
                 ))}
+                <div className="my-1 border-t" />
+                <span className="text-sm text-muted-foreground">Opérations cochées au RDE</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {OPERATIONS_RDE.map(({ key, label }) => (
+                    <div key={key} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`rde-${key}`}
+                        checked={operationsRde.has(key)}
+                        onCheckedChange={(checked) =>
+                          setOperationsRde((prev) => basculer(prev, key, checked === true))
+                        }
+                      />
+                      <Label htmlFor={`rde-${key}`} className="text-sm font-normal">
+                        {label}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+                <div className="my-1 border-t" />
+                <span className="text-sm text-muted-foreground">Autres postes prévus</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {POSTES_COCHABLES.map((poste) => (
+                    <div key={poste} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`poste-${poste}`}
+                        checked={postes.has(poste)}
+                        onCheckedChange={(checked) =>
+                          setPostes((prev) => basculer(prev, poste, checked === true))
+                        }
+                      />
+                      <Label htmlFor={`poste-${poste}`} className="text-sm font-normal">
+                        {libellePoste(poste)}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
                 <div className="my-1 border-t" />
                 <div className="flex items-center gap-2">
                   <Checkbox

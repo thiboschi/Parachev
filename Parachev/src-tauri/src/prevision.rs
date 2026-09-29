@@ -1,6 +1,7 @@
 use crate::config;
+use crate::parsing::operations;
 use rusqlite::{params, Connection};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 // ---------------------------------------------------------------------------
@@ -167,37 +168,160 @@ pub fn charger_coefficients(conn: &Connection) -> Result<CoefficientsExport, Str
 
 // ---------------------------------------------------------------------------
 // Variables d'une affaire (issues de variables_affaires en SQLite,
-// ou fournies manuellement pour une simulation avant insertion en base)
+// ou fournies manuellement pour une simulation avant insertion en base),
+// complétées par les variables propres aux postes prévus
 // ---------------------------------------------------------------------------
 
 pub type VariablesAffaire = HashMap<String, f64>;
 
-/// Lit les variables d'une affaire directement depuis la table SQLite.
-/// Retourne une erreur si l'affaire n'existe pas encore dans la base
-/// (ex. devis pas encore importé).
-pub fn charger_variables_affaire(conn: &Connection, affaire: &str) -> Result<VariablesAffaire, String> {
+/// Variables d'une affaire pour la calibration : None = valeur inconnue
+/// (fiche pas encore parsée, gabarit vide), à distinguer de 0 = "poste non
+/// utilisé" (voir calibration::charger_donnees_poste).
+pub type VariablesConnues = HashMap<String, Option<f64>>;
+
+/// Colonnes de `variables_affaires` reprises telles quelles comme variables.
+const COLONNES_VARIABLES: [&str; 6] = [
+    "nb_barres",
+    "nb_goujons",
+    "nb_trous_manuel",
+    "nb_trous_numerique",
+    "diametre_moyen_numerique",
+    "longueur_coupe",
+];
+
+/// Postes dont le temps suit le nombre de barres qui y passent, avec leur
+/// variable dérivée : nb_barres si le poste est prévu, 0 sinon. Sans ce
+/// filtre, nb_barres seul chiffrerait de la presse ou du soudage sur toutes
+/// les affaires (sur 88 affaires avec fiche et heures ERP, le poste est
+/// prévu pour 66 des 67 qui ont des heures de presse, 30 des 35 en robot ;
+/// l'assemblage, chiffré sur toutes les affaires avec nb_barres seul, l'était
+/// à tort sur 62 affaires sur 88, contre 9 en le limitant aux affaires où il
+/// est prévu).
+/// Pour le forage numérique, ce n'est qu'un repli : le nombre de trous des
+/// programmes CN reste préféré dès qu'il est connu sur assez d'affaires
+/// (voir calibration::calibrer_poste).
+pub const POSTES_PAR_BARRE: [(&str, &str); 6] = [
+    ("assemblage_tracage", "nb_barres_assemblage"),
+    ("presse_cintrage", "nb_barres_presse"),
+    ("robot", "nb_barres_robot"),
+    ("p3", "nb_barres_p3"),
+    ("soudage", "nb_barres_soudage"),
+    ("forage_numerique", "nb_barres_forage_numerique"),
+];
+
+/// Postes chiffrés au forfait (indicatrice 1/0) : trop peu d'affaires avec
+/// fiche pour relier leurs heures à une quantité (1 en contrôle CND, 2 en
+/// soudage sous flux), le forfait est calibré sur toutes les affaires ERP.
+pub const POSTES_FORFAIT: [(&str, &str); 2] = [
+    ("soudage_sous_flux", "soudage_sous_flux_prevu"),
+    ("controle_cnd", "controle_cnd_prevu"),
+];
+
+/// Ajoute les variables dérivées des postes prévus (POSTES_PAR_BARRE,
+/// POSTES_FORFAIT). Un poste prévu avec nb_barres inconnu donne une
+/// variable inconnue, pas 0.
+fn deriver_variables(variables: &mut VariablesConnues, postes_prevus: &HashSet<String>) {
+    let nb_barres = variables.get("nb_barres").copied().flatten();
+    for (poste, variable) in POSTES_PAR_BARRE {
+        let valeur = if postes_prevus.contains(poste) { nb_barres } else { Some(0.0) };
+        variables.insert(variable.to_string(), valeur);
+    }
+    for (poste, variable) in POSTES_FORFAIT {
+        let valeur = if postes_prevus.contains(poste) { 1.0 } else { 0.0 };
+        variables.insert(variable.to_string(), Some(valeur));
+    }
+}
+
+/// Postes rendus nécessaires par des cases cochées du RDE (voir
+/// operations::postes_depuis_operation_rde).
+pub fn postes_depuis_operations_rde<'a>(operations_rde: impl IntoIterator<Item = &'a str>) -> impl Iterator<Item = String> {
+    operations_rde
+        .into_iter()
+        .flat_map(operations::postes_depuis_operation_rde)
+        .map(|poste| poste.to_string())
+}
+
+/// Postes que chaque affaire traverse : postes de la fiche (avec heures) et
+/// colonnes de SUIVI, cases cochées du RDE et préparation P3 demandée au
+/// RDE (EN ISO 8501-3).
+fn charger_postes_prevus(conn: &Connection, affaire: Option<&str>) -> Result<HashMap<String, HashSet<String>>, String> {
+    let mut postes: HashMap<String, HashSet<String>> = HashMap::new();
+
     let mut stmt = conn
-        .prepare(
-            "SELECT nb_barres, nb_goujons, nb_trous_manuel, nb_trous_numerique,
-                    diametre_moyen_numerique, longueur_coupe
-             FROM variables_affaires WHERE affaire = ?1",
-        )
+        .prepare("SELECT affaire, source, operation FROM affaire_operations WHERE ?1 IS NULL OR affaire = ?1")
+        .map_err(|e| e.to_string())?;
+    let lignes = stmt
+        .query_map([affaire], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))
+        .map_err(|e| e.to_string())?;
+    for ligne in lignes {
+        let (affaire, source, operation) = ligne.map_err(|e| e.to_string())?;
+        let postes_affaire = postes.entry(affaire).or_default();
+        match source.as_str() {
+            "rde" => postes_affaire.extend(postes_depuis_operations_rde([operation.as_str()])),
+            _ => {
+                postes_affaire.insert(operation);
+            }
+        }
+    }
+
+    let mut stmt = conn
+        .prepare("SELECT affaire FROM rde_affaires WHERE prep_en8501 LIKE 'P3%' AND (?1 IS NULL OR affaire = ?1)")
+        .map_err(|e| e.to_string())?;
+    let affaires_p3 = stmt.query_map([affaire], |r| r.get::<_, String>(0)).map_err(|e| e.to_string())?;
+    for affaire in affaires_p3 {
+        postes.entry(affaire.map_err(|e| e.to_string())?).or_default().insert("p3".into());
+    }
+    Ok(postes)
+}
+
+/// Variables de toutes les affaires de `variables_affaires` (ou d'une
+/// seule) : colonnes de COLONNES_VARIABLES plus variables dérivées des
+/// postes prévus. Partagé entre la calibration et la prévision pour que
+/// les deux voient exactement les mêmes valeurs.
+pub fn charger_variables(conn: &Connection, affaire: Option<&str>) -> Result<HashMap<String, VariablesConnues>, String> {
+    let postes_prevus = charger_postes_prevus(conn, affaire)?;
+    let requete = format!(
+        "SELECT affaire, {} FROM variables_affaires WHERE ?1 IS NULL OR affaire = ?1",
+        COLONNES_VARIABLES.join(", ")
+    );
+    let mut stmt = conn.prepare(&requete).map_err(|e| e.to_string())?;
+    let lignes = stmt
+        .query_map([affaire], |row| {
+            let mut variables = VariablesConnues::new();
+            for (i, colonne) in COLONNES_VARIABLES.iter().enumerate() {
+                variables.insert(colonne.to_string(), row.get::<_, Option<f64>>(1 + i)?);
+            }
+            Ok((row.get::<_, String>(0)?, variables))
+        })
         .map_err(|e| e.to_string())?;
 
-    let resultat = stmt.query_row([affaire], |row| {
-        let mut variables = VariablesAffaire::new();
-        variables.insert("nb_barres".into(), row.get::<_, Option<f64>>(0)?.unwrap_or(0.0));
-        variables.insert("nb_goujons".into(), row.get::<_, Option<f64>>(1)?.unwrap_or(0.0));
-        variables.insert("nb_trous_manuel".into(), row.get::<_, Option<f64>>(2)?.unwrap_or(0.0));
-        variables.insert("nb_trous_numerique".into(), row.get::<_, Option<f64>>(3)?.unwrap_or(0.0));
-        variables.insert("diametre_moyen_numerique".into(), row.get::<_, Option<f64>>(4)?.unwrap_or(0.0));
-        variables.insert("longueur_coupe".into(), row.get::<_, Option<f64>>(5)?.unwrap_or(0.0));
-        Ok(variables)
-    });
+    let aucun_poste = HashSet::new();
+    let mut resultat = HashMap::new();
+    for ligne in lignes {
+        let (affaire, mut variables) = ligne.map_err(|e| e.to_string())?;
+        deriver_variables(&mut variables, postes_prevus.get(&affaire).unwrap_or(&aucun_poste));
+        resultat.insert(affaire, variables);
+    }
+    Ok(resultat)
+}
 
-    resultat.map_err(|e|{ 
-        eprintln!("Affaire '{affaire}' introuvable en base: {e}");
-        format!("Affaire '{affaire}' introuvable en base: {e}")})
+/// Variables d'une affaire pour la prévision (inconnu = 0). Retourne une
+/// erreur si l'affaire n'existe pas encore dans la base (ex. devis pas
+/// encore importé).
+pub fn charger_variables_affaire(conn: &Connection, affaire: &str) -> Result<VariablesAffaire, String> {
+    let variables = charger_variables(conn, Some(affaire))?.remove(affaire).ok_or_else(|| {
+        eprintln!("Affaire '{affaire}' introuvable en base");
+        format!("Affaire '{affaire}' introuvable en base")
+    })?;
+    Ok(variables.into_iter().map(|(nom, valeur)| (nom, valeur.unwrap_or(0.0))).collect())
+}
+
+/// Variables d'un chiffrage manuel : quantités saisies plus variables
+/// dérivées des postes cochés (mêmes règles que pour une affaire en base).
+pub fn variables_saisies(saisies: &HashMap<String, f64>, postes_prevus: &HashSet<String>) -> VariablesAffaire {
+    let mut variables: VariablesConnues = saisies.iter().map(|(nom, valeur)| (nom.clone(), Some(*valeur))).collect();
+    deriver_variables(&mut variables, postes_prevus);
+    variables.into_iter().map(|(nom, valeur)| (nom, valeur.unwrap_or(0.0))).collect()
 }
 
 // ---------------------------------------------------------------------------

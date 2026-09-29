@@ -149,6 +149,29 @@ pub fn operation_rde(libelle: &str) -> Option<&'static str> {
     })
 }
 
+/// Postes (clés ERP) qu'une case cochée du RDE rend nécessaires -- pour
+/// savoir quels postes une affaire traversera avant même que la fiche soit
+/// remplie. Correspondances relevées sur les 82 affaires avec RDE et heures
+/// ERP (part des affaires avec heures au poste, case cochée vs non cochée) :
+/// - contre-flèche : presse 98 % vs 44 %, forage numérique 96 % vs 29 %
+///   (pointeaux de contre-flèche, "FOR.NUM CFL") ;
+/// - double redressage, usinage des têtes : presse 100 % ;
+/// - assemblage / soudage : soudage 90 % vs 5 %, assemblage 89 % vs 13 % ;
+/// - goujonnage : goujonnage 100 % vs 2 %, assemblage (traçage) 69 % vs 21 % ;
+/// - grugeage, préparation bord : robot 100 % / 83 % vs 33 %.
+/// Vide pour les cases sans effet net sur un poste (coupe, biaise, oblong,
+/// perçage : couverts par nb_barres et les quantités de trous).
+pub fn postes_depuis_operation_rde(operation: &str) -> &'static [&'static str] {
+    match operation {
+        "contre_fleche" | "cfl_axe_fort" | "cfl_axe_faible" => &["presse_cintrage", "forage_numerique"],
+        "double_redressage" | "usinage_tetes" => &["presse_cintrage"],
+        "soudage" | "assemblage" => &["soudage", "assemblage_tracage"],
+        "goujonnage" => &["goujonnage", "assemblage_tracage"],
+        "grugeage" | "preparation_bord" => &["robot"],
+        _ => &[],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

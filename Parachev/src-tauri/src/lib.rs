@@ -13,7 +13,7 @@ mod recherche;
 use crate::prevision::{CoefficientsExport};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use crate::calibration::{calibrer_tous_les_postes, poste_variables};
@@ -241,11 +241,27 @@ fn previsualiser_affaire(app: tauri::AppHandle, affaire: String) -> Result<HashM
 /// de fichier Excel dans le dossier surveillé (devis, avant-projet...).
 /// Contrairement à `previsualiser_affaire`, ne lit ni n'écrit rien d'autre
 /// que les coefficients déjà calibrés : c'est une simulation, pas une
-/// prévision persistée.
+/// prévision persistée. `postes` = postes cochés (robot, CND...) et
+/// `operations_rde` = cases du RDE cochées (contre-flèche, soudage...), d'où
+/// sont dérivées les variables propres aux postes (voir
+/// prevision::variables_saisies), avec les mêmes règles que pour une affaire
+/// en base.
 #[tauri::command]
-fn chiffrer_manuellement(app: tauri::AppHandle, variables: HashMap<String, f64>) -> Result<HashMap<String, f64>, String> {
+fn chiffrer_manuellement(
+    app: tauri::AppHandle,
+    variables: HashMap<String, f64>,
+    postes: Option<Vec<String>>,
+    operations_rde: Option<Vec<String>>,
+) -> Result<HashMap<String, f64>, String> {
     let conn = ouvrir_db(&app)?;
     let coeffs = prevision::charger_coefficients(&conn)?;
+    let operations_rde = operations_rde.unwrap_or_default();
+    let postes_prevus: HashSet<String> = postes
+        .unwrap_or_default()
+        .into_iter()
+        .chain(prevision::postes_depuis_operations_rde(operations_rde.iter().map(String::as_str)))
+        .collect();
+    let variables = prevision::variables_saisies(&variables, &postes_prevus);
     let prevision = prevision::predire(&coeffs, &variables);
 
     let mut resultat = prevision.heures_par_poste;

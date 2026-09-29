@@ -485,6 +485,14 @@ export default function Prevision() {
                       <span className="tabular-nums">{formatHeures(p.heures_prevues)}</span>
                     </div>
                   ))}
+                  {previsions.length > 0 && (
+                    <div className="mt-1 flex items-center justify-between border-t pt-1.5 font-medium">
+                      <span>Total</span>
+                      <span className="tabular-nums">
+                        {formatHeures(previsions.reduce((somme, p) => somme + p.heures_prevues, 0))}
+                      </span>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
