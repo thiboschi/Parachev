@@ -7,6 +7,7 @@ mod prevision;
 mod calibration;
 mod config;
 mod indexeur;
+mod quantites;
 mod recherche;
 
 use crate::prevision::{CoefficientsExport};
@@ -121,6 +122,7 @@ pub fn run() {
             lister_profils_affaire,
             lister_goujons_affaire,
             lister_cfl_affaire,
+            obtenir_quantites_affaire,
             lister_previsions_affaire,
             lister_affaires_recherche,
             rechercher_texte,
@@ -145,6 +147,7 @@ pub fn run() {
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
             indexeur::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+            quantites::initialiser_schema(&conn).map_err(|e| e.to_string())?;
 
             // Migration ponctuelle depuis coefficients.json vers la table
             // `coefficients` -- si un fichier existe déjà (installation
@@ -487,6 +490,11 @@ struct VariablesAffaireEdition {
 /// ligne : l'affaire doit déjà exister dans `variables_affaires` (ce qui est
 /// garanti puisque l'écran ne montre le formulaire d'édition que pour une
 /// affaire déjà chargée).
+///
+/// Un nb_goujons / nb_trous_numerique modifié passe en source 'manuel' : la
+/// consolidation des programmes CN et des mails ne l'écrase plus (voir
+/// quantites.rs). Les expressions CASE lisent les valeurs d'avant la mise à
+/// jour (sémantique SQLite de UPDATE).
 #[tauri::command]
 fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, variables: VariablesAffaireEdition) -> Result<(), String> {
     let conn = ouvrir_db(&app)?;
@@ -498,8 +506,10 @@ fn mettre_a_jour_variables_affaire(app: tauri::AppHandle, affaire: String, varia
                 numero_offre = ?9,
                 nb_barres = ?3,
                 nb_goujons = ?4,
+                source_nb_goujons = CASE WHEN nb_goujons IS ?4 THEN source_nb_goujons ELSE 'manuel' END,
                 nb_trous_manuel = ?5,
                 nb_trous_numerique = ?6,
+                source_trous_numerique = CASE WHEN nb_trous_numerique IS ?6 THEN source_trous_numerique ELSE 'manuel' END,
                 contre_fleche = ?7
              WHERE affaire = ?8",
             params![
@@ -634,6 +644,15 @@ fn lister_cfl_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<CflA
         .map_err(|e| e.to_string())?;
 
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+/// Quantités d'une affaire issues des programmes CN et des mails, avec la
+/// source de chaque valeur retenue dans `variables_affaires` -- voir
+/// quantites::QuantitesAffaire. Vide (pas une erreur) si rien n'a été trouvé.
+#[tauri::command]
+fn obtenir_quantites_affaire(app: tauri::AppHandle, affaire: String) -> Result<quantites::QuantitesAffaire, String> {
+    let conn = ouvrir_db(&app)?;
+    quantites::obtenir_quantites_affaire(&conn, &affaire)
 }
 
 #[derive(Serialize)]

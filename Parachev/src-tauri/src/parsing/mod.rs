@@ -6,11 +6,13 @@
 //! sous-parsers et fournir les helpers partagés entre eux (lecture de
 //! cellule, détection des cellules d'erreur #REF!).
 
+pub mod dstv;
 mod goujons;
 pub mod operations;
 mod oxycoupage;
 mod presse;
 mod previ;
+pub mod quantites_mail;
 pub mod rde;
 pub mod suivi;
 mod variables_parcing;
@@ -132,17 +134,21 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
 
 /// Insère ou met à jour une affaire dans variables_affaires. Idempotent
 /// (INSERT OR REPLACE sur la clé primaire `affaire`) -- ré-extraire un
-/// fichier modifié écrase proprement les anciennes valeurs, colonnes Forage
-/// incluses : un None reflète maintenant un poste réellement absent de
-/// l'affaire (feuille FT-MAN/FT-NUM manquante), pas un parser non
-/// implémenté, donc plus de raison de le préserver artificiellement.
+/// fichier modifié écrase proprement les anciennes valeurs, forage manuel
+/// inclus : un None reflète un poste réellement absent de l'affaire.
+///
+/// Exception : nb_trous_numerique / diametre_moyen_numerique, que la fiche
+/// ne fournit jamais (voir variables_parcing.rs) -- ils viennent des
+/// programmes CN ou d'une saisie manuelle (voir quantites.rs) et sont gardés.
+/// `source_nb_goujons` suit FC-GOUJ : 'fc-gouj' si la feuille est remplie,
+/// sinon NULL (la consolidation peut alors reprendre le besoin des mails).
 pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire) -> Result<(), String> {
     conn.execute(
         "INSERT INTO variables_affaires
             (affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, contre_fleche,
-             date_fiche, poids_t, taux_horaire, heures_prevues_fiche)
-         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16)
+             date_fiche, poids_t, taux_horaire, heures_prevues_fiche, source_nb_goujons)
+         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16, ?17)
          ON CONFLICT(affaire) DO UPDATE SET
             -- Le nom client extrait de l'Excel (encodage fiable) prime sur
             -- celui du fichier ERP (voir erp::inserer_clients) -- on ne
@@ -153,10 +159,11 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             numero_offre = COALESCE(excluded.numero_offre, variables_affaires.numero_offre),
             nb_barres = excluded.nb_barres,
             nb_goujons = excluded.nb_goujons,
+            source_nb_goujons = excluded.source_nb_goujons,
             longueur_coupe = excluded.longueur_coupe,
             nb_trous_manuel = excluded.nb_trous_manuel,
-            nb_trous_numerique = excluded.nb_trous_numerique,
-            diametre_moyen_numerique = excluded.diametre_moyen_numerique,
+            nb_trous_numerique = COALESCE(excluded.nb_trous_numerique, variables_affaires.nb_trous_numerique),
+            diametre_moyen_numerique = COALESCE(excluded.diametre_moyen_numerique, variables_affaires.diametre_moyen_numerique),
             contre_fleche = excluded.contre_fleche,
             date_fiche = excluded.date_fiche,
             poids_t = excluded.poids_t,
@@ -179,6 +186,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             variables.poids_t,
             variables.taux_horaire,
             variables.heures_prevues_fiche,
+            (variables.nb_goujons > 0.0).then_some("fc-gouj"),
         ],
     )
     .map_err(|e| format!("Erreur insertion variables_affaires: {e}"))?;

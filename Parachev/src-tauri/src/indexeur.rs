@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "3";
+const VERSION_INDEXEUR: &str = "4";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -451,6 +451,7 @@ pub fn traiter_fichier(conn: &mut Connection, racine: &Path, chemin: &Path) -> R
         "fiche" => traiter_fiche(conn, &ctx, &chemin_str, mtime),
         "rde" => traiter_rde(conn, &ctx, &chemin_str, mtime),
         "mail" => traiter_mail(conn, &ctx, chemin),
+        "cn" => traiter_cn(conn, &ctx, &chemin_str),
         // Export ERP : uniquement hors dossier d'affaire (un .txt rangé dans
         // un dossier d'affaire est une note, un log...).
         "texte" if ext == "txt" && ctx.affaire.is_none() => {
@@ -549,7 +550,7 @@ pub fn oublier_fichier(conn: &Connection, chemin: &str) -> Result<(), String> {
     ] {
         conn.execute(sql, [chemin]).map_err(|e| e.to_string())?;
     }
-    Ok(())
+    crate::quantites::oublier_fichier(conn, chemin)
 }
 
 /// Après un scan complet : retire les fichiers indexés sous `racine` qui
@@ -822,6 +823,22 @@ fn traiter_mail(conn: &mut Connection, ctx: &Contexte, chemin: &Path) -> Result<
         println!("{chemin:?} : demande {reference} enregistrée");
     }
 
+    // Goujons / trous cités : seulement pour un mail rangé dans le dossier
+    // d'une affaire (une pièce jointe extraite est un fichier temporaire).
+    if !ctx.piece_jointe {
+        let mentions = match &ctx.affaire {
+            Some(_) => parsing::quantites_mail::extraire_quantites(&format!("{}\n{}", msg.subject, msg.body_text)),
+            None => Vec::new(),
+        };
+        crate::quantites::enregistrer_mentions_mail(
+            conn,
+            &chemin.to_string_lossy(),
+            ctx.affaire.as_deref(),
+            msg.date.as_deref(),
+            &mentions,
+        )?;
+    }
+
     // Pièces jointes Excel/ERP/mail : seulement pour un mail déposé hors
     // dossier d'affaire (comportement historique). Dans un dossier
     // d'affaire, les fichiers utiles y sont déjà rangés, et une pièce
@@ -836,6 +853,28 @@ fn traiter_mail(conn: &mut Connection, ctx: &Contexte, chemin: &Path) -> Result<
         titre: msg.subject.clone(),
         contenu: format!("{} {}", tronquer(&msg.body_text, MAX_CARACTERES_CONTENU), pieces.join(" ")),
         principal: false,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Programmes CN
+// ---------------------------------------------------------------------------
+
+/// Programme CN (DSTV) : trous et pointeaux par diamètre, voir parsing::dstv.
+/// Rattaché à l'affaire du dossier ; la consolidation (quantites.rs) écarte
+/// ensuite les programmes "Ancien", de référence ou copiés.
+fn traiter_cn(conn: &mut Connection, ctx: &Contexte, chemin: &str) -> Result<Extraction, String> {
+    let programme = parsing::dstv::lire_fichier(Path::new(chemin))?;
+    crate::quantites::enregistrer_programme_cn(conn, chemin, ctx.affaire.as_deref(), programme.as_ref())?;
+    let Some(p) = programme else {
+        return Ok(Extraction::default());
+    };
+    let piece = p.piece.clone().unwrap_or_default();
+    let profil = p.profil.clone().unwrap_or_default();
+    Ok(Extraction {
+        titre: format!("Programme CN {piece} {profil}"),
+        contenu: format!("{piece} {profil} {} trous {} pointeaux", p.nb_trous(), p.nb_pointeaux()),
+        ..Default::default()
     })
 }
 

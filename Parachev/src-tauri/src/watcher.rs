@@ -289,6 +289,9 @@ pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str, rapport: &
         Ok(n) => journal.ecrire(&format!("{n} copie(s) de documents marquée(s) comme doublons")),
         Err(e) => journal.ecrire(&format!("Erreur doublons: {e}")),
     }
+    if let Err(e) = crate::quantites::consolider(&conn) {
+        journal.ecrire(&format!("Erreur consolidation des quantités: {e}"));
+    }
     valider_lot(&conn, journal);
     journal.ecrire(&format!(
         "Scan terminé en {:.0?} : {} fichier(s), {} inchangé(s), {} indexé(s) dont {} fiche(s)/RDE retenu(s), {} erreur(s), {} plantage(s), {} fichier(s) lent(s)",
@@ -372,6 +375,9 @@ fn traiter_evenement(conn: &mut Connection, racine: &Path, path: &Path, journal:
     if let Err(e) = indexeur::marquer_doublons(conn) {
         journal.ecrire(&format!("Erreur doublons: {e}"));
     }
+    if let Err(e) = crate::quantites::consolider(conn) {
+        journal.ecrire(&format!("Erreur consolidation des quantités: {e}"));
+    }
 }
 
 fn indexer_evenement(conn: &mut Connection, racine: &Path, path: &Path, journal: &Journal) {
@@ -416,6 +422,7 @@ mod tests {
         crate::erp::initialiser_schema(&conn).unwrap();
         crate::config::initialiser_schema(&conn).unwrap();
         indexeur::initialiser_schema(&conn).unwrap();
+        crate::quantites::initialiser_schema(&conn).unwrap();
         let mut conn = conn;
         crate::erp::traiter_fichier_erp(Path::new("../../Para/ERP.txt"), &mut conn).unwrap();
         drop(conn);

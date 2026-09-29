@@ -18,6 +18,8 @@ use std::path::Path;
 pub struct ParsedMsg {
     pub subject: String,
     pub body_text: String,
+    /// Date d'envoi (ISO 8601, "2025-07-23T08:12:45..."), None si inconnue.
+    pub date: Option<String>,
     pub attachments: Vec<MsgAttachment>,
 }
 
@@ -69,9 +71,16 @@ pub fn load_msg(path: &Path) -> Result<ParsedMsg, String> {
         html_vers_texte(&decoder_hex_si_besoin(&outlook.html))
     };
 
+    let date = [&outlook.client_submit_time, &outlook.message_delivery_time, &outlook.creation_time]
+        .into_iter()
+        .map(|d| d.trim_end_matches('\0').trim())
+        .find(|d| !d.is_empty())
+        .map(str::to_string);
+
     Ok(ParsedMsg {
         subject: outlook.subject.trim_end_matches('\0').trim().to_string(),
         body_text: corps,
+        date,
         attachments,
     })
 }

@@ -11,13 +11,38 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible"
 import { IconChevronRight } from "@tabler/icons-react"
-import { useAffaireDb } from "@/hooks/use-affaire-db"
+import { useAffaireDb, type MentionMail } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
 import { DossierAffaire } from "@/components/affaires/dossier-affaire"
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
+
+// Origine d'une valeur de variables_affaires (voir quantites.rs).
+const LIBELLES_SOURCE: Record<string, string> = {
+  cn: "programmes CN",
+  mails: "mails",
+  "fc-gouj": "fiche (FC-GOUJ)",
+  manuel: "saisie manuelle",
+}
+
+const LIBELLES_UNITE: Record<MentionMail["unite"], string> = {
+  total: "",
+  poutre: " / poutre",
+  extremite: " / extrémité",
+  appui: " / appui",
+}
+
+function LigneSource({ children }: { children: React.ReactNode }) {
+  return <span className="-mt-1 pl-2 text-xs text-muted-foreground">{children}</span>
+}
+
+function ouvrirDocument(chemin: string) {
+  invoke("ouvrir_document", { chemin }).catch((e) =>
+    toast.error(e instanceof Error ? e.message : String(e))
+  )
+}
 
 // Champs de `variables_affaires` modifiables depuis cet écran -- exclut
 // diametre_moyen_numerique/longueur_coupe (issus du parsing Excel, pas
@@ -59,6 +84,7 @@ export default function Prevision() {
     profils,
     goujonsParPoutre,
     cflParBarre,
+    quantites,
     heuresParPoste,
     totalHeures,
     previsions,
@@ -313,6 +339,15 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_goujons", e.target.value)}
                           />
                         </div>
+                        {quantites && (quantites.source_nb_goujons || quantites.nb_goujons_mails != null) && (
+                          <LigneSource>
+                            {quantites.source_nb_goujons &&
+                              `source : ${LIBELLES_SOURCE[quantites.source_nb_goujons] ?? quantites.source_nb_goujons}`}
+                            {quantites.nb_goujons_mails != null &&
+                              quantites.source_nb_goujons !== "mails" &&
+                              `${quantites.source_nb_goujons ? " · " : ""}besoin cité dans les mails : ${quantites.nb_goujons_mails}`}
+                          </LigneSource>
+                        )}
                         {goujonsParPoutre.length > 0 && (
                           <Collapsible className="flex flex-col gap-1.5 pb-1.5">
                             <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
@@ -362,6 +397,70 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_trous_numerique", e.target.value)}
                           />
                         </div>
+                        {quantites && (quantites.source_trous_numerique || quantites.nb_programmes_cn > 0) && (
+                          <LigneSource>
+                            {quantites.source_trous_numerique &&
+                              `source : ${LIBELLES_SOURCE[quantites.source_trous_numerique] ?? quantites.source_trous_numerique}`}
+                            {quantites.nb_programmes_cn > 0 && ` · ${quantites.nb_programmes_cn} programme(s) CN`}
+                            {variables.diametre_moyen_numerique != null &&
+                              ` · Ø moyen ${variables.diametre_moyen_numerique.toLocaleString("fr-BE", { maximumFractionDigits: 1 })}`}
+                            {quantites.nb_pointeaux_numerique != null &&
+                              ` · ${quantites.nb_pointeaux_numerique} pointeaux`}
+                          </LigneSource>
+                        )}
+                        {quantites && quantites.percages_cn.length > 0 && (
+                          <Collapsible className="flex flex-col gap-1.5 pb-1.5">
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
+                              <IconChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
+                              <span>Perçages CN par diamètre</span>
+                            </CollapsibleTrigger>
+                            <CollapsiblePanel>
+                              <div className="flex flex-col gap-1 pt-1.5">
+                                {quantites.percages_cn.map(({ diametre, nb }) => (
+                                  <div key={diametre} className="flex items-center justify-between pl-2">
+                                    <span>Ø{diametre}</span>
+                                    <span className="tabular-nums">{nb}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </CollapsiblePanel>
+                          </Collapsible>
+                        )}
+                        {quantites && quantites.mentions_mails.length > 0 && (
+                          <Collapsible className="flex flex-col gap-1.5 pb-1.5">
+                            <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
+                              <IconChevronRight className="size-3.5 transition-transform group-data-panel-open:rotate-90" />
+                              <span>Quantités citées dans les mails ({quantites.mentions_mails.length})</span>
+                            </CollapsibleTrigger>
+                            <CollapsiblePanel>
+                              <div className="flex flex-col gap-1 pt-1.5">
+                                {quantites.mentions_mails.map((m, i) => (
+                                  <button
+                                    key={i}
+                                    type="button"
+                                    title={m.extrait ?? undefined}
+                                    onClick={() => ouvrirDocument(m.chemin)}
+                                    className="flex items-center justify-between gap-2 rounded pl-2 text-left hover:bg-muted"
+                                  >
+                                    <span>
+                                      {m.nature === "goujons" ? "Goujons" : "Trous"}
+                                      {m.diametre != null && ` Ø${m.diametre}`}
+                                      {m.hauteur != null && `×${m.hauteur}`}
+                                      {m.nature === "goujons" && !m.besoin && " (commandés)"}
+                                      {m.date_mail && (
+                                        <span className="text-muted-foreground"> · {m.date_mail.slice(0, 10)}</span>
+                                      )}
+                                    </span>
+                                    <span className="tabular-nums">
+                                      {m.nombre}
+                                      {LIBELLES_UNITE[m.unite]}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </CollapsiblePanel>
+                          </Collapsible>
+                        )}
                       </>
                     )}
                   </CardContent>
