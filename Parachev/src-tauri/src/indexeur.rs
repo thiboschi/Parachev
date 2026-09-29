@@ -30,7 +30,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "4";
+const VERSION_INDEXEUR: &str = "5";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -301,9 +301,18 @@ fn type_par_extension(ext: &str) -> &'static str {
     }
 }
 
-/// Fichiers système / temporaires jamais indexés.
-fn est_ignore(nom: &str) -> bool {
-    nom.starts_with('.') || nom.starts_with("~$") || nom.eq_ignore_ascii_case("Thumbs.db")
+/// Extensions jamais indexées : les PDF n'apportent rien à l'extraction et
+/// leur lecture (taille/date, empreinte des doublons) forçait OneDrive à les
+/// télécharger, ce qui ralentissait fortement le scan.
+const EXTENSIONS_IGNOREES: &[&str] = &["pdf"];
+
+/// Fichiers système / temporaires, ou d'une extension ignorée : jamais
+/// indexés.
+pub fn est_ignore(nom: &str) -> bool {
+    let extension_ignoree = Path::new(nom)
+        .extension()
+        .is_some_and(|e| EXTENSIONS_IGNOREES.iter().any(|x| e.eq_ignore_ascii_case(x)));
+    extension_ignoree || nom.starts_with('.') || nom.starts_with("~$") || nom.eq_ignore_ascii_case("Thumbs.db")
 }
 
 /// Type fin d'un classeur Excel d'après ses feuilles.
@@ -1025,6 +1034,16 @@ mod tests {
         // Idempotent (empreintes en cache).
         assert_eq!(marquer_doublons(&conn).unwrap(), 2);
         let _ = fs::remove_dir_all(&dossier);
+    }
+
+    #[test]
+    fn fichiers_ignores() {
+        for nom in ["NC 01.pdf", "Plan.PDF", ".DS_Store", "~$fiche.xlsx", "Thumbs.db"] {
+            assert!(est_ignore(nom), "{nom}");
+        }
+        for nom in ["1100725621.xlsx", "mail.msg", "P1.nc1", "pdf.txt"] {
+            assert!(!est_ignore(nom), "{nom}");
+        }
     }
 
     #[test]

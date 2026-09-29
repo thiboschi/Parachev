@@ -330,7 +330,10 @@ fn collecter(dossier: &Path, fichiers: &mut Vec<PathBuf>, dossiers: &mut Vec<Pat
                 collecter(&path, fichiers, dossiers, journal);
                 dossiers.push(path);
             }
-            Ok(t) if t.is_file() => fichiers.push(path),
+            // Fichiers ignorés (PDF...) écartés dès l'inventaire : ni comptés
+            // dans le total, ni ouverts. Ceux déjà indexés sont retirés de
+            // l'index en fin de scan (purger_absents).
+            Ok(t) if t.is_file() && !indexeur::est_ignore(&entree.file_name().to_string_lossy()) => fichiers.push(path),
             _ => {}
         }
     }
