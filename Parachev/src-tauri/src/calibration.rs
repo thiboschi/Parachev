@@ -46,6 +46,7 @@ pub struct ResultatCalibration {
 }
 
 /// Une ligne jointe (affaire, heures du poste, valeurs des variables explicatives).
+#[derive(Clone)]
 struct LigneCalibration {
     heures: f64,
     valeurs: Vec<f64>,
@@ -143,6 +144,124 @@ fn theil_sen(donnees: &[LigneCalibration]) -> (f64, Vec<f64>, f64) {
     (intercept, vec![pente], r2)
 }
 
+/// Forme calibrée d'un poste à une variable, le temps d'une commande de
+/// quantité x étant prevoir(x).
+#[derive(Debug, Clone, Copy)]
+enum Forme {
+    Droite { intercept: f64, pente: f64 },
+    Puissance { a: f64, k: f64 },
+}
+
+impl Forme {
+    fn prevoir(self, x: f64) -> f64 {
+        match self {
+            Forme::Droite { intercept, pente } => (intercept + pente * x).max(0.0),
+            Forme::Puissance { a, k } => a * x.max(0.0).powf(k),
+        }
+    }
+}
+
+fn ajuster_droite(donnees: &[LigneCalibration]) -> Option<Forme> {
+    let (intercept, pentes, _) = theil_sen(donnees);
+    Some(Forme::Droite { intercept, pente: pentes[0] })
+}
+
+/// Courbe puissance h = a × x^k : k = pente de Theil-Sen entre ln(x) et
+/// ln(h), a calé pour que le total des heures prévues égale le total réel
+/// (même principe que l'intercept de theil_sen). Avec k < 1, le temps par
+/// unité baisse quand la commande grossit (réglages et mise en place
+/// amortis) -- sur une seule courbe continue, sans saut de prix entre
+/// tranches de taille. None si k ≤ 0 (pas de relation croissante) ou trop
+/// peu d'affaires à quantité et heures non nulles.
+fn ajuster_puissance(donnees: &[LigneCalibration]) -> Option<Forme> {
+    let logs: Vec<LigneCalibration> = donnees
+        .iter()
+        .filter(|l| l.valeurs[0] > 0.0 && l.heures > 0.0)
+        .map(|l| LigneCalibration { heures: l.heures.ln(), valeurs: vec![l.valeurs[0].ln()] })
+        .collect();
+    if logs.len() < MIN_OBS_REPLI {
+        return None;
+    }
+    let k = theil_sen(&logs).1[0];
+    let base: f64 = donnees.iter().map(|l| l.valeurs[0].max(0.0).powf(k)).sum();
+    if k <= 0.0 || base <= 0.0 {
+        return None;
+    }
+    let a = donnees.iter().map(|l| l.heures).sum::<f64>() / base;
+    Some(Forme::Puissance { a, k })
+}
+
+const BLOCS_VALIDATION: usize = 10;
+
+/// Erreur absolue de prévision en validation croisée, en fraction des
+/// heures réelles : les affaires sont réparties en 10 blocs, chacune
+/// prévue par un modèle calibré sans son bloc -- mesure ce que le modèle
+/// vaut sur une affaire qu'il n'a pas vue, pas sur celles qui l'ont calibré.
+fn erreur_validation_croisee(donnees: &[LigneCalibration], ajuster: fn(&[LigneCalibration]) -> Option<Forme>) -> Option<f64> {
+    let mut erreur = 0.0;
+    for bloc in 0..BLOCS_VALIDATION {
+        let apprentissage: Vec<LigneCalibration> = donnees
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % BLOCS_VALIDATION != bloc)
+            .map(|(_, l)| l.clone())
+            .collect();
+        let forme = ajuster(&apprentissage)?;
+        erreur += donnees
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % BLOCS_VALIDATION == bloc)
+            .map(|(_, l)| (forme.prevoir(l.valeurs[0]) - l.heures).abs())
+            .sum::<f64>();
+    }
+    Some(erreur / donnees.iter().map(|l| l.heures).sum::<f64>())
+}
+
+/// Poste à une variable : droite (voir theil_sen) ou courbe puissance (voir
+/// ajuster_puissance), celle qui prévoit le mieux en validation croisée.
+/// Sur les données de 2025, la courbe gagne sur la plupart des postes (les
+/// petites commandes coûtent plus par barre), la droite sur l'oxycoupage.
+/// None si la pente de la droite est négative (repli sur le ratio médian).
+fn calibrer_une_variable(poste: &str, variable: &str, donnees: &[LigneCalibration]) -> Option<PosteCoefficients> {
+    let (intercept, pentes, r2) = theil_sen(donnees);
+    let pente = pentes[0];
+    if pente < 0.0 {
+        println!("[{poste}] régression rejetée (pente négative : {pente}), repli sur le ratio médian");
+        return None;
+    }
+    let erreur_droite = erreur_validation_croisee(donnees, ajuster_droite);
+    let erreur_puissance = erreur_validation_croisee(donnees, ajuster_puissance);
+    let pct = |e: Option<f64>| e.map_or("—".to_string(), |e| format!("{:.0} %", e * 100.0));
+    let n = donnees.len();
+
+    match (ajuster_puissance(donnees), erreur_droite, erreur_puissance) {
+        (Some(Forme::Puissance { a, k }), Some(ed), Some(ep)) if ep < ed => {
+            println!(
+                "[{poste}] n={n}  courbe puissance  h = {a:.3} × x^{k:.2}  (erreur validation croisée {} contre {} pour la droite)",
+                pct(erreur_puissance),
+                pct(erreur_droite)
+            );
+            Some(PosteCoefficients {
+                intercept: 0.0,
+                coefficients: HashMap::from([(variable.to_string(), a)]),
+                exposant: Some(k),
+            })
+        }
+        _ => {
+            println!(
+                "[{poste}] n={n}  droite Theil-Sen  h = {intercept:.2} + {pente:.4} × x  R²={r2:.2}  (erreur validation croisée {} contre {} pour la courbe)",
+                pct(erreur_droite),
+                pct(erreur_puissance)
+            );
+            Some(PosteCoefficients {
+                intercept,
+                coefficients: HashMap::from([(variable.to_string(), pente)]),
+                exposant: None,
+            })
+        }
+    }
+}
+
 /// Résout la régression linéaire par moindres carrés via décomposition SVD
 /// (plus stable numériquement que l'équation normale directe (XᵀX)⁻¹Xᵀy,
 /// tout en donnant le même résultat pour un système bien posé). Réservée
@@ -200,7 +319,7 @@ fn ratio_median(donnees: &[LigneCalibration], variables: &[&str]) -> Option<Post
         .enumerate()
         .map(|(i, v)| (v.to_string(), if i == 0 { ratio } else { 0.0 }))
         .collect();
-    Some(PosteCoefficients { intercept: 0.0, coefficients })
+    Some(PosteCoefficients { intercept: 0.0, coefficients, exposant: None })
 }
 
 /// Forfait d'un poste de POSTES_FORFAIT : médiane des heures par affaire,
@@ -220,15 +339,16 @@ fn calibrer_forfait(conn: &Connection, poste: &str, variable: &str) -> Result<Op
         coefficients: PosteCoefficients {
             intercept: 0.0,
             coefficients: HashMap::from([(variable.to_string(), forfait)]),
+            exposant: None,
         },
     }))
 }
 
 /// Calibre un seul poste. Retourne None si l'échantillon est insuffisant.
 ///
-/// Régression (Theil-Sen pour une variable, moindres carrés au-delà) si
-/// l'échantillon le permet et qu'elle donne des
-/// coefficients positifs (une pente négative -- plus de barres, moins
+/// Régression (droite ou courbe puissance pour une variable, voir
+/// calibrer_une_variable ; moindres carrés au-delà) si l'échantillon le
+/// permet et qu'elle donne des coefficients positifs (une pente négative -- plus de barres, moins
 /// d'heures -- n'a pas de sens physique et vient du bruit), sinon ratio
 /// médian (voir ratio_median). Si rien n'est calibrable avec les variables
 /// du poste et qu'il a une variable par barre de repli (POSTES_PAR_BARRE),
@@ -246,19 +366,19 @@ pub fn calibrer_poste(
     let donnees = charger_donnees_poste(conn, poste, variables, variables_affaires)?;
     let seuil_min = (MIN_OBS_PAR_VARIABLE * variables.len()).max(variables.len() + 2);
 
-    if donnees.len() >= seuil_min {
-        let (methode, (intercept, coefs, r2)) = if variables.len() == 1 {
-            ("Theil-Sen", theil_sen(&donnees))
-        } else {
-            ("moindres carrés", regression_lineaire(&donnees, variables.len()))
-        };
+    if donnees.len() >= seuil_min && variables.len() == 1 {
+        if let Some(coefficients) = calibrer_une_variable(poste, variables[0], &donnees) {
+            return Ok(Some(ResultatCalibration { poste: poste.to_string(), coefficients }));
+        }
+    } else if donnees.len() >= seuil_min {
+        let (intercept, coefs, r2) = regression_lineaire(&donnees, variables.len());
         if coefs.iter().all(|c| *c >= 0.0) {
             let coefficients: HashMap<String, f64> =
                 variables.iter().map(|v| v.to_string()).zip(coefs).collect();
-            println!("[{poste}] n={}  {methode}  R²={:.2}  intercept={intercept:.2}  coef={:?}", donnees.len(), r2, coefficients);
+            println!("[{poste}] n={}  moindres carrés  R²={:.2}  intercept={intercept:.2}  coef={:?}", donnees.len(), r2, coefficients);
             return Ok(Some(ResultatCalibration {
                 poste: poste.to_string(),
-                coefficients: PosteCoefficients { intercept, coefficients },
+                coefficients: PosteCoefficients { intercept, coefficients, exposant: None },
             }));
         }
         println!("[{poste}] régression rejetée (coefficient négatif : {coefs:?}), repli sur le ratio médian");
@@ -395,6 +515,46 @@ mod tests {
     }
 
     #[test]
+    fn courbe_puissance_retrouvee_et_choisie() {
+        // h = 20 × x^0,5 : le temps par barre baisse quand la commande grossit.
+        let donnees: Vec<LigneCalibration> = (1..=30)
+            .map(|x| LigneCalibration { heures: 20.0 * (x as f64).sqrt(), valeurs: vec![x as f64] })
+            .collect();
+        let Some(Forme::Puissance { a, k }) = ajuster_puissance(&donnees) else { panic!("pas de courbe") };
+        assert!((k - 0.5).abs() < 1e-9 && (a - 20.0).abs() < 1e-9, "a={a} k={k}");
+
+        let coefficients = calibrer_une_variable("robot", "nb_barres_robot", &donnees).unwrap();
+        assert_eq!(coefficients.exposant.map(|k| (k * 1e6).round() / 1e6), Some(0.5));
+
+        // Relation vraiment linéaire avec un temps fixe : la droite l'emporte.
+        let donnees: Vec<LigneCalibration> = (1..=30)
+            .map(|x| LigneCalibration { heures: 50.0 + 2.0 * x as f64, valeurs: vec![x as f64] })
+            .collect();
+        let coefficients = calibrer_une_variable("oxycoupage", "longueur_coupe", &donnees).unwrap();
+        assert_eq!(coefficients.exposant, None);
+        assert!((coefficients.intercept - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn prevision_avec_exposant() {
+        let coeffs = CoefficientsExport {
+            version: 1,
+            date_calibration: String::new(),
+            seuil_diametre_manuel_mm: 40.0,
+            postes: HashMap::from([(
+                "robot".to_string(),
+                PosteCoefficients {
+                    intercept: 0.0,
+                    coefficients: HashMap::from([("nb_barres_robot".to_string(), 20.0)]),
+                    exposant: Some(0.5),
+                },
+            )]),
+        };
+        let variables = HashMap::from([("nb_barres_robot".to_string(), 16.0)]);
+        assert_eq!(prevision::predire(&coeffs, &variables).heures_par_poste["robot"], 80.0);
+    }
+
+    #[test]
     fn forfait_sur_toutes_les_affaires_erp() {
         let conn = base();
         for (i, h) in [10.0, 20.0, 30.0, 40.0, 1000.0].iter().enumerate() {
@@ -431,7 +591,7 @@ mod tests {
     type Modele = Box<dyn Fn(f64) -> f64>;
 
     fn copie(lignes: &[&LigneCalibration]) -> Vec<LigneCalibration> {
-        lignes.iter().map(|l| LigneCalibration { heures: l.heures, valeurs: l.valeurs.clone() }).collect()
+        lignes.iter().map(|l| (*l).clone()).collect()
     }
 
     fn droite(intercept: f64, pente: f64) -> Modele {
@@ -494,17 +654,11 @@ mod tests {
         })
     }
 
-    /// h = a × x^k : k = pente Theil-Sen en log-log, a calé pour conserver
-    /// le total des heures.
     fn puissance(d: &[LigneCalibration]) -> Modele {
-        let logs: Vec<LigneCalibration> = d
-            .iter()
-            .filter(|l| l.valeurs[0] > 0.0 && l.heures > 0.0)
-            .map(|l| LigneCalibration { heures: l.heures.ln(), valeurs: vec![l.valeurs[0].ln()] })
-            .collect();
-        let k = theil_sen(&logs).1[0];
-        let a = d.iter().map(|l| l.heures).sum::<f64>() / d.iter().map(|l| l.valeurs[0].powf(k)).sum::<f64>();
-        Box::new(move |x| a * x.max(0.0).powf(k))
+        match ajuster_puissance(d) {
+            Some(forme) => Box::new(move |x| forme.prevoir(x)),
+            None => hybride(d),
+        }
     }
 
     #[test]

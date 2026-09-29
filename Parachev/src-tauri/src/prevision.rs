@@ -22,6 +22,12 @@ pub struct CoefficientsExport {
 pub struct PosteCoefficients {
     pub intercept: f64,
     pub coefficients: HashMap<String, f64>,
+    /// Courbe puissance : temps = intercept + Σ(coef_i × x_i^exposant) au
+    /// lieu d'une droite, pour un poste dont le temps par unité baisse avec
+    /// la taille de la commande (voir calibration::ajuster_puissance).
+    /// Absent des coefficients.json antérieurs : None = droite.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exposant: Option<f64>,
 }
 
 impl CoefficientsExport {
@@ -45,6 +51,7 @@ impl CoefficientsExport {
 // ---------------------------------------------------------------------------
 
 const CLE_INTERCEPT: &str = "__intercept__";
+const CLE_EXPOSANT: &str = "__exposant__";
 const CLE_VERSION: &str = "coefficients_version";
 const CLE_DATE_CALIBRATION: &str = "coefficients_date_calibration";
 const CLE_SEUIL_DIAMETRE_MANUEL_MM: &str = "coefficients_seuil_diametre_manuel_mm";
@@ -61,7 +68,7 @@ pub fn initialiser_schema_coefficients(conn: &Connection) -> rusqlite::Result<()
 }
 
 /// Modifie un coefficient (poste+variable, où `variable` peut valoir
-/// `__intercept__`) -- pour des tests manuels depuis l'écran Coefficients,
+/// `__intercept__` ou `__exposant__`) -- pour des tests manuels depuis l'écran Coefficients,
 /// sans repasser par une calibration complète. Upsert : fonctionne aussi
 /// bien pour corriger un coefficient déjà calibré que pour en ajouter un
 /// nouveau sur un poste pas encore calibré.
@@ -96,6 +103,14 @@ pub fn enregistrer_coefficients(conn: &mut Connection, coeffs: &CoefficientsExpo
             tx.execute(
                 "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)",
                 params![poste, variable, valeur],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        if let Some(exposant) = params.exposant {
+            tx.execute(
+                "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)",
+                params![poste, CLE_EXPOSANT, exposant],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -151,11 +166,14 @@ pub fn charger_coefficients(conn: &Connection) -> Result<CoefficientsExport, Str
         let entry = postes.entry(poste).or_insert_with(|| PosteCoefficients {
             intercept: 0.0,
             coefficients: HashMap::new(),
+            exposant: None,
         });
-        if variable == CLE_INTERCEPT {
-            entry.intercept = valeur;
-        } else {
-            entry.coefficients.insert(variable, valeur);
+        match variable.as_str() {
+            CLE_INTERCEPT => entry.intercept = valeur,
+            CLE_EXPOSANT => entry.exposant = Some(valeur),
+            _ => {
+                entry.coefficients.insert(variable, valeur);
+            }
         }
     }
 
@@ -334,8 +352,9 @@ pub struct Prevision {
     pub total_heures: f64,
 }
 
-/// Applique la formule linéaire calibrée : temps = intercept + Σ(coef_i × x_i)
-/// pour chaque poste calibré, à partir des variables fournies.
+/// Applique la formule calibrée : temps = intercept + Σ(coef_i × x_i), ou
+/// intercept + Σ(coef_i × x_i^exposant) pour une courbe puissance, pour
+/// chaque poste calibré, à partir des variables fournies.
 pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Prevision {
     println!("predire");
     let mut heures_par_poste = HashMap::new();
@@ -355,7 +374,10 @@ pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Pre
             let mut temps = params.intercept;
             for (variable, coef) in &params.coefficients {
                 let valeur = variables.get(variable).copied().unwrap_or(0.0);
-                temps += coef * valeur;
+                temps += coef * match params.exposant {
+                    Some(exposant) => valeur.max(0.0).powf(exposant),
+                    None => valeur,
+                };
             }
             // Garde-fou : un temps ne peut pas être négatif (extrapolation
             // hors du domaine calibré donnant un résultat aberrant)

@@ -24,6 +24,13 @@ type CoefficientsInfo = {
 
 const CLE_INTERCEPT = "__intercept__"
 
+// Lignes de la table `coefficients` qui ne sont pas des variables (voir
+// prevision.rs) : l'exposant d'un poste calibré en courbe puissance
+// (temps = coef × x^exposant au lieu de intercept + coef × x).
+const LIBELLES_VARIABLES: Record<string, string> = {
+  __exposant__: "Exposant (courbe puissance)",
+}
+
 // Champ éditable pour un coefficient : sauvegarde au blur/Entrée, pas à
 // chaque frappe -- voir sauvegarderCoefficient dans Coefficients().
 function ChampCoefficient({
@@ -258,7 +265,7 @@ export default function Coefficients() {
                               </TableCell>
                             </>
                           ) : null}
-                          <TableCell>{v.variable}</TableCell>
+                          <TableCell>{LIBELLES_VARIABLES[v.variable] ?? v.variable}</TableCell>
                           <TableCell className="text-right tabular-nums">
                             <ChampCoefficient
                               valeur={edition[`${poste}|${v.variable}`] ?? "0"}
