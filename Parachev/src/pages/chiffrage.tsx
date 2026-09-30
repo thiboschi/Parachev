@@ -65,6 +65,8 @@ const OPERATIONS_RDE: { key: string; label: string }[] = [
 // qui en dérive les variables de ces postes (nombre de barres qui passent
 // à la presse, forfait CND...).
 const POSTES_COCHABLES = [
+  "mise_a_longueur",
+  "manutention",
   "presse_cintrage",
   "forage_numerique",
   "robot",
@@ -72,6 +74,10 @@ const POSTES_COCHABLES = [
   "soudage_sous_flux",
   "controle_cnd",
 ]
+
+// Un poste non coché est chiffré à 0 h (voir prevision::heures_poste) : la
+// mise à longueur, utilisée sur 61 % des affaires, est cochée d'office.
+const POSTES_COCHES_PAR_DEFAUT = ["mise_a_longueur"]
 
 // Ajoute ou retire `cle` d'un ensemble de cases cochées.
 function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<string> {
@@ -123,7 +129,7 @@ export default function Chiffrage() {
 
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
   const [infos, setInfos] = useState<Record<ChampInfo, string>>(INFOS_VIDES)
-  const [postes, setPostes] = useState<Set<string>>(new Set())
+  const [postes, setPostes] = useState<Set<string>>(new Set(POSTES_COCHES_PAR_DEFAUT))
   const [operationsRde, setOperationsRde] = useState<Set<string>>(new Set())
   // Champ -> postes qui en dépendent avec la calibration actuelle (voir
   // lister_grandeurs_utilisees) : chaque poste calibre sa propre grandeur
@@ -157,7 +163,7 @@ export default function Chiffrage() {
   function reinitialiser() {
     setValeurs(CHAMPS_VIDES)
     setInfos(INFOS_VIDES)
-    setPostes(new Set())
+    setPostes(new Set(POSTES_COCHES_PAR_DEFAUT))
     setOperationsRde(new Set())
     setResultat(null)
   }

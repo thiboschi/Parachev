@@ -1,4 +1,4 @@
-use crate::prevision::{self, CoefficientsExport, PosteCoefficients, Presence, VariablesConnues, POSTES_FORFAIT};
+use crate::prevision::{self, CoefficientsExport, PosteCoefficients, Presence, VariablesConnues, POSTES_FORFAIT, SEUIL_PRESENCE};
 use nalgebra::{DMatrix, DVector};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -548,11 +548,20 @@ fn affaires_de_reference(conn: &Connection, variables_affaires: &HashMap<String,
         .collect())
 }
 
-/// Présence d'un poste (voir prevision::Presence) : part des affaires de
-/// référence ayant des heures ERP au poste parmi celles où il est prévu, et
-/// parmi celles où il ne l'est pas (même règle qu'à la prévision, voir
-/// prevision::poste_prevu). Une catégorie de moins de MIN_OBS_PAR_VARIABLE
-/// affaires garde le comportement historique : 1 si prévu, 0 sinon.
+/// Présence d'un poste (voir prevision::Presence), sur les affaires de
+/// référence, avec la même règle "poste prévu" qu'à la prévision (voir
+/// prevision::poste_prevu) :
+/// - si_prevu : part des affaires où il est prévu avec une quantité connue
+///   qui ont des heures ERP au poste (1 si moins de MIN_OBS_PAR_VARIABLE
+///   affaires) ;
+/// - si_signal_seul : même part quand il n'est prévu que par l'indicatrice,
+///   sans quantité (si_prevu si moins de MIN_OBS_PAR_VARIABLE affaires) ;
+/// - correction : heures du poste sur toutes les affaires / sur celles où
+///   il est chiffré (prévu, dans un cas de probabilité ≥ SEUIL_PRESENCE) --
+///   report des heures pointées hors prévision ;
+/// - heures_sans_quantite : moyenne des heures quand le poste est prévu et
+///   utilisé mais que sa formule n'a aucune variable non nulle (à défaut,
+///   moyenne sur toutes les affaires où il est utilisé).
 fn calibrer_presence(
     conn: &Connection,
     poste: &str,
@@ -561,33 +570,68 @@ fn calibrer_presence(
     variables_affaires: &HashMap<String, VariablesConnues>,
 ) -> Result<Presence, String> {
     let heures: HashMap<String, f64> = heures_par_affaire(conn, poste)?.into_iter().collect();
-    // (affaires, affaires ayant utilisé le poste)
-    let (mut prevu, mut sinon) = ((0usize, 0usize), (0usize, 0usize));
+    // (affaires, affaires ayant utilisé le poste, leurs heures) : prévu avec
+    // quantité, prévu sur signal seul.
+    let (mut avec_quantite, mut signal_seul) = ((0usize, 0usize, 0.0), (0usize, 0usize, 0.0));
+    let mut n_sinon_utilise = 0usize;
+    let mut heures_toutes = 0.0;
     let (mut sans_quantite, mut toutes) = (Vec::new(), Vec::new());
     for affaire in reference {
         let variables = &variables_affaires[affaire];
         let valeur = |v: &str| variables.get(v).copied().flatten().unwrap_or(0.0);
+        let prevu = prevision::poste_prevu(poste, params.coefficients.keys(), valeur);
+        let quantite_connue = params.coefficients.keys().any(|v| valeur(v) != 0.0);
         let utilise = heures.get(affaire).copied();
-        let categorie = if prevision::poste_prevu(poste, params.coefficients.keys(), valeur) { &mut prevu } else { &mut sinon };
-        categorie.0 += 1;
-        if let Some(h) = utilise {
-            categorie.1 += 1;
-            toutes.push(h);
-            if params.coefficients.keys().all(|v| valeur(v) == 0.0) {
-                sans_quantite.push(h);
+        let categorie = match (prevu, quantite_connue) {
+            (false, _) => None,
+            (true, true) => Some(&mut avec_quantite),
+            (true, false) => Some(&mut signal_seul),
+        };
+        match (categorie, utilise) {
+            (Some(categorie), Some(h)) => {
+                categorie.0 += 1;
+                categorie.1 += 1;
+                categorie.2 += h;
+                if !quantite_connue {
+                    sans_quantite.push(h);
+                }
             }
+            (Some(categorie), None) => categorie.0 += 1,
+            (None, Some(_)) => n_sinon_utilise += 1,
+            (None, None) => {}
+        }
+        if let Some(h) = utilise {
+            heures_toutes += h;
+            toutes.push(h);
         }
     }
-    let part = |(n, utilises): (usize, usize), defaut: f64| if n >= MIN_OBS_PAR_VARIABLE { utilises as f64 / n as f64 } else { defaut };
     let moyenne = |v: &[f64]| if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 };
+    let part = |(n, utilises, _): (usize, usize, f64), defaut: f64| if n >= MIN_OBS_PAR_VARIABLE { utilises as f64 / n as f64 } else { defaut };
+    let si_prevu = part(avec_quantite, 1.0);
+    let si_signal_seul = part(signal_seul, si_prevu);
+    // Heures des cas effectivement chiffrés (voir prevision::heures_poste).
+    let heures_chiffrees: f64 = [(si_prevu, avec_quantite.2), (si_signal_seul, signal_seul.2)]
+        .iter()
+        .filter(|(p, _)| *p >= SEUIL_PRESENCE)
+        .map(|(_, h)| h)
+        .sum();
     let presence = Presence {
-        si_prevu: part(prevu, 1.0),
-        sinon: part(sinon, 0.0),
+        si_prevu,
+        si_signal_seul,
+        correction: if heures_chiffrees > 0.0 { heures_toutes / heures_chiffrees } else { 1.0 },
         heures_sans_quantite: if sans_quantite.len() >= MIN_OBS_REPLI { moyenne(&sans_quantite) } else { moyenne(&toutes) },
     };
     println!(
-        "[{poste}] présence : utilisé sur {}/{} affaires où il est prévu ({:.0} %), {}/{} sinon ({:.0} %), {:.1} h sans quantité",
-        prevu.1, prevu.0, presence.si_prevu * 100.0, sinon.1, sinon.0, presence.sinon * 100.0, presence.heures_sans_quantite
+        "[{poste}] présence : utilisé sur {}/{} affaires prévues avec quantité ({:.0} %), {}/{} sur signal seul ({:.0} %), \
+         {n_sinon_utilise} non prévues (correction ×{:.2}) ; {:.1} h sans quantité",
+        avec_quantite.1,
+        avec_quantite.0,
+        presence.si_prevu * 100.0,
+        signal_seul.1,
+        signal_seul.0,
+        presence.si_signal_seul * 100.0,
+        presence.correction,
+        presence.heures_sans_quantite
     );
     Ok(presence)
 }
@@ -789,6 +833,67 @@ mod tests {
         let coefficients = calibrer_une_variable("oxycoupage", "longueur_coupe", &donnees).unwrap();
         assert_eq!(coefficients.exposant, None);
         assert!((coefficients.intercept - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn presence_des_postes() {
+        let params = |presence| PosteCoefficients {
+            intercept: 0.0,
+            coefficients: HashMap::from([("nb_barres_robot".to_string(), 2.0)]),
+            exposant: None,
+            presence,
+        };
+        let presence = Some(Presence { si_prevu: 0.8, si_signal_seul: 0.5, correction: 1.25, heures_sans_quantite: 30.0 });
+        let variables = |nb_barres: f64, robot_prevu: bool| -> prevision::VariablesAffaire {
+            HashMap::from([
+                ("nb_barres".to_string(), nb_barres),
+                ("nb_barres_robot".to_string(), if robot_prevu { nb_barres } else { 0.0 }),
+                ("robot_prevu".to_string(), robot_prevu as u8 as f64),
+            ])
+        };
+        // Prévu : 0,8 × 1,25 × (2 h × 10 barres).
+        assert_eq!(prevision::heures_poste("robot", &params(presence.clone()), &variables(10.0, true)), 20.0);
+        // Non prévu : 0 h.
+        assert_eq!(prevision::heures_poste("robot", &params(presence.clone()), &variables(10.0, false)), 0.0);
+        // Prévu mais sans quantité (ni barres) : 0,5 × 1,25 × 32 h sans quantité.
+        let mut sans_barres = variables(0.0, true);
+        sans_barres.insert("nb_barres_robot".into(), 0.0);
+        let presence = Some(Presence { heures_sans_quantite: 32.0, ..presence.unwrap() });
+        assert_eq!(prevision::heures_poste("robot", &params(presence), &sans_barres), 20.0);
+        // Signal seul utilisé moins d'une fois sur 2 : 0 h.
+        let rare = Some(Presence { si_prevu: 0.8, si_signal_seul: 0.3, correction: 1.25, heures_sans_quantite: 32.0 });
+        assert_eq!(prevision::heures_poste("robot", &params(rare), &sans_barres), 0.0);
+        // Sans présence calibrée (coefficients antérieurs) : formule si
+        // variable non nulle.
+        assert_eq!(prevision::heures_poste("robot", &params(None), &variables(10.0, true)), 20.0);
+        assert_eq!(prevision::heures_poste("robot", &params(None), &variables(10.0, false)), 0.0);
+    }
+
+    #[test]
+    fn presence_calibree() {
+        let conn = base();
+        // 20 affaires avec presse prévue dont 15 l'utilisent (2 h/barre), et
+        // 10 sans presse prévue dont 2 l'utilisent quand même.
+        for i in 0..20 {
+            affaire(&conn, &format!("P{i}"), 10.0, true, if i < 15 { 20.0 } else { 0.0 });
+        }
+        for i in 0..10 {
+            affaire(&conn, &format!("N{i}"), 10.0, false, if i < 2 { 20.0 } else { 0.0 });
+        }
+        conn.execute("INSERT INTO heures (affaire, poste, heures) SELECT affaire, 'robot', 1 FROM variables_affaires", []).unwrap();
+
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        let reference = affaires_de_reference(&conn, &variables).unwrap();
+        assert_eq!(reference.len(), 30);
+        let params = PosteCoefficients {
+            intercept: 0.0,
+            coefficients: HashMap::from([("nb_barres_presse".to_string(), 2.0)]),
+            exposant: None,
+            presence: None,
+        };
+        let presence = calibrer_presence(&conn, "presse_cintrage", &params, &reference, &variables).unwrap();
+        assert_eq!(presence.si_prevu, 0.75);
+        assert!((presence.correction - 340.0 / 300.0).abs() < 1e-9);
     }
 
     #[test]
