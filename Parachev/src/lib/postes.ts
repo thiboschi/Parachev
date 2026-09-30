@@ -17,12 +17,25 @@ const POSTE_LABELS: Record<string, string> = {
   controle_cnd: "Contrôle CND",
   reparation: "Réparation",
   casse_machine: "Casse machine",
+  // Sans équivalent poste ERP : opérations du "Flux de production BFC"
+  // relevées dans la fiche de prévision / la feuille SUIVI (voir
+  // parsing/operations.rs côté Rust).
+  ebavurage_meulage: "Ébavurage / meulage",
+  controle: "Contrôle (visuel, géométrique)",
+  montage_blanc: "Montage à blanc",
+  expedition: "Expédition",
+  autre: "Autre",
 }
+
+/** Clés de poste qui ne sont pas des machines (exclues des filtres). */
+export const POSTES_HORS_MACHINES = new Set(["expedition", "autre", "casse_machine", "reparation"])
 
 // Tous les postes connus (voir erp::normaliser_poste côté Rust) -- utile
 // pour afficher l'ensemble des postes possibles même quand certains n'ont
 // pas (encore) de lignes dans une table donnée (ex. coefficients calibrés).
-export const POSTE_KEYS = Object.keys(POSTE_LABELS)
+export const POSTE_KEYS = Object.keys(POSTE_LABELS).filter(
+  (p) => !["ebavurage_meulage", "controle", "montage_blanc", "expedition", "autre"].includes(p)
+)
 
 export function libellePoste(poste: string): string {
   return (

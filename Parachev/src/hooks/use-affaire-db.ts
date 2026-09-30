@@ -24,10 +24,69 @@ export interface ProfilAffaireRow {
   nb_barres: number
 }
 
+// Shape returned by the `lister_goujons_affaire` Tauri command
+// (GoujonAffaireRow in lib.rs) -- une ligne par poutre (rep) et par type de
+// goujon (diamètre x hauteur) ; une poutre peut mélanger plusieurs
+// diamètres, d'où le regroupement par rep fait dans useAffaireDb.
+export interface GoujonAffaireRow {
+  rep: string
+  profil: string
+  longueur: number
+  diametre: number | null
+  hauteur: number | null
+  nb_goujons: number
+}
+
+export interface GoujonsPoutre {
+  rep: string
+  profil: string
+  longueur: number
+  groupes: { diametre: number | null; hauteur: number | null; nb_goujons: number }[]
+}
+
+// Shape returned by the `lister_cfl_affaire` Tauri command (CflAffaireRow in
+// lib.rs) -- une ligne par barre (rep de FC-PRES/FC-PRESS). `cfl` vaut null
+// si cette barre précise n'a pas de valeur saisie.
+export interface CflAffaireRow {
+  rep: string
+  profil: string
+  longueur: number
+  cfl: number | null
+}
+
+// Shape returned by the `obtenir_quantites_affaire` Tauri command
+// (quantites::QuantitesAffaire) -- trous des programmes CN (DSTV) et
+// goujons / trous cités dans les mails, avec la source des valeurs
+// retenues dans variables_affaires ("cn", "mails", "fc-gouj", "manuel").
+export interface MentionMail {
+  chemin: string
+  date_mail: string | null
+  nature: "goujons" | "trous"
+  diametre: number | null
+  hauteur: number | null
+  nombre: number
+  besoin: boolean
+  unite: "total" | "poutre" | "extremite" | "appui"
+  extrait: string | null
+}
+
+export interface QuantitesAffaire {
+  source_trous_numerique: string | null
+  source_nb_goujons: string | null
+  nb_pointeaux_numerique: number | null
+  nb_goujons_mails: number | null
+  nb_programmes_cn: number
+  percages_cn: { diametre: number; nb: number }[]
+  mentions_mails: MentionMail[]
+}
+
 interface UseAffaireDbResult {
   client: string | null
   variables: VariablesAffaireRow | null
   profils: ProfilAffaireRow[]
+  goujonsParPoutre: GoujonsPoutre[]
+  cflParBarre: CflAffaireRow[]
+  quantites: QuantitesAffaire | null
   heures: HeureRow[]
   heuresParPoste: HeuresParPoste[]
   totalHeures: number
@@ -54,6 +113,9 @@ interface UseAffaireDbResult {
 export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [variables, setVariables] = React.useState<VariablesAffaireRow | null>(null)
   const [profils, setProfils] = React.useState<ProfilAffaireRow[]>([])
+  const [goujons, setGoujons] = React.useState<GoujonAffaireRow[]>([])
+  const [cflParBarre, setCflParBarre] = React.useState<CflAffaireRow[]>([])
+  const [quantites, setQuantites] = React.useState<QuantitesAffaire | null>(null)
   const [heures, setHeures] = React.useState<HeureRow[]>([])
   const [previsions, setPrevisions] = React.useState<PrevisionRow[]>([])
   const [loading, setLoading] = React.useState(true)
@@ -71,17 +133,23 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
     async function charger() {
       try {
-        const [variablesRes, profilsRes, heuresRes, previsionsRes] = await Promise.all([
+        const [variablesRes, profilsRes, goujonsRes, cflRes, quantitesRes, heuresRes, previsionsRes] = await Promise.all([
           invoke<VariablesAffaireRow>("obtenir_variables_affaire", { affaire }).catch(
             () => null
           ),
           invoke<ProfilAffaireRow[]>("lister_profils_affaire", { affaire }),
+          invoke<GoujonAffaireRow[]>("lister_goujons_affaire", { affaire }),
+          invoke<CflAffaireRow[]>("lister_cfl_affaire", { affaire }),
+          invoke<QuantitesAffaire>("obtenir_quantites_affaire", { affaire }).catch(() => null),
           invoke<HeureRow[]>("lister_heures_affaire", { affaire }),
           invoke<PrevisionRow[]>("lister_previsions_affaire", { affaire }),
         ])
         if (!annule) {
           setVariables(variablesRes)
           setProfils(profilsRes)
+          setGoujons(goujonsRes)
+          setCflParBarre(cflRes)
+          setQuantites(quantitesRes)
           setHeures(heuresRes)
           setPrevisions(previsionsRes)
           setError(null)
@@ -111,10 +179,26 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
     return { heuresParPoste, totalHeures }
   }, [heures])
 
+  const goujonsParPoutre = React.useMemo<GoujonsPoutre[]>(() => {
+    const poutres = new Map<string, GoujonsPoutre>()
+    for (const { rep, profil, longueur, diametre, hauteur, nb_goujons } of goujons) {
+      let poutre = poutres.get(rep)
+      if (!poutre) {
+        poutre = { rep, profil, longueur, groupes: [] }
+        poutres.set(rep, poutre)
+      }
+      poutre.groupes.push({ diametre, hauteur, nb_goujons })
+    }
+    return Array.from(poutres.values())
+  }, [goujons])
+
   return {
     client: variables?.client ?? null,
     variables,
     profils,
+    goujonsParPoutre,
+    cflParBarre,
+    quantites,
     heures,
     heuresParPoste,
     totalHeures,

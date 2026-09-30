@@ -39,6 +39,8 @@ pub struct InfoPrevi {
     /// groupes profil/longueur réellement renseignés (confirmé sur les 4
     /// fichiers réels disponibles) -- identifié par son préfixe "19".
     pub numero_plan: Option<String>,
+    /// N° d'offre au format 0000AA00 (ex. 5301ST26), lu dans l'en-tête de PREVI (cellule à droite de "OFFRE N°"). Sert à relier l'affaire aux mails de demande de prix. None si non renseigné.
+    pub numero_offre: Option<String>,
     pub nb_barres_total: f64,
     /// Répartition de nb_barres_total par groupe profil+longueur distinct
     /// (ex. HEB 600/11000mm:6, HEB 600/12800mm:12 si l'affaire mélange
@@ -50,6 +52,24 @@ pub struct InfoPrevi {
     /// (structure de template différente) -- nb_barres_total vaut alors 0.0
     /// et cette absence doit être signalée plutôt qu'ignorée silencieusement.
     pub colonne_nbr_trouvee: bool,
+    /// Date de la fiche (cellule à droite de "DATE:" dans l'en-tête), ISO.
+    pub date_fiche: Option<String>,
+    /// Postes planifiés (colonnes A-D du tableau) et heures allouées.
+    pub postes_prevus: Vec<PostePrevu>,
+    /// "POIDS TONNES", "Taux horaire (€)" et "TOTAL DES HEURES PRÉVUES" du
+    /// bloc FINANCES, à droite du tableau (valeur sur la ligne du dessous).
+    pub poids_t: Option<f64>,
+    pub taux_horaire: Option<f64>,
+    pub total_heures_prevues: Option<f64>,
+}
+
+/// Un poste planifié de la fiche (colonne "TOTAL" du tableau PREVI), avec
+/// son libellé (ex. "PRESSE NR", "SCIE COMBI VOORTMAN") et la somme des
+/// heures allouées sur toutes les lignes profil/longueur.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PostePrevu {
+    pub libelle: String,
+    pub heures: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +89,15 @@ pub struct GroupeProfil {
 /// (ex. année ou petit compteur qui commencerait aussi par "19").
 fn ressemble_a_un_numero_plan(s: &str) -> bool {
     s.len() >= 8 && s.starts_with("19") && s.chars().take(4).all(|c| c.is_ascii_digit())
+}
+
+/// true si `s` est un n° d'offre au format 0000AA00.
+pub fn est_un_numero_offre(s: &str) -> bool {
+    let b = s.trim().as_bytes();
+    b.len() == 8
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4..6].iter().all(u8::is_ascii_alphabetic)
+        && b[6..].iter().all(u8::is_ascii_digit)
 }
 
 const MAX_LIGNES_RECHERCHE_ENTETE: u32 = 15;
@@ -266,7 +295,45 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
     let mut nb_barres_total = 0.0;
     let mut groupes_profil: Vec<GroupeProfil> = Vec::new();
     let mut numero_plan = None;
+    // Le n° d'offre est saisi dans l'en-tête de la feuille, au-dessus du
+    // tableau : on le cherche dans toutes les cellules de ces lignes.
+    let numero_offre = (0..ligne_entete.min(range.height() as u32)).find_map(|r| {
+        (0..range.width() as u32).find_map(|c| {
+            range
+                .get_value((r, c))
+                .map(cellule_vers_texte)
+                .filter(|t| est_un_numero_offre(t))
+                .map(|t| t.trim().to_uppercase())
+        })
+    });
     let colonne_nbr_trouvee = col_nbr.is_some();
+
+    // Postes planifiés : chaque colonne "TOTAL" de l'en-tête, avant la
+    // colonne LAMINAGE (au-delà : tableau des opérateurs). Le libellé du
+    // poste est sur les 2 lignes au-dessus ("PRESSE" / "NR").
+    let texte = |r: u32, c: u32| range.get_value((r, c)).map(cellule_vers_texte).unwrap_or_default();
+    let col_laminage = trouver_colonne_par_motif(&range, ligne_entete, "LAMINAGE", 32).unwrap_or(22);
+    let mut postes_prevus: Vec<(u32, PostePrevu)> = (0..col_laminage)
+        .filter(|&c| texte(ligne_entete, c).eq_ignore_ascii_case("TOTAL"))
+        .map(|c| {
+            let libelle = [ligne_entete.saturating_sub(2), ligne_entete.saturating_sub(1)]
+                .iter()
+                .map(|&r| texte(r, c))
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            (c, PostePrevu { libelle, heures: 0.0 })
+        })
+        .collect();
+
+    let date_fiche = (0..ligne_entete).find_map(|r| {
+        (0..8).find_map(|c| {
+            texte(r, c)
+                .eq_ignore_ascii_case("DATE:")
+                .then(|| range.get_value((r, c + 1)).and_then(super::cellule_vers_date))
+                .flatten()
+        })
+    });
 
     {
         let mut r = ligne_premiere_donnee;
@@ -286,7 +353,20 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
                     .get_value((r, col_profil))
                     .map(cellule_vers_texte)
                     .filter(|s| !s.is_empty());
+                // Sous le tableau, la colonne PROFIL porte les libellés de
+                // synthèse ("TEMPS TOTAUX", "TEMPS ALLOUÉ PAR BARRE", "NB DE
+                // BARRES PAR POSTE"...) avec un NBR recopié : fin des données,
+                // sinon le nombre de barres est compté deux fois.
+                if profil_ligne.as_deref().is_some_and(|p| {
+                    let p = p.to_uppercase();
+                    p.starts_with("TEMPS") || p.starts_with("NB DE BARRES")
+                }) {
+                    break;
+                }
                 if let Some(profil_ligne) = profil_ligne {
+                    for (c, poste) in postes_prevus.iter_mut() {
+                        poste.heures += range.get_value((r, *c)).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                    }
                     if let Some(v) = range.get_value((r, col_nbr)).and_then(|v| v.as_f64()) {
                         nb_barres_total += v;
 
@@ -321,5 +401,66 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         }
     }
 
-    Ok(Some(InfoPrevi {commande, client, profil, numero_plan, nb_barres_total, groupes_profil, colonne_nbr_trouvee}))
+    // Bloc FINANCES (à droite du tableau) : libellé puis valeur en dessous.
+    let valeur_sous = |motif: &str| {
+        (0..60.min(range.height() as u32)).find_map(|r| {
+            (0..32.min(range.width() as u32)).find_map(|c| {
+                super::operations::normaliser(&texte(r, c))
+                    .starts_with(motif)
+                    .then(|| range.get_value((r + 1, c)).and_then(|v| v.as_f64()))
+                    .flatten()
+            })
+        })
+    };
+    // 0 = cellule calculée sur un tableau non rempli : poids inconnu.
+    let poids_t = valeur_sous("POIDS TONNES").filter(|p| *p > 0.0);
+    let taux_horaire = valeur_sous("TAUX HORAIRE");
+    let total_heures_prevues = valeur_sous("TOTAL DES HEURES PR");
+
+    let postes_prevus = postes_prevus
+        .into_iter()
+        .map(|(_, p)| p)
+        .filter(|p| !p.libelle.is_empty() || p.heures > 0.0)
+        .collect();
+
+    Ok(Some(InfoPrevi {
+        commande,
+        client,
+        profil,
+        numero_plan,
+        numero_offre,
+        nb_barres_total,
+        groupes_profil,
+        colonne_nbr_trouvee,
+        date_fiche,
+        postes_prevus,
+        poids_t,
+        taux_horaire,
+        total_heures_prevues,
+    }))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FICHE_HOFMANN: &str = "../../1a COMMANDES FINIES 2025/1100725621 HOFMANN RIEG/1100725621.xlsx";
+
+    #[test]
+    fn fiche_reelle_hofmann() {
+        // Données client non versionnées : test ignoré si le dossier est absent.
+        if !std::path::Path::new(FICHE_HOFMANN).exists() {
+            return;
+        }
+        let info = extraire_info_previ(FICHE_HOFMANN).unwrap().unwrap();
+        assert_eq!(info.commande, "1100725621");
+        // 80 barres HEB 600 -- et non 160 : la ligne "TEMPS TOTAUX" sous le
+        // tableau recopie le NBR et ne doit pas être comptée.
+        assert_eq!(info.nb_barres_total, 80.0);
+        assert_eq!(info.date_fiche.as_deref(), Some("2025-08-05"));
+        assert_eq!(info.poids_t.map(|p| p.round()), Some(209.0));
+        assert_eq!(info.taux_horaire, Some(125.0));
+        let libelles: Vec<&str> = info.postes_prevus.iter().map(|p| p.libelle.as_str()).collect();
+        assert_eq!(libelles, vec!["NR", "SCIE", "CONTRÔLE GEOMETRIQUE", "FINITION P3"]);
+        assert_eq!(info.postes_prevus[0].heures, 64.0);
+    }
 }

@@ -8,14 +8,25 @@
 //!   Diam., Nb plan (Sol Menge -- planifié), Nb réel (Ist Menge -- réalisé)
 
 use super::{cellule_est_erreur, cellule_vers_texte, cellule_vide};
-use calamine::{open_workbook, DataType, Reader, Xlsx};
+use calamine::{open_workbook, Data, DataType, Reader, Xlsx};
+use regex::Regex;
 
+/// Un type de goujon (diamètre x hauteur) et son nombre sur une poutre.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupeGoujons {
+    pub diametre: Option<f64>,
+    pub hauteur: Option<f64>,
+    pub nb_goujons: f64,
+}
+
+/// Une poutre (ligne Rep de FC-GOUJ) avec ses différents types de goujons.
 #[derive(Debug, Clone)]
 pub struct BarreGoujons {
     pub rep: String,
     pub profil: String,
     pub longueur: f64,
     pub nb_goujons: f64,
+    pub groupes: Vec<GroupeGoujons>,
 }
 
 #[derive(Debug)]
@@ -29,12 +40,32 @@ pub struct ResultatGoujons {
 // Colonnes "Nb plan" (Sol Menge) pour les 3 zones Âme / Aile sup / Aile inf.
 // Index 0-based (calamine).
 const COLONNES_NB_PLAN: [u32; 3] = [7, 10, 13];
+// La colonne "Diam." (contient diamètre et hauteur, ex. "19x125") précède
+// immédiatement chaque colonne "Nb plan".
+const DECALAGE_DIAM: u32 = 1;
 const COL_REP: u32 = 2; // colonne C
 const COL_PROFIL: u32 = 3; // colonne D
 const COL_LONGUEUR: u32 = 4; // colonne E
 const LIGNE_DEBUT_DONNEES: u32 = 16; // ligne 17 en 1-based
 const LIGNE_COMMANDE: u32 = 6; // ligne 7 en 1-based
 const COL_COMMANDE: u32 = 3; // colonne D
+
+/// Lit la cellule "Diam." : "19x125" / "Ø19 x 125" / "19*125,5" -> (19, 125.5) ;
+/// un simple nombre est pris comme diamètre seul.
+fn lire_diametre_hauteur(cell: Option<&Data>) -> (Option<f64>, Option<f64>) {
+    let Some(cell) = cell else { return (None, None) };
+    if let Some(n) = cell.as_f64() {
+        return (Some(n), None);
+    }
+    let texte = cellule_vers_texte(cell);
+    let re = Regex::new(r"(\d+(?:[.,]\d+)?)\s*[x×*X]\s*(\d+(?:[.,]\d+)?)").unwrap();
+    let nb = |s: &str| s.replace(',', ".").parse::<f64>().ok();
+    if let Some(c) = re.captures(&texte) {
+        return (nb(&c[1]), nb(&c[2]));
+    }
+    let re_seul = Regex::new(r"(\d+(?:[.,]\d+)?)").unwrap();
+    (re_seul.captures(&texte).and_then(|c| nb(&c[1])), None)
+}
 
 /// Extrait le nombre total de goujons planifiés depuis FC-GOUJ.
 /// Retourne None si la feuille n'existe pas (affaire sans goujonnage).
@@ -70,11 +101,20 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
         }
 
         let mut goujons_ligne = 0.0;
+        let mut groupes: Vec<GroupeGoujons> = Vec::new();
         for &col in &COLONNES_NB_PLAN {
-            if let Some(v) = range.get_value((r, col)) {
-                if let Some(n) = v.as_f64() {
-                    goujons_ligne += n;
-                }
+            let Some(n) = range.get_value((r, col)).and_then(|v| v.as_f64()) else {
+                continue;
+            };
+            goujons_ligne += n;
+            if n <= 0.0 {
+                continue;
+            }
+            let (diametre, hauteur) = lire_diametre_hauteur(range.get_value((r, col - DECALAGE_DIAM)));
+            // Un même type peut apparaître dans plusieurs zones (âme / ailes).
+            match groupes.iter_mut().find(|g| g.diametre == diametre && g.hauteur == hauteur) {
+                Some(g) => g.nb_goujons += n,
+                None => groupes.push(GroupeGoujons { diametre, hauteur, nb_goujons: n }),
             }
         }
 
@@ -91,6 +131,7 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
                 profil,
                 longueur,
                 nb_goujons: goujons_ligne,
+                groupes,
             });
         }
 
@@ -100,4 +141,41 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
     }
 
     Ok(Some(ResultatGoujons {affaire, nb_barres, nb_goujons_total, detail}))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn diam_hauteur_avec_symbole_diametre_et_espace() {
+        // Format réel observé dans FC-GOUJ (voir Para/Script Excel/1100719879.xlsx) :
+        // "Ø22x150 " -- symbole Ø, pas d'espace autour du x, espace de trop en fin.
+        assert_eq!(
+            lire_diametre_hauteur(Some(&Data::String("Ø22x150 ".to_string()))),
+            (Some(22.0), Some(150.0))
+        );
+    }
+
+    #[test]
+    fn fichier_reel_fc_gouj() {
+        // Affaire réelle : 6 poutres HLM 1000, toutes en Ø22x150, 585 goujons
+        // chacune -- une seule zone (Âme) remplie sur les 3, les autres
+        // colonnes Nb plan vides comme sur la plupart des lignes du fichier.
+        let chemin = "../../Para/Script Excel/1100719879.xlsx";
+        let resultat = extraire_goujons_fc_gouj(chemin).unwrap().unwrap();
+        assert_eq!(resultat.affaire.as_deref(), Some("1100719879"));
+        assert_eq!(resultat.nb_barres, 6);
+        assert_eq!(resultat.nb_goujons_total, 3510.0);
+        assert_eq!(resultat.detail.len(), 6);
+        for barre in &resultat.detail {
+            assert_eq!(barre.profil, "HLM 1000");
+            assert_eq!(barre.longueur, 33546.0);
+            assert_eq!(barre.nb_goujons, 585.0);
+            assert_eq!(
+                barre.groupes,
+                vec![GroupeGoujons { diametre: Some(22.0), hauteur: Some(150.0), nb_goujons: 585.0 }]
+            );
+        }
+        assert_eq!(resultat.detail[0].rep, "1A");
+    }
 }

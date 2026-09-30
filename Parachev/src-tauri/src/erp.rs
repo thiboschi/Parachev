@@ -24,6 +24,7 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             client                      TEXT,
             profil                      TEXT,
             numero_plan                 TEXT,
+            numero_offre                TEXT,
             nb_barres                   REAL,
             nb_goujons                  REAL,
             nb_trous_manuel             REAL,
@@ -39,6 +40,19 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         -- comme résumé rapide, cette table porte le détail complet (un
         -- groupe profil+longueur = une ligne, avec son propre nb_barres et
         -- son L-LAM, la longueur brute livrée par le laminoir).
+        -- Goujons par poutre : une ligne par poutre (rep de FC-GOUJ) et par
+        -- type de goujon (diamètre x hauteur), avec son nombre.
+        CREATE TABLE IF NOT EXISTS goujons_affaires (
+            affaire    TEXT NOT NULL,
+            rep        TEXT NOT NULL,
+            profil     TEXT,
+            longueur   REAL,
+            diametre   REAL,
+            hauteur    REAL,
+            nb_goujons REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_goujons_affaire ON goujons_affaires(affaire);
+
         CREATE TABLE IF NOT EXISTS profils_affaires (
             affaire   TEXT NOT NULL,
             profil    TEXT NOT NULL,
@@ -47,6 +61,18 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             nb_barres REAL NOT NULL,
             PRIMARY KEY (affaire, profil, longueur)
         );
+
+        -- Contre-flèche (Cfl axe fort) par barre, depuis FC-PRES/FC-PRESS :
+        -- une ligne par Rep, `cfl` NULL si cette barre précise n'a pas de
+        -- valeur saisie (gabarit vide).
+        CREATE TABLE IF NOT EXISTS cfl_affaires (
+            affaire  TEXT NOT NULL,
+            rep      TEXT NOT NULL,
+            profil   TEXT,
+            longueur REAL,
+            cfl      REAL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cfl_affaire ON cfl_affaires(affaire);
         ",
     )?;
     Ok(())
@@ -70,7 +96,7 @@ pub fn migrer_ajouter_colonne_client(conn: &Connection) -> rusqlite::Result<()> 
 /// elles n'existent pas déjà -- même migration idempotente que pour
 /// `client`, pour les bases créées avant ce correctif.
 pub fn migrer_ajouter_colonnes_profil_numero_plan(conn: &Connection) -> rusqlite::Result<()> {
-    for colonne in ["profil", "numero_plan"] {
+    for colonne in ["profil", "numero_plan", "numero_offre"] {
         match conn.execute(
             &format!("ALTER TABLE variables_affaires ADD COLUMN {colonne} TEXT"),
             [],
@@ -300,7 +326,7 @@ pub fn inserer_heures(conn: &mut Connection, lignes: &[LigneHeure]) -> rusqlite:
     let affaires: std::collections::HashSet<&str> =
         lignes.iter().map(|l| l.affaire.as_str()).collect();
 
-    let tx = conn.transaction()?;
+    let tx = conn.savepoint()?;
     for affaire in &affaires {
         tx.execute("DELETE FROM heures WHERE affaire = ?1", params![affaire])?;
     }

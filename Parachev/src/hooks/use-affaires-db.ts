@@ -17,6 +17,7 @@ export interface VariablesAffaireRow {
   client: string | null
   profil: string | null
   numero_plan: string | null
+  numero_offre: string | null
   nb_barres: number | null
   nb_goujons: number | null
   nb_trous_manuel: number | null
