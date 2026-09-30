@@ -60,6 +60,13 @@ const MIN_OBS_PAR_VARIABLE: usize = 10;
 /// d'affaires.
 const MIN_OBS_REPLI: usize = 5;
 const DIAMETRE_SEUIL_MANUEL_MM: f64 = 40.0;
+/// Part minimale des affaires, par rapport à la grandeur la mieux
+/// renseignée du poste, où une grandeur doit être connue pour être retenue :
+/// un modèle sur une donnée rare chiffrerait 0 h sur toutes les autres
+/// affaires. Sur la base complète de 2025, trous + diamètre des programmes
+/// CN ne sont connus que sur 63 affaires avec du forage numérique, contre
+/// plusieurs centaines pour le nombre de barres.
+const COUVERTURE_MIN: f64 = 0.5;
 
 #[derive(Debug)]
 pub struct ResultatCalibration {
@@ -377,22 +384,42 @@ fn calibrer_forfait(conn: &Connection, poste: &str, variable: &str) -> Result<Op
 /// poste_variables). Chacune est évaluée (meilleure forme, droite ou
 /// courbe) en validation croisée sur les MÊMES affaires -- celles où toutes
 /// les candidates sont connues --, pour que la comparaison ne dépende pas de
-/// l'échantillon de chacune. Si ces affaires communes sont trop peu
+/// l'échantillon de chacune. Une grandeur connue sur trop peu d'affaires est
+/// écartée d'emblée (voir COUVERTURE_MIN). Si ces affaires communes sont trop peu
 /// nombreuses, la candidate connue sur le moins d'affaires est écartée, et
 /// ainsi de suite. À erreur égale, la candidate prioritaire l'emporte. None
 /// si aucune candidate n'a MIN_OBS_REPLI affaires.
+/// Nombre d'affaires exploitables pour chaque candidate à une variable.
+fn affaires_par_candidate<'a>(
+    conn: &Connection,
+    poste: &str,
+    candidates: &[&'a str],
+    variables_affaires: &HashMap<String, VariablesConnues>,
+) -> Result<Vec<(&'a str, usize)>, String> {
+    candidates
+        .iter()
+        .map(|c| Ok((*c, charger_donnees_poste(conn, poste, &[c], variables_affaires)?.len())))
+        .collect()
+}
+
 fn choisir_variable<'a>(
     conn: &Connection,
     poste: &str,
     candidates: &[&'a str],
     variables_affaires: &HashMap<String, VariablesConnues>,
 ) -> Result<Option<&'a str>, String> {
+    let comptes = affaires_par_candidate(conn, poste, candidates, variables_affaires)?;
+    let n_max = comptes.iter().map(|(_, n)| *n).max().unwrap_or(0);
     let mut restantes: Vec<(&'a str, usize)> = Vec::new();
-    for candidate in candidates {
-        let n = charger_donnees_poste(conn, poste, &[candidate], variables_affaires)?.len();
-        if n >= MIN_OBS_REPLI {
-            restantes.push((candidate, n));
+    for (candidate, n) in comptes {
+        if n < MIN_OBS_REPLI {
+            continue;
         }
+        if (n as f64) < COUVERTURE_MIN * n_max as f64 {
+            println!("[{poste}] {candidate} écartée : connue sur {n} affaires contre {n_max}");
+            continue;
+        }
+        restantes.push((candidate, n));
     }
 
     let (noms, communes) = loop {
@@ -435,7 +462,9 @@ fn choisir_variable<'a>(
 /// Calibre un seul poste. Retourne None si l'échantillon est insuffisant.
 ///
 /// Un candidat à plusieurs variables en tête de `candidats` est calibré par
-/// moindres carrés s'il a assez d'affaires et des coefficients positifs.
+/// moindres carrés s'il a assez d'affaires, connu sur au moins
+/// COUVERTURE_MIN des affaires de la grandeur simple la mieux renseignée, et
+/// des coefficients positifs.
 /// Sinon, grandeur choisie parmi les candidats à une variable (voir
 /// choisir_variable), puis droite ou courbe puissance (voir
 /// calibrer_une_variable) si l'échantillon le permet et que la pente est
@@ -452,11 +481,20 @@ pub fn calibrer_poste(
         return calibrer_forfait(conn, poste, variable);
     }
 
+    let simples: Vec<&str> = candidats.iter().filter(|c| c.len() == 1).map(|c| c[0].as_str()).collect();
+
     if let Some(variables) = candidats.first().filter(|c| c.len() > 1) {
         let variables: Vec<&str> = variables.iter().map(String::as_str).collect();
         let donnees = charger_donnees_poste(conn, poste, &variables, variables_affaires)?;
         let seuil_min = (MIN_OBS_PAR_VARIABLE * variables.len()).max(variables.len() + 2);
-        if donnees.len() >= seuil_min {
+        let n_max = affaires_par_candidate(conn, poste, &simples, variables_affaires)?
+            .into_iter()
+            .map(|(_, n)| n)
+            .max()
+            .unwrap_or(0);
+        if (donnees.len() as f64) < COUVERTURE_MIN * n_max as f64 {
+            println!("[{poste}] {variables:?} écartées : connues sur {} affaires contre {n_max}", donnees.len());
+        } else if donnees.len() >= seuil_min {
             let (intercept, coefs, r2) = regression_lineaire(&donnees, variables.len());
             if coefs.iter().all(|c| *c >= 0.0) {
                 let coefficients: HashMap<String, f64> =
@@ -473,7 +511,6 @@ pub fn calibrer_poste(
         }
     }
 
-    let simples: Vec<&str> = candidats.iter().filter(|c| c.len() == 1).map(|c| c[0].as_str()).collect();
     let Some(variable) = choisir_variable(conn, poste, &simples, variables_affaires)? else {
         println!("[{poste}] échantillon insuffisant pour toutes les grandeurs (minimum {MIN_OBS_REPLI} affaires), ignoré");
         return Ok(None);
@@ -627,6 +664,25 @@ mod tests {
         let candidats = poste_variables()["presse_cintrage"].clone();
         let resultat = calibrer_poste(&conn, "presse_cintrage", &candidats, &variables).unwrap().unwrap();
         assert!(resultat.coefficients.coefficients.contains_key("poids_presse"));
+    }
+
+    #[test]
+    fn grandeur_rare_ecartee() {
+        let conn = base();
+        // 30 affaires de presse avec barres connues, dont 10 seulement avec
+        // un poids qui explique parfaitement les heures.
+        for i in 0..30 {
+            let affaire_i = format!("A{i}");
+            let poids = 10.0 * (i + 1) as f64;
+            affaire(&conn, &affaire_i, ((i * 7) % 11 + 1) as f64, true, 2.0 * poids);
+            if i < 10 {
+                conn.execute("UPDATE variables_affaires SET poids_t = ?1 WHERE affaire = ?2", rusqlite::params![poids, affaire_i])
+                    .unwrap();
+            }
+        }
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        let choix = choisir_variable(&conn, "presse_cintrage", &["nb_barres_presse", "poids_presse"], &variables).unwrap();
+        assert_eq!(choix, Some("nb_barres_presse"));
     }
 
     #[test]
@@ -860,6 +916,61 @@ mod tests {
         for (m, (nom, _)) in methodes.iter().enumerate() {
             let pct = |k: usize| erreurs_totales[m][k] / reel_total[k] * 100.0;
             println!("{nom:16} petites {:3.0}%  moyennes {:3.0}%  grandes {:3.0}%  total {:3.0}%", pct(0), pct(1), pct(2), pct(3));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Prévision par affaire en validation croisée (10 blocs d'affaires) : la
+    // calibration complète est refaite sans les heures ERP du bloc, puis
+    // chaque affaire du bloc est prévue comme dans l'application. Écrit un
+    // CSV (affaire, poste, réel, prévu) -- travaille sur une COPIE de la base.
+    //   PARACHEV_DB=/copie/affaires.db PARACHEV_CSV=/tmp/eval.csv cargo test --lib evaluation_par_affaire -- --ignored --nocapture
+    // -----------------------------------------------------------------------
+
+    #[test]
+    #[ignore]
+    fn evaluation_par_affaire() {
+        use std::io::Write;
+        const BLOCS: usize = 10;
+        let conn = Connection::open(std::env::var("PARACHEV_DB").expect("PARACHEV_DB non défini")).unwrap();
+        let mut csv = std::fs::File::create(std::env::var("PARACHEV_CSV").expect("PARACHEV_CSV non défini")).unwrap();
+        writeln!(csv, "affaire,poste,reel,prevu").unwrap();
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT v.affaire FROM variables_affaires v JOIN heures h USING (affaire)
+                 WHERE v.nb_barres > 0 ORDER BY v.affaire",
+            )
+            .unwrap();
+        let affaires: Vec<String> = stmt.query_map([], |r| r.get(0)).unwrap().collect::<Result<_, _>>().unwrap();
+        drop(stmt);
+
+        for bloc in 0..BLOCS {
+            let test: Vec<&String> = affaires.iter().enumerate().filter(|(i, _)| i % BLOCS == bloc).map(|(_, a)| a).collect();
+            conn.execute_batch("BEGIN").unwrap();
+            let mut reel: HashMap<(String, String), f64> = HashMap::new();
+            for affaire in &test {
+                let mut stmt = conn.prepare("SELECT poste, SUM(heures) FROM heures WHERE affaire = ?1 GROUP BY poste").unwrap();
+                for ligne in stmt.query_map([affaire], |r| Ok((r.get::<_, String>(0)?, r.get::<_, f64>(1)?))).unwrap() {
+                    let (poste, h) = ligne.unwrap();
+                    reel.insert(((*affaire).clone(), poste), h);
+                }
+                conn.execute("DELETE FROM heures WHERE affaire = ?1", [affaire]).unwrap();
+            }
+            let coeffs = calibrer_tous_les_postes(&conn).unwrap();
+            for affaire in &test {
+                let variables = prevision::charger_variables_affaire(&conn, affaire).unwrap();
+                let prevu = prevision::predire(&coeffs, &variables).heures_par_poste;
+                let mut postes: std::collections::HashSet<&String> = prevu.keys().collect();
+                postes.extend(reel.keys().filter(|(a, _)| a == *affaire).map(|(_, p)| p));
+                for poste in postes {
+                    let r = reel.get(&((*affaire).clone(), poste.clone())).copied().unwrap_or(0.0);
+                    let p = prevu.get(poste).copied().unwrap_or(0.0);
+                    writeln!(csv, "{affaire},{poste},{r},{p}").unwrap();
+                }
+            }
+            conn.execute_batch("ROLLBACK").unwrap();
+            eprintln!("bloc {bloc} : {} affaires", test.len());
         }
     }
 }
