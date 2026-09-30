@@ -5,6 +5,8 @@
 use rusqlite::{params, Connection};
 
 pub const CLE_DOSSIER_SURVEILLE: &str = "dossier_surveille";
+/// Dossier des programmes Vacam (.nc), rangés par code affaire atelier.
+pub const CLE_DOSSIER_VACAM: &str = "dossier_vacam";
 
 pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(

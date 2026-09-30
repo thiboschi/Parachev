@@ -14,15 +14,22 @@ export function SiteHeader() {
     data.navMain.find((item) => item.url === pathname)?.title ?? "Dashboard"
 
   const [dossier, setDossier] = useState<string | null>(null);
+  const [dossierVacam, setDossierVacam] = useState<string | null>(null);
   const [calibrating, setCalibrating] = useState(false);
 
   useEffect(() => {
     invoke<string | null>("obtenir_dossier_configure").then(setDossier);
+    invoke<string | null>("obtenir_dossier_vacam").then(setDossierVacam);
   }, []);
 
   async function handleChoisirDossier() {
     const chemin = await invoke<string | null>("choisir_dossier_surveille");
     if (chemin) setDossier(chemin);
+  }
+
+  async function handleChoisirDossierVacam() {
+    const chemin = await invoke<string | null>("choisir_dossier_vacam");
+    if (chemin) setDossierVacam(chemin);
   }
 
   function handleCalibrer() {
@@ -57,6 +64,13 @@ export function SiteHeader() {
           <Button variant="ghost" size="sm" className="hidden sm:flex"/>
           <Button variant="outline" onClick={handleCalibrer} disabled={calibrating}>
             {calibrating ? "Calibration…" : "Calibrer"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleChoisirDossierVacam}
+            title={dossierVacam ?? "Dossier des programmes Vacam (ex. Z:\\A-Vacam programmes)"}
+          >
+            {dossierVacam ? "Vacam" : "Choisir le dossier Vacam"}
           </Button>
           <Button onClick={handleChoisirDossier}>
             {dossier ? `Dossier` : "Choisir le dossier à surveiller"}

@@ -247,3 +247,156 @@ export function pointsPrevuReel(affaires: AffaireRecherche[]) {
       reel: a.heures_reelles,
     }))
 }
+
+// ---------------------------------------------------------------------------
+// Tonnage
+// ---------------------------------------------------------------------------
+// Le tonnage est une donnée d'AFFAIRE (fiche, sinon somme du RDE laminage),
+// datée par la commande ou par la fin de production. Il ne passe donc pas
+// par les pointages : une affaire commandée mais pas encore pointée compte
+// dans le tonnage commandé. La période filtre cette date ; le filtre poste
+// ne s'applique pas (le poids n'est pas ventilé par poste).
+
+export type BaseTonnage = "commande" | "production"
+export type Granularite = "mois" | "trimestre" | "annee"
+
+export const BASES_TONNAGE: Record<BaseTonnage, string> = { commande: "Commande", production: "Fin de production" }
+export const GRANULARITES: Record<Granularite, string> = { mois: "Mois", trimestre: "Trimestre", annee: "Année" }
+
+export interface LigneTonnage {
+  affaire: string
+  client: string | null
+  /** Date ISO retenue selon la base (commande ou fin de production). */
+  date: string
+  tonnes: number
+  heures: number
+}
+
+const dateTonnage = (a: AffaireRecherche, base: BaseTonnage) =>
+  base === "commande" ? (a.date_commande ?? a.date_fiche) : a.date_production_fin
+
+/**
+ * Affaires pesées du périmètre (client, type de production, période sur la
+ * date de la base), hors affaires annulées. `sansPoids` compte les affaires
+ * du même périmètre écartées faute de poids, pour afficher la couverture.
+ */
+export function affairesTonnage(
+  affaires: AffaireRecherche[],
+  types: Map<string, string[]>,
+  f: FiltresDashboard,
+  base: BaseTonnage
+): { lignes: LigneTonnage[]; sansPoids: number } {
+  const lignes: LigneTonnage[] = []
+  let sansPoids = 0
+  for (const a of affaires) {
+    if (a.annule) continue
+    if (f.client !== "all" && a.client !== f.client) continue
+    if (f.typesProduction.length > 0 && !f.typesProduction.some((t) => types.get(a.affaire)?.includes(t))) continue
+    const date = dateTonnage(a, base)
+    if (!date || !dansPeriode(date, f)) continue
+    if (!a.poids_t || a.poids_t <= 0) {
+      sansPoids += 1
+      continue
+    }
+    lignes.push({ affaire: a.affaire, client: a.client, date, tonnes: a.poids_t, heures: a.heures_reelles })
+  }
+  return { lignes, sansPoids }
+}
+
+const clePeriode = (date: string, g: Granularite) => {
+  const annee = date.slice(0, 4)
+  if (g === "annee") return annee
+  const mois = Number(date.slice(5, 7))
+  return g === "mois" ? `${annee}-${String(mois).padStart(2, "0")}` : `${annee}-T${Math.ceil(mois / 3)}`
+}
+
+/** Période suivante : "2025-12" -> "2026-01", "2025-T4" -> "2026-T1", "2025" -> "2026". */
+const periodeSuivante = (cle: string, g: Granularite) => {
+  if (g === "annee") return String(Number(cle) + 1)
+  const [annee, reste] = cle.split("-")
+  const n = Number(g === "trimestre" ? reste.slice(1) : reste) + 1
+  const max = g === "trimestre" ? 4 : 12
+  const [a, m] = n > max ? [Number(annee) + 1, 1] : [Number(annee), n]
+  return g === "trimestre" ? `${a}-T${m}` : `${a}-${String(m).padStart(2, "0")}`
+}
+
+export interface TonnagePeriode {
+  periode: string
+  tonnes: number
+  affaires: number
+  /** Heures ERP par tonne (ratio des sommes) des affaires pointées ; null sans pointage. */
+  heuresParTonne: number | null
+}
+
+/** Tonnage par période, périodes vides incluses (axe continu). */
+export function tonnageParPeriode(lignes: LigneTonnage[], g: Granularite): TonnagePeriode[] {
+  const parPeriode = new Map<string, { tonnes: number; affaires: number; heures: number; tonnesPointees: number }>()
+  for (const l of lignes) {
+    const cle = clePeriode(l.date, g)
+    const p = parPeriode.get(cle) ?? { tonnes: 0, affaires: 0, heures: 0, tonnesPointees: 0 }
+    p.tonnes += l.tonnes
+    p.affaires += 1
+    if (l.heures > 0) {
+      p.heures += l.heures
+      p.tonnesPointees += l.tonnes
+    }
+    parPeriode.set(cle, p)
+  }
+  const cles = [...parPeriode.keys()].sort()
+  if (cles.length === 0) return []
+  const resultat: TonnagePeriode[] = []
+  for (let cle = cles[0]; cle <= cles[cles.length - 1]; cle = periodeSuivante(cle, g)) {
+    const p = parPeriode.get(cle)
+    resultat.push({
+      periode: cle,
+      tonnes: p?.tonnes ?? 0,
+      affaires: p?.affaires ?? 0,
+      heuresParTonne: p && p.tonnesPointees > 0 ? p.heures / p.tonnesPointees : null,
+    })
+  }
+  return resultat
+}
+
+export const AUTRES_CLIENTS = "Autres clients"
+
+/** Tonnage par client, les `max` premiers puis le reste regroupé. */
+export function tonnageParClient(lignes: LigneTonnage[], max = 10): { client: string; tonnes: number }[] {
+  const parClient = new Map<string, number>()
+  for (const l of lignes) {
+    const c = l.client ?? "Client inconnu"
+    parClient.set(c, (parClient.get(c) ?? 0) + l.tonnes)
+  }
+  const tri = [...parClient].map(([client, tonnes]) => ({ client, tonnes })).sort((a, b) => b.tonnes - a.tonnes)
+  if (tri.length <= max + 1) return tri
+  const reste = tri.slice(max).reduce((s, c) => s + c.tonnes, 0)
+  return [...tri.slice(0, max), { client: AUTRES_CLIENTS, tonnes: reste }]
+}
+
+/** Tonnage par type de production (une affaire peut compter dans plusieurs types). */
+export function tonnageParType(lignes: LigneTonnage[], types: Map<string, string[]>): { type: string; tonnes: number }[] {
+  const parType = new Map<string, number>()
+  for (const l of lignes) {
+    for (const t of types.get(l.affaire) ?? []) parType.set(t, (parType.get(t) ?? 0) + l.tonnes)
+  }
+  return [...parType].map(([type, tonnes]) => ({ type, tonnes })).sort((a, b) => b.tonnes - a.tonnes)
+}
+
+export interface IndicateursTonnage {
+  tonnes: number
+  nbAffaires: number
+  tonnesMedianesParAffaire: number | null
+  /** Médiane des heures ERP par tonne, sur les affaires pointées. */
+  heuresParTonne: number | null
+  nbAffairesPointees: number
+}
+
+export function indicateursTonnage(lignes: LigneTonnage[]): IndicateursTonnage {
+  const pointees = lignes.filter((l) => l.heures > 0)
+  return {
+    tonnes: lignes.reduce((s, l) => s + l.tonnes, 0),
+    nbAffaires: lignes.length,
+    tonnesMedianesParAffaire: mediane(lignes.map((l) => l.tonnes)),
+    heuresParTonne: mediane(pointees.map((l) => l.heures / l.tonnes)),
+    nbAffairesPointees: pointees.length,
+  }
+}

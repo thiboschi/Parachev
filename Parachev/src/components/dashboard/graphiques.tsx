@@ -176,6 +176,56 @@ export function GraphiqueMois({ donnees }: { donnees: { mois: string; heures: nu
 }
 
 // ---------------------------------------------------------------------------
+// Tonnage par période (colonnes)
+// ---------------------------------------------------------------------------
+
+const tonnes = new Intl.NumberFormat("fr-BE", { maximumFractionDigits: 1 })
+export const formatTonnes = (t: number) => `${tonnes.format(t)} t`
+
+/** "2025-04" -> "avr. 25", "2025-T2" -> "T2 2025", "2025" -> "2025". */
+export const formatPeriode = (cle: string) => {
+  if (/^\d{4}-T\d$/.test(cle)) return `${cle.slice(5)} ${cle.slice(0, 4)}`
+  if (/^\d{4}-\d{2}$/.test(cle)) return formatMois(cle)
+  return cle
+}
+
+export function GraphiqueTonnage({
+  donnees,
+}: {
+  donnees: { periode: string; tonnes: number; affaires: number; heuresParTonne: number | null }[]
+}) {
+  return (
+    <div className="h-64 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={donnees} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <CartesianGrid vertical={false} stroke={GRILLE} />
+          <XAxis dataKey="periode" tickFormatter={formatPeriode} tick={TEXTE_AXE} tickLine={false} axisLine={{ stroke: GRILLE }} minTickGap={24} />
+          <YAxis tickFormatter={(v: number) => compact.format(v)} tick={TEXTE_AXE} tickLine={false} axisLine={false} width={40} />
+          <Tooltip
+            cursor={{ fill: "var(--muted)" }}
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null
+              const d = payload[0].payload as (typeof donnees)[number]
+              return (
+                <Infobulle
+                  titre={formatPeriode(String(label))}
+                  lignes={[
+                    { couleur: COULEUR_ACCENT, valeur: formatTonnes(d.tonnes), nom: "tonnage" },
+                    { valeur: nombre.format(d.affaires), nom: d.affaires > 1 ? "affaires" : "affaire" },
+                    ...(d.heuresParTonne == null ? [] : [{ valeur: `${tonnes.format(d.heuresParTonne)} h/t`, nom: "heures ERP par tonne" }]),
+                  ]}
+                />
+              )
+            }}
+          />
+          <Bar dataKey="tonnes" fill={COULEUR_ACCENT} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Barres horizontales classées (postes, types de production)
 // ---------------------------------------------------------------------------
 

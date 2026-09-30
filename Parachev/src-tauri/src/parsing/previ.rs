@@ -41,6 +41,11 @@ pub struct InfoPrevi {
     pub numero_plan: Option<String>,
     /// N° d'offre au format 0000AA00 (ex. 5301ST26), lu dans l'en-tête de PREVI (cellule à droite de "OFFRE N°"). Sert à relier l'affaire aux mails de demande de prix. None si non renseigné.
     pub numero_offre: Option<String>,
+    /// Code affaire de l'atelier (ex. "D090"), cellule A11 : 2 lignes sous
+    /// l'en-tête "COMMANDE". C'est le nom du dossier des programmes Vacam
+    /// de l'affaire ("A-Vacam programmes/D090/...", voir
+    /// indexeur::contexte). Unique par commande sur les fiches 2025.
+    pub code_affaire: Option<String>,
     pub nb_barres_total: f64,
     /// Répartition de nb_barres_total par groupe profil+longueur distinct
     /// (ex. HEB 600/11000mm:6, HEB 600/12800mm:12 si l'affaire mélange
@@ -98,6 +103,19 @@ pub fn est_un_numero_offre(s: &str) -> bool {
         && b[..4].iter().all(u8::is_ascii_digit)
         && b[4..6].iter().all(u8::is_ascii_alphabetic)
         && b[6..].iter().all(u8::is_ascii_digit)
+}
+
+/// Code affaire de l'atelier (une lettre + 2 à 4 chiffres : "D090",
+/// "C086", "F576") en tête de `s` -- cellule A11 de PREVI, nom d'un dossier
+/// de programmes Vacam ("D018 BIS", "D076 OLD"), ou champ commande d'un
+/// en-tête DSTV ("C086 TA"). Une lettre finale désigne une partie de
+/// l'affaire ("D050A" / "D050B" pour D050) et est retirée.
+pub fn code_affaire(s: &str) -> Option<String> {
+    let mot = s.split_whitespace().next()?.to_ascii_uppercase();
+    let code = mot.strip_suffix(|c: char| c.is_ascii_alphabetic()).filter(|c| c.len() > 1).unwrap_or(&mot);
+    let b = code.as_bytes();
+    (b[0].is_ascii_alphabetic() && (3..=5).contains(&b.len()) && b[1..].iter().all(u8::is_ascii_digit))
+        .then(|| code.to_string())
 }
 
 const MAX_LIGNES_RECHERCHE_ENTETE: u32 = 15;
@@ -307,6 +325,10 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         })
     });
     let colonne_nbr_trouvee = col_nbr.is_some();
+    let code_affaire = range
+        .get_value((ligne_entete + 2, 0))
+        .map(cellule_vers_texte)
+        .and_then(|t| code_affaire(&t));
 
     // Postes planifiés : chaque colonne "TOTAL" de l'en-tête, avant la
     // colonne LAMINAGE (au-delà : tableau des opérateurs). Le libellé du
@@ -429,6 +451,7 @@ pub fn extraire_info_previ(chemin_fichier: &str) -> Result<Option<InfoPrevi>, St
         profil,
         numero_plan,
         numero_offre,
+        code_affaire,
         nb_barres_total,
         groupes_profil,
         colonne_nbr_trouvee,
@@ -453,6 +476,7 @@ mod tests {
         }
         let info = extraire_info_previ(FICHE_HOFMANN).unwrap().unwrap();
         assert_eq!(info.commande, "1100725621");
+        assert_eq!(info.code_affaire.as_deref(), Some("D044"));
         // 80 barres HEB 600 -- et non 160 : la ligne "TEMPS TOTAUX" sous le
         // tableau recopie le NBR et ne doit pas être comptée.
         assert_eq!(info.nb_barres_total, 80.0);
@@ -462,5 +486,19 @@ mod tests {
         let libelles: Vec<&str> = info.postes_prevus.iter().map(|p| p.libelle.as_str()).collect();
         assert_eq!(libelles, vec!["NR", "SCIE", "CONTRÔLE GEOMETRIQUE", "FINITION P3"]);
         assert_eq!(info.postes_prevus[0].heures, 64.0);
+    }
+
+    #[test]
+    fn codes_affaire() {
+        assert_eq!(code_affaire("D090").as_deref(), Some("D090"));
+        assert_eq!(code_affaire("F576 ").as_deref(), Some("F576"));
+        assert_eq!(code_affaire("D11").as_deref(), Some("D11"));
+        assert_eq!(code_affaire("C086 TA").as_deref(), Some("C086"));
+        assert_eq!(code_affaire("d006").as_deref(), Some("D006"));
+        assert_eq!(code_affaire("D050A").as_deref(), Some("D050"));
+        assert_eq!(code_affaire("D051  old V1").as_deref(), Some("D051"));
+        for s in ["C0", "", "1100725621", "25PA0115-POINT", "PROGRAMME 2025", "P1.nc", "HE550A"] {
+            assert_eq!(code_affaire(s), None, "{s}");
+        }
     }
 }

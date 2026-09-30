@@ -20,7 +20,7 @@ mod variables_parcing;
 pub use goujons::{extraire_goujons_fc_gouj, BarreGoujons};
 pub use oxycoupage::{extraire_oxycoupage};
 pub use presse::{extraire_presse, BarreCfl};
-pub use previ::{extraire_info_previ, GroupeProfil, PostePrevu};
+pub use previ::{code_affaire, extraire_info_previ, GroupeProfil, PostePrevu};
 pub use suivi::{extraire_suivi, ResultatSuivi};
 pub use variables_parcing::{extraire_variables_forage};
 
@@ -53,6 +53,9 @@ pub struct VariablesAffaire {
     pub numero_plan: Option<String>,
     /// N° d'offre 0000AA00 (voir previ::InfoPrevi), lien avec les mails de demande de prix.
     pub numero_offre: Option<String>,
+    /// Code affaire de l'atelier (A11 de PREVI, ex. "D090") : nom du
+    /// dossier des programmes Vacam de l'affaire, voir previ::InfoPrevi.
+    pub code_affaire: Option<String>,
     /// Détail de nb_barres par profil distinct -- voir previ::GroupeProfil.
     /// Stocké séparément (table `profils_affaires`), pas dans cette ligne.
     pub groupes_profil: Vec<GroupeProfil>,
@@ -113,6 +116,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         profil: info.profil,
         numero_plan: info.numero_plan,
         numero_offre: info.numero_offre,
+        code_affaire: info.code_affaire,
         groupes_profil: info.groupes_profil,
         goujons_par_poutre,
         cfl_par_barre,
@@ -147,8 +151,8 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
         "INSERT INTO variables_affaires
             (affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, contre_fleche,
-             date_fiche, poids_t, taux_horaire, heures_prevues_fiche, source_nb_goujons)
-         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16, ?17)
+             date_fiche, poids_t, taux_horaire, heures_prevues_fiche, source_nb_goujons, code_affaire)
+         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16, ?17, ?18)
          ON CONFLICT(affaire) DO UPDATE SET
             -- Le nom client extrait de l'Excel (encodage fiable) prime sur
             -- celui du fichier ERP (voir erp::inserer_clients) -- on ne
@@ -157,6 +161,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             profil = excluded.profil,
             numero_plan = excluded.numero_plan,
             numero_offre = COALESCE(excluded.numero_offre, variables_affaires.numero_offre),
+            code_affaire = COALESCE(excluded.code_affaire, variables_affaires.code_affaire),
             nb_barres = excluded.nb_barres,
             nb_goujons = excluded.nb_goujons,
             source_nb_goujons = excluded.source_nb_goujons,
@@ -187,6 +192,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             variables.taux_horaire,
             variables.heures_prevues_fiche,
             (variables.nb_goujons > 0.0).then_some("fc-gouj"),
+            variables.code_affaire,
         ],
     )
     .map_err(|e| format!("Erreur insertion variables_affaires: {e}"))?;

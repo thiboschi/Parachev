@@ -14,10 +14,12 @@ import {
   COULEUR_CONTEXTE,
   GraphiqueComparaison,
   GraphiqueMois,
+  GraphiqueTonnage,
   Legende,
   NuagePrevuReel,
   StatTile,
   formatHeures,
+  formatTonnes,
 } from "@/components/dashboard/graphiques"
 import { TableAffaires } from "@/components/dashboard/table-affaires"
 import { Button } from "@/components/ui/button"
@@ -28,18 +30,27 @@ import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { EVENEMENT_PROGRESSION, type ProgressionIndexation } from "@/hooks/use-progression-indexation"
 import {
+  BASES_TONNAGE,
   FILTRES_DASHBOARD_VIDES,
+  GRANULARITES,
   PRESETS,
   affairesParType,
+  affairesTonnage,
   appliquerFiltres,
   bornesPreset,
   comparaisonPostes,
   heuresParMois,
   heuresParPoste,
   indicateurs,
+  indicateursTonnage,
   pointsPrevuReel,
+  tonnageParClient,
+  tonnageParPeriode,
+  tonnageParType,
   trierPostes,
+  type BaseTonnage,
   type FiltresDashboard,
+  type Granularite,
   type Pointage,
   type Preset,
   type TriPostes,
@@ -82,6 +93,7 @@ const TRIS_COMPARAISON: Record<TriPostes, string> = { heures: "Réel", ecart: "�
 
 const formatRatio = (r: number) => `×${r.toLocaleString("fr-BE", { maximumFractionDigits: 2 })}`
 const nombre = new Intl.NumberFormat("fr-BE", { maximumFractionDigits: 0 })
+const decimal = new Intl.NumberFormat("fr-BE", { maximumFractionDigits: 1 })
 
 export default function Page() {
   const navigate = useNavigate()
@@ -90,6 +102,8 @@ export default function Page() {
   const [filtres, setFiltres] = React.useState<FiltresDashboard>(FILTRES_DASHBOARD_VIDES)
   const [triPostes, setTriPostes] = React.useState<Exclude<TriPostes, "ecart">>("heures")
   const [triComparaison, setTriComparaison] = React.useState<TriPostes>("ecart")
+  const [baseTonnage, setBaseTonnage] = React.useState<BaseTonnage>("commande")
+  const [granularite, setGranularite] = React.useState<Granularite>("annee")
   const modifier = (m: Partial<FiltresDashboard>) => setFiltres((f) => ({ ...f, ...m }))
 
   const options = React.useMemo(() => optionsFiltres(affaires), [affaires])
@@ -129,6 +143,28 @@ export default function Page() {
   )
   const points = React.useMemo(() => pointsPrevuReel(donnees.affaires), [donnees])
 
+  const tonnage = React.useMemo(
+    () => affairesTonnage(affaires, donnees.types, filtres, baseTonnage),
+    [affaires, donnees.types, filtres, baseTonnage]
+  )
+  const kpiTonnage = indicateursTonnage(tonnage.lignes)
+  const tonnagePeriodes = React.useMemo(() => tonnageParPeriode(tonnage.lignes, granularite), [tonnage, granularite])
+  const tonnageClients = React.useMemo(
+    () => tonnageParClient(tonnage.lignes).map((c) => ({ cle: c.client, libelle: c.client, valeur: c.tonnes })),
+    [tonnage]
+  )
+  const tonnageTypes = React.useMemo(
+    () => tonnageParType(tonnage.lignes, donnees.types).map((t) => ({ cle: t.type, libelle: t.type, valeur: t.tonnes })),
+    [tonnage, donnees.types]
+  )
+  const basePhrase = baseTonnage === "commande" ? "date de commande (RDE, sinon fiche)" : "date de fin de production"
+  const basculerType = (type: string) =>
+    modifier({
+      typesProduction: filtres.typesProduction.includes(type)
+        ? filtres.typesProduction.filter((t) => t !== type)
+        : [...filtres.typesProduction, type],
+    })
+
   const presetActif = (Object.keys(PRESETS) as Preset[]).find((p) => {
     const b = bornesPreset(p)
     return b.du === filtres.du && b.au === filtres.au
@@ -154,7 +190,7 @@ export default function Page() {
           {/* Filtres : une seule ligne, au-dessus de tout ce qu'ils filtrent. */}
           <div className="flex flex-wrap items-end gap-3">
             <div className="flex flex-col gap-1">
-              <Label className="text-xs text-muted-foreground">Période (pointages)</Label>
+              <Label className="text-xs text-muted-foreground">Période</Label>
               <div className="flex gap-0.5 rounded-lg bg-muted p-0.5 text-sm" role="group" aria-label="Période">
                 {(Object.keys(PRESETS) as Preset[]).map((p) => (
                   <button
@@ -299,18 +335,95 @@ export default function Page() {
                   <BarresClassees
                     donnees={types}
                     selection={filtres.typesProduction}
-                    onSelection={(type) =>
-                      modifier({
-                        typesProduction: filtres.typesProduction.includes(type)
-                          ? filtres.typesProduction.filter((t) => t !== type)
-                          : [...filtres.typesProduction, type],
-                      })
-                    }
+                    onSelection={basculerType}
                     formatValeur={(v) => nombre.format(v)}
                     nomValeur="affaires"
                   />
                 ) : (
                   <p className="py-8 text-center text-sm text-muted-foreground">Aucune affaire sur ce périmètre.</p>
+                )}
+              </CarteGraphique>
+            </div>
+
+            {/* Tonnage : données d'affaire, datées par la commande ou la fin de
+                production (pas par les pointages) -- voir lib/dashboard.ts. */}
+            <div className="flex flex-col gap-3 pt-2">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div className="flex flex-col">
+                  <h2 className="text-base font-semibold">Tonnage</h2>
+                  <p className="text-xs text-muted-foreground">
+                    Poids de la fiche, sinon du RDE laminage · période appliquée à la {basePhrase} · hors affaires annulées
+                  </p>
+                </div>
+                <BoutonsTri valeur={baseTonnage} options={BASES_TONNAGE} onChange={setBaseTonnage} />
+              </div>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <StatTile
+                  label="Tonnage"
+                  valeur={formatTonnes(kpiTonnage.tonnes)}
+                  detail={`${nombre.format(kpiTonnage.nbAffaires)} affaire${kpiTonnage.nbAffaires > 1 ? "s" : ""} pesée${kpiTonnage.nbAffaires > 1 ? "s" : ""}`}
+                />
+                <StatTile
+                  label="Tonnage par affaire"
+                  valeur={kpiTonnage.tonnesMedianesParAffaire == null ? "—" : formatTonnes(kpiTonnage.tonnesMedianesParAffaire)}
+                  detail="médiane"
+                />
+                <StatTile
+                  label="Heures par tonne"
+                  valeur={kpiTonnage.heuresParTonne == null ? "—" : `${decimal.format(kpiTonnage.heuresParTonne)} h/t`}
+                  detail={`médiane sur ${kpiTonnage.nbAffairesPointees} affaire${kpiTonnage.nbAffairesPointees > 1 ? "s" : ""} pointée${kpiTonnage.nbAffairesPointees > 1 ? "s" : ""} (heures ERP totales)`}
+                />
+                <StatTile
+                  label="Affaires sans poids"
+                  valeur={nombre.format(tonnage.sansPoids)}
+                  detail="datées dans la période, exclues du tonnage"
+                />
+              </div>
+            </div>
+
+            <CarteGraphique
+              titre={`Tonnage par ${GRANULARITES[granularite].toLowerCase()}`}
+              sousTitre={`Selon la ${basePhrase}`}
+              actions={<BoutonsTri valeur={granularite} options={GRANULARITES} onChange={setGranularite} />}
+            >
+              {tonnagePeriodes.length > 0 ? (
+                <GraphiqueTonnage donnees={tonnagePeriodes} />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">Aucune affaire pesée sur ce périmètre.</p>
+              )}
+            </CarteGraphique>
+
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-6">
+              <CarteGraphique titre="Tonnage par client" sousTitre="10 premiers clients · cliquer une barre pour filtrer">
+                {tonnageClients.length > 0 ? (
+                  <BarresClassees
+                    donnees={tonnageClients}
+                    selection={filtres.client === "all" ? [] : [filtres.client]}
+                    onSelection={(client) =>
+                      options.clients.includes(client) && modifier({ client: filtres.client === client ? "all" : client })
+                    }
+                    formatValeur={formatTonnes}
+                    nomValeur="tonnage"
+                  />
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">Aucune affaire pesée sur ce périmètre.</p>
+                )}
+              </CarteGraphique>
+
+              <CarteGraphique
+                titre="Tonnage par type de production"
+                sousTitre="Une affaire compte dans chacun de ses types · cliquer une barre pour filtrer"
+              >
+                {tonnageTypes.length > 0 ? (
+                  <BarresClassees
+                    donnees={tonnageTypes}
+                    selection={filtres.typesProduction}
+                    onSelection={basculerType}
+                    formatValeur={formatTonnes}
+                    nomValeur="tonnage"
+                  />
+                ) : (
+                  <p className="py-8 text-center text-sm text-muted-foreground">Aucune affaire pesée sur ce périmètre.</p>
                 )}
               </CarteGraphique>
             </div>
