@@ -1,33 +1,55 @@
-use crate::prevision::{self, CoefficientsExport, PosteCoefficients, VariablesConnues, POSTES_FORFAIT, POSTES_PAR_BARRE};
+use crate::prevision::{self, CoefficientsExport, PosteCoefficients, VariablesConnues, POSTES_FORFAIT};
 use nalgebra::{DMatrix, DVector};
 use rusqlite::Connection;
 use std::collections::HashMap;
 
-/// Définition des variables explicatives par poste -- doit rester
-/// cohérente avec POSTE_VARIABLES côté pipeline_calibration.py.
+/// Modèles candidats par poste, par ordre de priorité : chaque candidat est
+/// une liste de variables (voir prevision::charger_variables). La
+/// calibration garde, parmi les candidats à une variable, la grandeur qui
+/// prévoit le mieux en validation croisée (voir choisir_variable) ; un
+/// candidat à plusieurs variables en tête de liste (forage numérique : trous
+/// + diamètre) passe avant dès qu'il est calibrable. Le premier candidat
+/// est le modèle par défaut (affiché pour un poste pas encore calibré).
 ///
-/// Les postes de POSTES_PAR_BARRE (assemblage, presse, robot, P3, soudage) et de
-/// POSTES_FORFAIT (soudage sous flux, contrôle CND) y sont ajoutés avec leur
-/// variable dérivée (voir prevision::charger_variables) -- sauf s'ils ont
-/// déjà leurs variables ici (forage numérique), la variable par barre
-/// n'étant alors qu'un repli (voir calibrer_poste). Seuls
+/// Grandeurs candidates retenues d'après les données de 2025 (erreur en
+/// validation croisée, nombre de barres -> meilleure grandeur) : P3 63 % ->
+/// poids 42 %, mise à longueur 105 % -> mètres de poutre 74 %, presse
+/// 68 % -> poids 62 %. Les postes filtrés (POSTES_PREVUS) utilisent la
+/// version réservée au poste prévu de chaque grandeur (poids_p3...). Seuls
 /// "reparation" et "casse_machine" restent sans modèle : ce sont des aléas,
-/// pas du travail prévisible.
+/// pas du travail prévisible. Doit rester cohérent avec POSTE_VARIABLES
+/// côté pipeline_calibration.py.
 ///
 /// Note : "enfilage" n'existe PAS dans les données ERP réelles (confirmé
 /// sur le fichier complet, 15 postes recensés, enfilage absent) --
 /// volontairement retiré d'ici pour ne pas laisser une entrée trompeuse.
-pub fn poste_variables() -> HashMap<&'static str, Vec<&'static str>> {
+pub fn poste_variables() -> HashMap<&'static str, Vec<Vec<String>>> {
+    let une = |variable: &str| vec![variable.to_string()];
+    let filtrees = |suffixe: &str, prefixes: &[&str]| -> Vec<Vec<String>> {
+        prefixes.iter().map(|prefixe| vec![prevision::variable_filtree(prefixe, suffixe)]).collect()
+    };
+
+    let mut forage_numerique = vec![
+        vec!["nb_trous_numerique".to_string(), "diametre_moyen_numerique".to_string()],
+        une("nb_trous_numerique"),
+    ];
+    forage_numerique.extend(filtrees("forage_numerique", &["nb_barres", "poids", "metres", "nb_barres_cfl"]));
+
     let mut postes = HashMap::from([
-        ("manutention", vec!["nb_barres"]),
-        ("forage_manuel", vec!["nb_trous_manuel"]),
-        ("forage_numerique", vec!["nb_trous_numerique", "diametre_moyen_numerique"]),
-        ("goujonnage", vec!["nb_goujons"]),
-        ("mise_a_longueur", vec!["nb_barres"]),
-        ("oxycoupage", vec!["longueur_coupe"]),
+        ("manutention", vec![une("nb_barres"), une("poids_t"), une("metres"), une("nb_barres_cfl")]),
+        ("mise_a_longueur", vec![une("nb_barres"), une("poids_t"), une("metres")]),
+        ("forage_manuel", vec![une("nb_trous_manuel")]),
+        ("forage_numerique", forage_numerique),
+        ("goujonnage", vec![une("nb_goujons")]),
+        ("oxycoupage", vec![une("longueur_coupe")]),
+        ("assemblage_tracage", filtrees("assemblage", &["nb_barres", "poids", "metres"])),
+        ("presse_cintrage", filtrees("presse", &["nb_barres", "poids", "metres", "nb_barres_cfl"])),
+        ("robot", filtrees("robot", &["nb_barres", "poids", "metres"])),
+        ("p3", filtrees("p3", &["nb_barres", "poids", "metres"])),
+        ("soudage", filtrees("soudage", &["nb_barres", "poids", "metres"])),
     ]);
-    for (poste, variable) in POSTES_PAR_BARRE.iter().chain(POSTES_FORFAIT.iter()) {
-        postes.entry(poste).or_insert_with(|| vec![variable]);
+    for (poste, variable) in POSTES_FORFAIT {
+        postes.insert(poste, vec![une(variable)]);
     }
     postes
 }
@@ -197,13 +219,17 @@ const BLOCS_VALIDATION: usize = 10;
 /// heures réelles : les affaires sont réparties en 10 blocs, chacune
 /// prévue par un modèle calibré sans son bloc -- mesure ce que le modèle
 /// vaut sur une affaire qu'il n'a pas vue, pas sur celles qui l'ont calibré.
+///
+/// Une affaire de quantité nulle est prévue à 0 h et n'entre pas dans
+/// l'apprentissage, comme dans predire (voir choisir_variable, où une
+/// grandeur peut valoir 0 sur des affaires qui ont pourtant des heures).
 fn erreur_validation_croisee(donnees: &[LigneCalibration], ajuster: fn(&[LigneCalibration]) -> Option<Forme>) -> Option<f64> {
     let mut erreur = 0.0;
     for bloc in 0..BLOCS_VALIDATION {
         let apprentissage: Vec<LigneCalibration> = donnees
             .iter()
             .enumerate()
-            .filter(|(i, _)| i % BLOCS_VALIDATION != bloc)
+            .filter(|(i, l)| i % BLOCS_VALIDATION != bloc && l.valeurs[0] != 0.0)
             .map(|(_, l)| l.clone())
             .collect();
         let forme = ajuster(&apprentissage)?;
@@ -211,7 +237,10 @@ fn erreur_validation_croisee(donnees: &[LigneCalibration], ajuster: fn(&[LigneCa
             .iter()
             .enumerate()
             .filter(|(i, _)| i % BLOCS_VALIDATION == bloc)
-            .map(|(_, l)| (forme.prevoir(l.valeurs[0]) - l.heures).abs())
+            .map(|(_, l)| {
+                let prevu = if l.valeurs[0] == 0.0 { 0.0 } else { forme.prevoir(l.valeurs[0]) };
+                (prevu - l.heures).abs()
+            })
             .sum::<f64>();
     }
     Some(erreur / donnees.iter().map(|l| l.heures).sum::<f64>())
@@ -291,7 +320,7 @@ fn regression_lineaire(donnees: &[LigneCalibration], n_variables: usize) -> (f64
     (intercept, coefficients, r2)
 }
 
-fn mediane(mut valeurs: Vec<f64>) -> Option<f64> {
+pub(crate) fn mediane(mut valeurs: Vec<f64>) -> Option<f64> {
     if valeurs.is_empty() {
         return None;
     }
@@ -344,65 +373,122 @@ fn calibrer_forfait(conn: &Connection, poste: &str, variable: &str) -> Result<Op
     }))
 }
 
+/// Grandeur d'un poste parmi ses candidates à une variable (voir
+/// poste_variables). Chacune est évaluée (meilleure forme, droite ou
+/// courbe) en validation croisée sur les MÊMES affaires -- celles où toutes
+/// les candidates sont connues --, pour que la comparaison ne dépende pas de
+/// l'échantillon de chacune. Si ces affaires communes sont trop peu
+/// nombreuses, la candidate connue sur le moins d'affaires est écartée, et
+/// ainsi de suite. À erreur égale, la candidate prioritaire l'emporte. None
+/// si aucune candidate n'a MIN_OBS_REPLI affaires.
+fn choisir_variable<'a>(
+    conn: &Connection,
+    poste: &str,
+    candidates: &[&'a str],
+    variables_affaires: &HashMap<String, VariablesConnues>,
+) -> Result<Option<&'a str>, String> {
+    let mut restantes: Vec<(&'a str, usize)> = Vec::new();
+    for candidate in candidates {
+        let n = charger_donnees_poste(conn, poste, &[candidate], variables_affaires)?.len();
+        if n >= MIN_OBS_REPLI {
+            restantes.push((candidate, n));
+        }
+    }
+
+    let (noms, communes) = loop {
+        match restantes.len() {
+            0 => return Ok(None),
+            1 => return Ok(Some(restantes[0].0)),
+            _ => {}
+        }
+        let noms: Vec<&'a str> = restantes.iter().map(|(nom, _)| *nom).collect();
+        let communes = charger_donnees_poste(conn, poste, &noms, variables_affaires)?;
+        if communes.len() >= MIN_OBS_PAR_VARIABLE {
+            break (noms, communes);
+        }
+        // La moins renseignée ; à égalité, la moins prioritaire.
+        let moins_renseignee = (0..restantes.len()).rev().min_by_key(|&i| restantes[i].1).unwrap_or(0);
+        restantes.remove(moins_renseignee);
+    };
+
+    let ajusteurs: [fn(&[LigneCalibration]) -> Option<Forme>; 2] = [ajuster_droite, ajuster_puissance];
+    let mut meilleure: Option<(&'a str, f64)> = None;
+    let mut journal = Vec::new();
+    for (j, nom) in noms.iter().enumerate() {
+        let donnees: Vec<LigneCalibration> = communes
+            .iter()
+            .map(|l| LigneCalibration { heures: l.heures, valeurs: vec![l.valeurs[j]] })
+            .collect();
+        let erreur = ajusteurs
+            .iter()
+            .filter_map(|ajuster| erreur_validation_croisee(&donnees, *ajuster))
+            .fold(f64::INFINITY, f64::min);
+        journal.push(format!("{nom} {:.0} %", erreur * 100.0));
+        if meilleure.is_none_or(|(_, e)| erreur < e) {
+            meilleure = Some((nom, erreur));
+        }
+    }
+    println!("[{poste}] choix de la grandeur sur {} affaires communes : {}", communes.len(), journal.join(", "));
+    Ok(meilleure.map(|(nom, _)| nom))
+}
+
 /// Calibre un seul poste. Retourne None si l'échantillon est insuffisant.
 ///
-/// Régression (droite ou courbe puissance pour une variable, voir
-/// calibrer_une_variable ; moindres carrés au-delà) si l'échantillon le
-/// permet et qu'elle donne des coefficients positifs (une pente négative -- plus de barres, moins
-/// d'heures -- n'a pas de sens physique et vient du bruit), sinon ratio
-/// médian (voir ratio_median). Si rien n'est calibrable avec les variables
-/// du poste et qu'il a une variable par barre de repli (POSTES_PAR_BARRE),
-/// nouvel essai avec celle-ci.
+/// Un candidat à plusieurs variables en tête de `candidats` est calibré par
+/// moindres carrés s'il a assez d'affaires et des coefficients positifs.
+/// Sinon, grandeur choisie parmi les candidats à une variable (voir
+/// choisir_variable), puis droite ou courbe puissance (voir
+/// calibrer_une_variable) si l'échantillon le permet et que la pente est
+/// positive (une pente négative -- plus de barres, moins d'heures -- n'a pas
+/// de sens physique et vient du bruit), sinon ratio médian (voir
+/// ratio_median).
 pub fn calibrer_poste(
     conn: &Connection,
     poste: &str,
-    variables: &[&str],
+    candidats: &[Vec<String>],
     variables_affaires: &HashMap<String, VariablesConnues>,
 ) -> Result<Option<ResultatCalibration>, String> {
     if let Some((_, variable)) = POSTES_FORFAIT.iter().find(|(p, _)| *p == poste) {
         return calibrer_forfait(conn, poste, variable);
     }
 
-    let donnees = charger_donnees_poste(conn, poste, variables, variables_affaires)?;
-    let seuil_min = (MIN_OBS_PAR_VARIABLE * variables.len()).max(variables.len() + 2);
+    if let Some(variables) = candidats.first().filter(|c| c.len() > 1) {
+        let variables: Vec<&str> = variables.iter().map(String::as_str).collect();
+        let donnees = charger_donnees_poste(conn, poste, &variables, variables_affaires)?;
+        let seuil_min = (MIN_OBS_PAR_VARIABLE * variables.len()).max(variables.len() + 2);
+        if donnees.len() >= seuil_min {
+            let (intercept, coefs, r2) = regression_lineaire(&donnees, variables.len());
+            if coefs.iter().all(|c| *c >= 0.0) {
+                let coefficients: HashMap<String, f64> =
+                    variables.iter().map(|v| v.to_string()).zip(coefs).collect();
+                println!("[{poste}] n={}  moindres carrés  R²={:.2}  intercept={intercept:.2}  coef={:?}", donnees.len(), r2, coefficients);
+                return Ok(Some(ResultatCalibration {
+                    poste: poste.to_string(),
+                    coefficients: PosteCoefficients { intercept, coefficients, exposant: None },
+                }));
+            }
+            println!("[{poste}] régression {variables:?} rejetée (coefficient négatif : {coefs:?})");
+        } else {
+            println!("[{poste}] {variables:?} : {} affaires (minimum {seuil_min}), grandeurs simples", donnees.len());
+        }
+    }
 
-    if donnees.len() >= seuil_min && variables.len() == 1 {
-        if let Some(coefficients) = calibrer_une_variable(poste, variables[0], &donnees) {
+    let simples: Vec<&str> = candidats.iter().filter(|c| c.len() == 1).map(|c| c[0].as_str()).collect();
+    let Some(variable) = choisir_variable(conn, poste, &simples, variables_affaires)? else {
+        println!("[{poste}] échantillon insuffisant pour toutes les grandeurs (minimum {MIN_OBS_REPLI} affaires), ignoré");
+        return Ok(None);
+    };
+
+    let donnees = charger_donnees_poste(conn, poste, &[variable], variables_affaires)?;
+    if donnees.len() >= MIN_OBS_PAR_VARIABLE {
+        if let Some(coefficients) = calibrer_une_variable(poste, variable, &donnees) {
             return Ok(Some(ResultatCalibration { poste: poste.to_string(), coefficients }));
         }
-    } else if donnees.len() >= seuil_min {
-        let (intercept, coefs, r2) = regression_lineaire(&donnees, variables.len());
-        if coefs.iter().all(|c| *c >= 0.0) {
-            let coefficients: HashMap<String, f64> =
-                variables.iter().map(|v| v.to_string()).zip(coefs).collect();
-            println!("[{poste}] n={}  moindres carrés  R²={:.2}  intercept={intercept:.2}  coef={:?}", donnees.len(), r2, coefficients);
-            return Ok(Some(ResultatCalibration {
-                poste: poste.to_string(),
-                coefficients: PosteCoefficients { intercept, coefficients, exposant: None },
-            }));
-        }
-        println!("[{poste}] régression rejetée (coefficient négatif : {coefs:?}), repli sur le ratio médian");
     }
-
-    match ratio_median(&donnees, variables) {
-        Some(coefficients) => {
-            println!("[{poste}] n={}  ratio médian  coef={:?}", donnees.len(), coefficients.coefficients);
-            Ok(Some(ResultatCalibration { poste: poste.to_string(), coefficients }))
-        }
-        None => {
-            println!(
-                "[{poste}] échantillon insuffisant : {} affaires (minimum {MIN_OBS_REPLI}), ignoré",
-                donnees.len()
-            );
-            match POSTES_PAR_BARRE.iter().find(|(p, v)| *p == poste && !variables.contains(v)) {
-                Some((_, repli)) => {
-                    println!("[{poste}] nouvel essai avec {repli}");
-                    calibrer_poste(conn, poste, &[repli], variables_affaires)
-                }
-                None => Ok(None),
-            }
-        }
-    }
+    Ok(ratio_median(&donnees, &[variable]).map(|coefficients| {
+        println!("[{poste}] n={}  ratio médian  coef={:?}", donnees.len(), coefficients.coefficients);
+        ResultatCalibration { poste: poste.to_string(), coefficients }
+    }))
 }
 
 /// Calibre tous les postes exploitables et retourne un CoefficientsExport
@@ -411,8 +497,8 @@ pub fn calibrer_tous_les_postes(conn: &Connection) -> Result<CoefficientsExport,
     let variables_affaires = prevision::charger_variables(conn, None)?;
     let mut postes = HashMap::new();
 
-    for (poste, variables) in poste_variables() {
-        if let Some(resultat) = calibrer_poste(conn, poste, &variables, &variables_affaires)? {
+    for (poste, candidats) in poste_variables() {
+        if let Some(resultat) = calibrer_poste(conn, poste, &candidats, &variables_affaires)? {
             postes.insert(resultat.poste.clone(), resultat.coefficients);
         }
     }
@@ -470,7 +556,7 @@ mod tests {
         assert_eq!(variables["A0"]["nb_barres_presse"], Some(5.0));
         assert_eq!(variables["SANS_PRESSE"]["nb_barres_presse"], Some(0.0));
 
-        let resultat = calibrer_poste(&conn, "presse_cintrage", &["nb_barres_presse"], &variables)
+        let resultat = calibrer_poste(&conn, "presse_cintrage", &[vec!["nb_barres_presse".to_string()]], &variables)
             .unwrap()
             .unwrap();
         assert_eq!(resultat.coefficients.intercept, 0.0);
@@ -512,6 +598,53 @@ mod tests {
         // Les moindres carrés, eux, sont emportés par l'affaire aberrante.
         let (_, pentes_mc, _) = regression_lineaire(&donnees, 1);
         assert!(pentes_mc[0] > 10.0);
+    }
+
+    #[test]
+    fn grandeur_choisie_sur_les_affaires_communes() {
+        let conn = base();
+        // Heures de presse proportionnelles au poids, sans lien avec le
+        // nombre de barres ; une affaire sans poids connu n'entre pas dans
+        // la comparaison.
+        for i in 0..15 {
+            let affaire_i = format!("A{i}");
+            let nb_barres = ((i * 7) % 11 + 1) as f64;
+            let poids = 10.0 * (i + 1) as f64;
+            affaire(&conn, &affaire_i, nb_barres, true, 2.0 * poids);
+            conn.execute("UPDATE variables_affaires SET poids_t = ?1 WHERE affaire = ?2", rusqlite::params![poids, affaire_i])
+                .unwrap();
+        }
+        affaire(&conn, "SANS_POIDS", 3.0, true, 500.0);
+
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        assert_eq!(variables["A0"]["poids_presse"], Some(10.0));
+        assert_eq!(variables["SANS_POIDS"]["poids_presse"], None);
+        let choix = choisir_variable(&conn, "presse_cintrage", &["nb_barres_presse", "poids_presse", "metres_presse"], &variables)
+            .unwrap();
+        // metres_presse (aucune longueur en base) est écartée faute d'affaires.
+        assert_eq!(choix, Some("poids_presse"));
+
+        let candidats = poste_variables()["presse_cintrage"].clone();
+        let resultat = calibrer_poste(&conn, "presse_cintrage", &candidats, &variables).unwrap().unwrap();
+        assert!(resultat.coefficients.coefficients.contains_key("poids_presse"));
+    }
+
+    #[test]
+    fn grandeur_manquante_estimee_pour_la_prevision() {
+        let conn = base();
+        // Deux affaires de référence à 2 t par barre ; la troisième a des
+        // barres mais pas de poids lu.
+        for (affaire_i, nb, poids) in [("R1", 10.0, Some(20.0)), ("R2", 30.0, Some(60.0)), ("SANS_POIDS", 5.0, None)] {
+            affaire(&conn, affaire_i, nb, true, 0.0);
+            conn.execute("UPDATE variables_affaires SET poids_t = ?1 WHERE affaire = ?2", rusqlite::params![poids, affaire_i])
+                .unwrap();
+        }
+        let variables = prevision::charger_variables_affaire(&conn, "SANS_POIDS").unwrap();
+        assert_eq!(variables["poids_t"], 10.0);
+        assert_eq!(variables["poids_presse"], 10.0);
+        assert_eq!(variables["poids_p3"], 0.0); // P3 pas prévu
+        // La calibration, elle, garde le poids inconnu.
+        assert_eq!(prevision::charger_variables(&conn, Some("SANS_POIDS")).unwrap()["SANS_POIDS"]["poids_t"], None);
     }
 
     #[test]
@@ -564,7 +697,7 @@ mod tests {
             )
             .unwrap();
         }
-        let resultat = calibrer_poste(&conn, "controle_cnd", &["controle_cnd_prevu"], &HashMap::new())
+        let resultat = calibrer_poste(&conn, "controle_cnd", &[vec!["controle_cnd_prevu".to_string()]], &HashMap::new())
             .unwrap()
             .unwrap();
         assert_eq!(resultat.coefficients.coefficients["controle_cnd_prevu"], 30.0);
@@ -679,15 +812,16 @@ mod tests {
 
         let mut postes: Vec<_> = poste_variables().into_iter().collect();
         postes.sort();
-        for (poste, variables) in postes {
-            let variables = match POSTES_PAR_BARRE.iter().find(|(p, _)| *p == poste) {
-                Some((_, v)) if variables.len() > 1 => vec![*v],
-                _ => variables,
-            };
-            if variables.len() != 1 || POSTES_FORFAIT.iter().any(|(p, _)| *p == poste) {
+        for (poste, candidats) in postes {
+            if POSTES_FORFAIT.iter().any(|(p, _)| *p == poste) {
                 continue;
             }
-            let d = charger_donnees_poste(&conn, poste, &variables, &variables_affaires).unwrap();
+            // La grandeur que la calibration retiendrait (voir choisir_variable).
+            let simples: Vec<&str> = candidats.iter().filter(|c| c.len() == 1).map(|c| c[0].as_str()).collect();
+            let Some(variable) = choisir_variable(&conn, poste, &simples, &variables_affaires).unwrap() else {
+                continue;
+            };
+            let d = charger_donnees_poste(&conn, poste, &[variable], &variables_affaires).unwrap();
             if d.len() < 2 * BLOCS {
                 println!("{poste:18} n={:4} : trop peu d'affaires", d.len());
                 continue;
@@ -700,7 +834,7 @@ mod tests {
             }
             (0..4).for_each(|k| reel_total[k] += reel[k]);
 
-            let mut ligne = format!("{poste:18} n={:4} tiers <{:.0} / <{:.0} |", d.len(), bornes.0, bornes.1);
+            let mut ligne = format!("{poste:18} {variable} n={:4} tiers <{:.0} / <{:.0} |", d.len(), bornes.0, bornes.1);
             for (m, (nom, calibrer)) in methodes.iter().enumerate() {
                 let mut erreurs = [0.0f64; 4];
                 let mut prevu = 0.0;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -23,6 +23,9 @@ const PROFIL_NON_RENSEIGNE = "none"
 // Excel dans le dossier surveillé.
 type Champ =
   | "nb_barres"
+  | "poids_t"
+  | "metres"
+  | "nb_barres_cfl"
   | "nb_goujons"
   | "nb_trous_manuel"
   | "nb_trous_numerique"
@@ -31,6 +34,9 @@ type Champ =
 
 const CHAMPS: { key: Champ; label: string }[] = [
   { key: "nb_barres", label: "Nombre de barres" },
+  { key: "poids_t", label: "Poids total (t)" },
+  { key: "metres", label: "Longueur totale de poutres (m)" },
+  { key: "nb_barres_cfl", label: "Barres avec contre-flèche" },
   { key: "nb_goujons", label: "Nombre de goujons" },
   { key: "nb_trous_manuel", label: "Trous perçage manuel" },
   { key: "nb_trous_numerique", label: "Trous perçage numérique" },
@@ -54,7 +60,7 @@ const OPERATIONS_RDE: { key: string; label: string }[] = [
 ]
 
 // Postes cochables directement, en plus de ceux déduits des cases du RDE :
-// leur temps dépend de leur présence dans le projet (voir POSTES_PAR_BARRE /
+// leur temps dépend de leur présence dans le projet (voir POSTES_PREVUS /
 // POSTES_FORFAIT dans prevision.rs) -- envoyés à `chiffrer_manuellement`,
 // qui en dérive les variables de ces postes (nombre de barres qui passent
 // à la presse, forfait CND...).
@@ -77,6 +83,9 @@ function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<strin
 
 const CHAMPS_VIDES: Record<Champ, string> = {
   nb_barres: "",
+  poids_t: "",
+  metres: "",
+  nb_barres_cfl: "",
   nb_goujons: "",
   nb_trous_manuel: "",
   nb_trous_numerique: "",
@@ -116,6 +125,21 @@ export default function Chiffrage() {
   const [infos, setInfos] = useState<Record<ChampInfo, string>>(INFOS_VIDES)
   const [postes, setPostes] = useState<Set<string>>(new Set())
   const [operationsRde, setOperationsRde] = useState<Set<string>>(new Set())
+  // Champ -> postes qui en dépendent avec la calibration actuelle (voir
+  // lister_grandeurs_utilisees) : chaque poste calibre sa propre grandeur
+  // (poids, mètres, barres...), un champ utilisé laissé vide chiffre son
+  // poste à 0 h -- sauf poids et mètres, estimés d'après le nombre de barres.
+  const [grandeursUtilisees, setGrandeursUtilisees] = useState<Record<string, string[]>>({})
+
+  useEffect(() => {
+    const charger = () =>
+      invoke<Record<string, string[]>>("lister_grandeurs_utilisees")
+        .then(setGrandeursUtilisees)
+        .catch(() => setGrandeursUtilisees({}))
+    charger()
+    window.addEventListener("coefficients-updated", charger)
+    return () => window.removeEventListener("coefficients-updated", charger)
+  }, [])
   const [resultat, setResultat] = useState<Record<string, number> | null>(null)
   const [calcul, setCalcul] = useState(false)
   const [dbs, setDbs] = useState(false)
@@ -248,7 +272,14 @@ export default function Chiffrage() {
 
                 {CHAMPS.map(({ key, label }) => (
                   <div key={key} className="flex items-center justify-between gap-2">
-                    <span className="shrink-0 text-sm text-muted-foreground">{label}</span>
+                    <div className="flex flex-col">
+                      <span className="text-sm text-muted-foreground">{label}</span>
+                      {grandeursUtilisees[key] && (
+                        <span className="text-xs text-muted-foreground/70">
+                          utilisé par : {grandeursUtilisees[key].map(libellePoste).join(", ")}
+                        </span>
+                      )}
+                    </div>
                     <Input
                       className="h-8 max-w-36 text-right tabular-nums"
                       inputMode="decimal"

@@ -198,34 +198,73 @@ pub type VariablesAffaire = HashMap<String, f64>;
 pub type VariablesConnues = HashMap<String, Option<f64>>;
 
 /// Colonnes de `variables_affaires` reprises telles quelles comme variables.
-const COLONNES_VARIABLES: [&str; 6] = [
+const COLONNES_VARIABLES: [&str; 7] = [
     "nb_barres",
     "nb_goujons",
     "nb_trous_manuel",
     "nb_trous_numerique",
     "diametre_moyen_numerique",
     "longueur_coupe",
+    "poids_t",
 ];
 
-/// Postes dont le temps suit le nombre de barres qui y passent, avec leur
-/// variable dérivée : nb_barres si le poste est prévu, 0 sinon. Sans ce
-/// filtre, nb_barres seul chiffrerait de la presse ou du soudage sur toutes
-/// les affaires (sur 88 affaires avec fiche et heures ERP, le poste est
-/// prévu pour 66 des 67 qui ont des heures de presse, 30 des 35 en robot ;
-/// l'assemblage, chiffré sur toutes les affaires avec nb_barres seul, l'était
-/// à tort sur 62 affaires sur 88, contre 9 en le limitant aux affaires où il
-/// est prévu).
+/// Grandeurs de taille d'une commande, candidates pour expliquer le temps
+/// d'un poste (voir calibration::poste_variables), avec le préfixe de leur
+/// version réservée à un poste prévu (voir POSTES_PREVUS) :
+/// - nb_barres, poids_t : colonnes de la fiche ;
+/// - metres : longueur totale de poutres (Σ longueur × nb barres de
+///   `profils_affaires`) ;
+/// - nb_barres_cfl : barres avec une contre-flèche saisie (`cfl_affaires`).
+pub const GRANDEURS: [(&str, &str); 4] = [
+    ("nb_barres", "nb_barres"),
+    ("poids_t", "poids"),
+    ("metres", "metres"),
+    ("nb_barres_cfl", "nb_barres_cfl"),
+];
+
+/// Postes dont le temps suit la taille de ce qui y passe, avec le suffixe de
+/// leurs variables réservées : `<préfixe de GRANDEURS>_<suffixe>` vaut la
+/// grandeur si le poste est prévu, 0 sinon (ex. nb_barres_presse,
+/// poids_p3). Sans ce filtre, nb_barres seul chiffrerait de la presse ou du
+/// soudage sur toutes les affaires (sur 88 affaires avec fiche et heures
+/// ERP, le poste est prévu pour 66 des 67 qui ont des heures de presse, 30
+/// des 35 en robot ; l'assemblage, chiffré sur toutes les affaires avec
+/// nb_barres seul, l'était à tort sur 62 affaires sur 88, contre 9 en le
+/// limitant aux affaires où il est prévu).
 /// Pour le forage numérique, ce n'est qu'un repli : le nombre de trous des
 /// programmes CN reste préféré dès qu'il est connu sur assez d'affaires
 /// (voir calibration::calibrer_poste).
-pub const POSTES_PAR_BARRE: [(&str, &str); 6] = [
-    ("assemblage_tracage", "nb_barres_assemblage"),
-    ("presse_cintrage", "nb_barres_presse"),
-    ("robot", "nb_barres_robot"),
-    ("p3", "nb_barres_p3"),
-    ("soudage", "nb_barres_soudage"),
-    ("forage_numerique", "nb_barres_forage_numerique"),
+pub const POSTES_PREVUS: [(&str, &str); 6] = [
+    ("assemblage_tracage", "assemblage"),
+    ("presse_cintrage", "presse"),
+    ("robot", "robot"),
+    ("p3", "p3"),
+    ("soudage", "soudage"),
+    ("forage_numerique", "forage_numerique"),
 ];
+
+/// Nom de la variable réservée à un poste prévu : variable_filtree("poids", "p3") = "poids_p3".
+pub fn variable_filtree(prefixe: &str, suffixe: &str) -> String {
+    format!("{prefixe}_{suffixe}")
+}
+
+/// Grandeur saisie dont dépend une variable de modèle ("poids_p3" ->
+/// "poids_t", "nb_goujons" -> "nb_goujons") -- pour indiquer dans le
+/// chiffrage manuel quels champs la calibration actuelle utilise. None pour
+/// les indicatrices de forfait, qui viennent des postes cochés.
+pub fn grandeur_saisie(variable: &str) -> Option<String> {
+    if POSTES_FORFAIT.iter().any(|(_, v)| *v == variable) {
+        return None;
+    }
+    for (_, suffixe) in POSTES_PREVUS {
+        for (grandeur, prefixe) in GRANDEURS {
+            if variable == variable_filtree(prefixe, suffixe) {
+                return Some(grandeur.to_string());
+            }
+        }
+    }
+    Some(variable.to_string())
+}
 
 /// Postes chiffrés au forfait (indicatrice 1/0) : trop peu d'affaires avec
 /// fiche pour relier leurs heures à une quantité (1 en contrôle CND, 2 en
@@ -235,14 +274,16 @@ pub const POSTES_FORFAIT: [(&str, &str); 2] = [
     ("controle_cnd", "controle_cnd_prevu"),
 ];
 
-/// Ajoute les variables dérivées des postes prévus (POSTES_PAR_BARRE,
-/// POSTES_FORFAIT). Un poste prévu avec nb_barres inconnu donne une
+/// Ajoute les variables dérivées des postes prévus (POSTES_PREVUS,
+/// POSTES_FORFAIT). Un poste prévu avec une grandeur inconnue donne une
 /// variable inconnue, pas 0.
 fn deriver_variables(variables: &mut VariablesConnues, postes_prevus: &HashSet<String>) {
-    let nb_barres = variables.get("nb_barres").copied().flatten();
-    for (poste, variable) in POSTES_PAR_BARRE {
-        let valeur = if postes_prevus.contains(poste) { nb_barres } else { Some(0.0) };
-        variables.insert(variable.to_string(), valeur);
+    for (grandeur, prefixe) in GRANDEURS {
+        let valeur = variables.get(grandeur).copied().flatten();
+        for (poste, suffixe) in POSTES_PREVUS {
+            let filtree = if postes_prevus.contains(poste) { valeur } else { Some(0.0) };
+            variables.insert(variable_filtree(prefixe, suffixe), filtree);
+        }
     }
     for (poste, variable) in POSTES_FORFAIT {
         let valeur = if postes_prevus.contains(poste) { 1.0 } else { 0.0 };
@@ -292,9 +333,25 @@ fn charger_postes_prevus(conn: &Connection, affaire: Option<&str>) -> Result<Has
     Ok(postes)
 }
 
+/// (affaire, valeur) d'une requête à deux colonnes filtrée par `?1` (une
+/// affaire, ou toutes si None).
+fn valeurs_par_affaire(conn: &Connection, requete: &str, affaire: Option<&str>) -> Result<HashMap<String, f64>, String> {
+    let mut stmt = conn.prepare(requete).map_err(|e| e.to_string())?;
+    let lignes = stmt
+        .query_map([affaire], |r| Ok((r.get::<_, String>(0)?, r.get::<_, Option<f64>>(1)?)))
+        .map_err(|e| e.to_string())?;
+    let mut valeurs = HashMap::new();
+    for ligne in lignes {
+        if let (affaire, Some(valeur)) = ligne.map_err(|e| e.to_string())? {
+            valeurs.insert(affaire, valeur);
+        }
+    }
+    Ok(valeurs)
+}
+
 /// Variables de toutes les affaires de `variables_affaires` (ou d'une
-/// seule) : colonnes de COLONNES_VARIABLES plus variables dérivées des
-/// postes prévus. Partagé entre la calibration et la prévision pour que
+/// seule) : colonnes de COLONNES_VARIABLES, grandeurs de GRANDEURS et
+/// variables dérivées des postes prévus. Partagé entre la calibration et la prévision pour que
 /// les deux voient exactement les mêmes valeurs.
 pub fn charger_variables(conn: &Connection, affaire: Option<&str>) -> Result<HashMap<String, VariablesConnues>, String> {
     let postes_prevus = charger_postes_prevus(conn, affaire)?;
@@ -313,31 +370,119 @@ pub fn charger_variables(conn: &Connection, affaire: Option<&str>) -> Result<Has
         })
         .map_err(|e| e.to_string())?;
 
+    // Longueurs de `profils_affaires` en mm ; une longueur à 0 (non lue)
+    // ne compte pas, une affaire sans longueur connue a des mètres inconnus.
+    let metres = valeurs_par_affaire(
+        conn,
+        "SELECT affaire, SUM(longueur * nb_barres) / 1000.0 FROM profils_affaires
+         WHERE longueur > 0 AND (?1 IS NULL OR affaire = ?1) GROUP BY affaire",
+        affaire,
+    )?;
+    // Barres de FC-PRES : une affaire sans la feuille a un nombre inconnu,
+    // une feuille remplie sans contre-flèche en a 0.
+    let nb_barres_cfl = valeurs_par_affaire(
+        conn,
+        "SELECT affaire, SUM(cfl > 0) FROM cfl_affaires WHERE ?1 IS NULL OR affaire = ?1 GROUP BY affaire",
+        affaire,
+    )?;
+
     let aucun_poste = HashSet::new();
     let mut resultat = HashMap::new();
     for ligne in lignes {
         let (affaire, mut variables) = ligne.map_err(|e| e.to_string())?;
+        variables.insert("metres".into(), metres.get(&affaire).copied());
+        variables.insert("nb_barres_cfl".into(), nb_barres_cfl.get(&affaire).copied());
         deriver_variables(&mut variables, postes_prevus.get(&affaire).unwrap_or(&aucun_poste));
         resultat.insert(affaire, variables);
     }
     Ok(resultat)
 }
 
-/// Variables d'une affaire pour la prévision (inconnu = 0). Retourne une
-/// erreur si l'affaire n'existe pas encore dans la base (ex. devis pas
-/// encore importé).
+/// Grandeurs de taille estimables à partir du nombre de barres quand elles
+/// manquent (poids ou longueurs non lus sur la fiche : 10 et 17 affaires
+/// sur 116 en 2025).
+const GRANDEURS_ESTIMABLES: [&str; 2] = ["poids_t", "metres"];
+
+/// Poids et mètres médians par barre, sur toutes les affaires où les deux
+/// sont connus -- voir completer_grandeurs.
+pub fn estimations_par_barre(conn: &Connection) -> Result<HashMap<&'static str, f64>, String> {
+    let requetes = [
+        ("poids_t", "SELECT poids_t / nb_barres FROM variables_affaires WHERE poids_t > 0 AND nb_barres > 0"),
+        (
+            "metres",
+            "SELECT SUM(p.longueur * p.nb_barres) / 1000.0 / v.nb_barres
+             FROM profils_affaires p JOIN variables_affaires v USING (affaire)
+             WHERE p.longueur > 0 AND v.nb_barres > 0 GROUP BY p.affaire",
+        ),
+    ];
+    let mut estimations = HashMap::new();
+    for (grandeur, requete) in requetes {
+        let mut stmt = conn.prepare(requete).map_err(|e| e.to_string())?;
+        let valeurs = stmt
+            .query_map([], |r| r.get::<_, f64>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        if let Some(mediane) = crate::calibration::mediane(valeurs) {
+            estimations.insert(grandeur, mediane);
+        }
+    }
+    Ok(estimations)
+}
+
+/// Pour la prévision seulement : complète un poids ou des mètres inconnus
+/// (ou nuls, un champ laissé vide au chiffrage) par nb_barres × valeur
+/// médiane par barre, puis les variables réservées aux postes prévus qui en
+/// dépendaient. Sans cela, un poste calibré sur le poids ou les mètres
+/// serait chiffré à 0 h sur ces affaires. La calibration, elle, les écarte
+/// (valeur inconnue, voir calibration::charger_donnees_poste) pour ne pas
+/// apprendre sur des estimations.
+fn completer_grandeurs(variables: &mut VariablesConnues, par_barre: &HashMap<&str, f64>) {
+    let Some(nb_barres) = variables.get("nb_barres").copied().flatten().filter(|n| *n > 0.0) else {
+        return;
+    };
+    for grandeur in GRANDEURS_ESTIMABLES {
+        let connue = variables.get(grandeur).copied().flatten().is_some_and(|v| v > 0.0);
+        if let (false, Some(par_barre)) = (connue, par_barre.get(grandeur)) {
+            variables.insert(grandeur.to_string(), Some(nb_barres * par_barre));
+        }
+    }
+    // Une variable réservée n'est inconnue (None) que pour un poste prévu
+    // dont la grandeur l'était : elle prend la grandeur complétée.
+    for (grandeur, prefixe) in GRANDEURS {
+        let valeur = variables.get(grandeur).copied().flatten();
+        for (_, suffixe) in POSTES_PREVUS {
+            let nom = variable_filtree(prefixe, suffixe);
+            if variables.get(&nom) == Some(&None) {
+                variables.insert(nom, valeur);
+            }
+        }
+    }
+}
+
+/// Variables d'une affaire pour la prévision (grandeurs manquantes estimées,
+/// voir completer_grandeurs ; inconnu = 0). Retourne une erreur si
+/// l'affaire n'existe pas encore dans la base (ex. devis pas encore
+/// importé).
 pub fn charger_variables_affaire(conn: &Connection, affaire: &str) -> Result<VariablesAffaire, String> {
-    let variables = charger_variables(conn, Some(affaire))?.remove(affaire).ok_or_else(|| {
+    let mut variables = charger_variables(conn, Some(affaire))?.remove(affaire).ok_or_else(|| {
         eprintln!("Affaire '{affaire}' introuvable en base");
         format!("Affaire '{affaire}' introuvable en base")
     })?;
+    completer_grandeurs(&mut variables, &estimations_par_barre(conn)?);
     Ok(variables.into_iter().map(|(nom, valeur)| (nom, valeur.unwrap_or(0.0))).collect())
 }
 
 /// Variables d'un chiffrage manuel : quantités saisies plus variables
-/// dérivées des postes cochés (mêmes règles que pour une affaire en base).
-pub fn variables_saisies(saisies: &HashMap<String, f64>, postes_prevus: &HashSet<String>) -> VariablesAffaire {
+/// dérivées des postes cochés (mêmes règles que pour une affaire en base,
+/// poids et mètres laissés vides estimés d'après `par_barre`).
+pub fn variables_saisies(
+    saisies: &HashMap<String, f64>,
+    postes_prevus: &HashSet<String>,
+    par_barre: &HashMap<&str, f64>,
+) -> VariablesAffaire {
     let mut variables: VariablesConnues = saisies.iter().map(|(nom, valeur)| (nom.clone(), Some(*valeur))).collect();
+    completer_grandeurs(&mut variables, par_barre);
     deriver_variables(&mut variables, postes_prevus);
     variables.into_iter().map(|(nom, valeur)| (nom, valeur.unwrap_or(0.0))).collect()
 }

@@ -112,6 +112,7 @@ pub fn run() {
             lister_coefficients,
             modifier_coefficient,
             lister_variables_poste,
+            lister_grandeurs_utilisees,
             lister_heures,
             lister_heures_affaire,
             obtenir_dossier_configure,
@@ -261,7 +262,8 @@ fn chiffrer_manuellement(
         .into_iter()
         .chain(prevision::postes_depuis_operations_rde(operations_rde.iter().map(String::as_str)))
         .collect();
-    let variables = prevision::variables_saisies(&variables, &postes_prevus);
+    let par_barre = prevision::estimations_par_barre(&conn)?;
+    let variables = prevision::variables_saisies(&variables, &postes_prevus, &par_barre);
     let prevision = prevision::predire(&coeffs, &variables);
 
     let mut resultat = prevision.heures_par_poste;
@@ -337,17 +339,38 @@ fn modifier_coefficient(app: tauri::AppHandle, poste: String, variable: String, 
     prevision::modifier_coefficient(&conn, &poste, &variable, valeur)
 }
 
-/// Variables explicatives connues par poste (voir calibration::poste_variables)
-/// -- utilisé par l'écran Coefficients pour proposer les bons champs même
-/// sur un poste pas encore calibré (aucune ligne en base pour l'instant).
+/// Variables du modèle par défaut de chaque poste (premier candidat de
+/// calibration::poste_variables) -- utilisé par l'écran Coefficients pour
+/// proposer les bons champs même sur un poste pas encore calibré (aucune
+/// ligne en base pour l'instant).
 #[tauri::command]
 fn lister_variables_poste() -> HashMap<String, Vec<String>> {
     poste_variables()
         .into_iter()
-        .map(|(poste, variables)| {
-            (poste.to_string(), variables.into_iter().map(str::to_string).collect())
-        })
+        .map(|(poste, candidats)| (poste.to_string(), candidats.into_iter().next().unwrap_or_default()))
         .collect()
+}
+
+/// Grandeurs saisissables utilisées par la calibration actuelle, avec les
+/// postes qui en dépendent ("poids_t" -> ["p3", "presse_cintrage"]) -- pour
+/// signaler dans le Chiffrage les champs à remplir (un poste dont la
+/// grandeur est laissée vide est chiffré à 0 h).
+#[tauri::command]
+fn lister_grandeurs_utilisees(app: tauri::AppHandle) -> Result<HashMap<String, Vec<String>>, String> {
+    let conn = ouvrir_db(&app)?;
+    let Ok(coeffs) = prevision::charger_coefficients(&conn) else {
+        return Ok(HashMap::new());
+    };
+    let mut grandeurs: HashMap<String, Vec<String>> = HashMap::new();
+    for (poste, params) in coeffs.postes {
+        for variable in params.coefficients.keys() {
+            if let Some(grandeur) = prevision::grandeur_saisie(variable) {
+                grandeurs.entry(grandeur).or_default().push(poste.clone());
+            }
+        }
+    }
+    grandeurs.values_mut().for_each(|postes| postes.sort());
+    Ok(grandeurs)
 }
 
 #[derive(Serialize)]
