@@ -28,6 +28,57 @@ pub struct PosteCoefficients {
     /// Absent des coefficients.json antérieurs : None = droite.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exposant: Option<f64>,
+    /// Probabilité que le poste soit utilisé quand il est prévu, correction
+    /// des heures pointées hors prévision et heures quand sa quantité est
+    /// inconnue (voir Presence). Absent des coefficients antérieurs : None =
+    /// poste chiffré seulement si ses variables sont non nulles.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presence: Option<Presence>,
+}
+
+/// Présence d'un poste : heures prévues = probabilité qu'il soit utilisé
+/// quand il est prévu × correction × heures s'il l'est (formule calibrée sur
+/// les affaires où il l'a été) ; 0 s'il n'est pas prévu (voir heures_poste).
+///
+/// Sur la base complète (952 affaires), 40 % de l'erreur venait de la
+/// présence des postes : un poste chiffré sans être utilisé (mise à
+/// longueur chiffrée sur toutes les affaires, utilisée sur 61 %) ou utilisé
+/// sans être chiffré. Un poste prévu (voir poste_prevu) n'est pas toujours
+/// utilisé (presse 97 %, mise à longueur 82 %, P3 56 %) ; un poste non prévu
+/// l'est parfois (mise à longueur 21 %, robot 11 %), mais rarement plus
+/// d'une fois sur 2 : le chiffrer à 0 h est alors plus juste, affaire par
+/// affaire, que d'étaler une petite part d'heures sur toutes les affaires
+/// (testé : 73 % d'erreur sur le total d'une affaire, contre 64 %). Les
+/// heures des postes utilisés sans être prévus sont reportées sur les
+/// affaires où ils le sont (`correction`), pour garder le total juste
+/// (biais −4 %, contre −18 % sans correction).
+///
+/// Validation croisée par affaire (evaluation_par_affaire) : erreur sur le
+/// total d'une affaire 66 % -> 64 %, erreur médiane 76 % -> 57 %, affaires à
+/// ±30 % 21 % -> 28 %.
+///
+/// Deux niveaux de "prévu", aux probabilités très différentes : avec une
+/// quantité pour la formule (goujons lus : goujonnage utilisé 97 fois sur
+/// 100), ou sur un seul signal fiche/SUIVI/RDE sans quantité lue.
+///
+/// Un cas où le poste est utilisé moins d'une fois sur 2 (SEUIL_PRESENCE)
+/// est chiffré à 0 h, comme un poste non prévu (goujonnage prévu par le
+/// seul RDE, sans goujons lus : utilisé 26 fois sur 100).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Presence {
+    /// Part des affaires où le poste est prévu avec une quantité connue
+    /// (une variable de la formule non nulle) qui l'ont utilisé.
+    pub si_prevu: f64,
+    /// Même part quand le poste n'est prévu que par l'indicatrice
+    /// `<poste>_prevu`, sans quantité connue.
+    pub si_signal_seul: f64,
+    /// Heures réelles du poste sur toutes les affaires / sur celles où il
+    /// est chiffré (≥ 1).
+    pub correction: f64,
+    /// Heures moyennes du poste quand il est prévu et utilisé sans quantité
+    /// connue pour la formule (ni sa variable, ni la grandeur de taille d'où
+    /// elle dérive, voir heures_poste).
+    pub heures_sans_quantite: f64,
 }
 
 impl CoefficientsExport {
@@ -52,6 +103,14 @@ impl CoefficientsExport {
 
 const CLE_INTERCEPT: &str = "__intercept__";
 const CLE_EXPOSANT: &str = "__exposant__";
+/// Probabilité d'utilisation en dessous de laquelle un poste est chiffré à
+/// 0 h (voir Presence).
+pub const SEUIL_PRESENCE: f64 = 0.5;
+
+const CLE_PRESENCE_SI_PREVU: &str = "__presence_si_prevu__";
+const CLE_PRESENCE_SIGNAL_SEUL: &str = "__presence_signal_seul__";
+const CLE_CORRECTION: &str = "__correction__";
+const CLE_HEURES_SANS_QUANTITE: &str = "__heures_sans_quantite__";
 const CLE_VERSION: &str = "coefficients_version";
 const CLE_DATE_CALIBRATION: &str = "coefficients_date_calibration";
 const CLE_SEUIL_DIAMETRE_MANUEL_MM: &str = "coefficients_seuil_diametre_manuel_mm";
@@ -68,7 +127,7 @@ pub fn initialiser_schema_coefficients(conn: &Connection) -> rusqlite::Result<()
 }
 
 /// Modifie un coefficient (poste+variable, où `variable` peut valoir
-/// `__intercept__` ou `__exposant__`) -- pour des tests manuels depuis l'écran Coefficients,
+/// `__intercept__`, `__exposant__` ou une clé de Presence) -- pour des tests manuels depuis l'écran Coefficients,
 /// sans repasser par une calibration complète. Upsert : fonctionne aussi
 /// bien pour corriger un coefficient déjà calibré que pour en ajouter un
 /// nouveau sur un poste pas encore calibré.
@@ -107,10 +166,20 @@ pub fn enregistrer_coefficients(conn: &mut Connection, coeffs: &CoefficientsExpo
             .map_err(|e| e.to_string())?;
         }
 
+        let mut speciales = Vec::new();
         if let Some(exposant) = params.exposant {
+            speciales.push((CLE_EXPOSANT, exposant));
+        }
+        if let Some(presence) = &params.presence {
+            speciales.push((CLE_PRESENCE_SI_PREVU, presence.si_prevu));
+            speciales.push((CLE_PRESENCE_SIGNAL_SEUL, presence.si_signal_seul));
+            speciales.push((CLE_CORRECTION, presence.correction));
+            speciales.push((CLE_HEURES_SANS_QUANTITE, presence.heures_sans_quantite));
+        }
+        for (cle, valeur) in speciales {
             tx.execute(
                 "INSERT INTO coefficients (poste, variable, valeur) VALUES (?1, ?2, ?3)",
-                params![poste, CLE_EXPOSANT, exposant],
+                params![poste, cle, valeur],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -161,19 +230,35 @@ pub fn charger_coefficients(conn: &Connection) -> Result<CoefficientsExport, Str
         .map_err(|e| e.to_string())?;
 
     let mut postes: HashMap<String, PosteCoefficients> = HashMap::new();
+    // Clés de Presence lues par poste : la présence n'est reconstruite que
+    // si les quatre sont en base.
+    let mut presences: HashMap<String, [Option<f64>; 4]> = HashMap::new();
     for row in rows {
         let (poste, variable, valeur) = row.map_err(|e| e.to_string())?;
-        let entry = postes.entry(poste).or_insert_with(|| PosteCoefficients {
+        let entry = postes.entry(poste.clone()).or_insert_with(|| PosteCoefficients {
             intercept: 0.0,
             coefficients: HashMap::new(),
             exposant: None,
+            presence: None,
         });
+        let presence = presences.entry(poste).or_default();
         match variable.as_str() {
             CLE_INTERCEPT => entry.intercept = valeur,
             CLE_EXPOSANT => entry.exposant = Some(valeur),
+            CLE_PRESENCE_SI_PREVU => presence[0] = Some(valeur),
+            CLE_PRESENCE_SIGNAL_SEUL => presence[1] = Some(valeur),
+            CLE_CORRECTION => presence[2] = Some(valeur),
+            CLE_HEURES_SANS_QUANTITE => presence[3] = Some(valeur),
             _ => {
                 entry.coefficients.insert(variable, valeur);
             }
+        }
+    }
+    for (poste, valeurs) in presences {
+        if let ([Some(si_prevu), Some(si_signal_seul), Some(correction), Some(heures_sans_quantite)], Some(entry)) =
+            (valeurs, postes.get_mut(&poste))
+        {
+            entry.presence = Some(Presence { si_prevu, si_signal_seul, correction, heures_sans_quantite });
         }
     }
 
@@ -274,9 +359,45 @@ pub const POSTES_FORFAIT: [(&str, &str); 2] = [
     ("controle_cnd", "controle_cnd_prevu"),
 ];
 
+/// Postes machine chiffrés (voir calibration::poste_variables) -- chacun
+/// reçoit une indicatrice `<poste>_prevu` (voir deriver_variables).
+pub const POSTES_MACHINE: [&str; 13] = [
+    "assemblage_tracage",
+    "manutention",
+    "forage_manuel",
+    "forage_numerique",
+    "goujonnage",
+    "oxycoupage",
+    "mise_a_longueur",
+    "p3",
+    "robot",
+    "presse_cintrage",
+    "soudage",
+    "soudage_sous_flux",
+    "controle_cnd",
+];
+
+/// Indicatrice "poste prévu" (fiche, SUIVI, RDE) : `presse_cintrage_prevu`...
+/// Même nom que les variables de POSTES_FORFAIT.
+pub fn indicatrice_prevu(poste: &str) -> String {
+    format!("{poste}_prevu")
+}
+
+/// Le poste est-il prévu sur l'affaire : indicatrice `<poste>_prevu` (fiche,
+/// SUIVI, RDE), ou une variable de sa formule propre au poste non nulle
+/// (goujons, longueur de coupe, trous, grandeur réservée au poste prévu).
+/// Une grandeur de taille commune à tous les postes (nb_barres, poids_t...)
+/// ne dit rien de la présence du poste.
+pub fn poste_prevu<'a>(poste: &str, variables_formule: impl IntoIterator<Item = &'a String>, valeur: impl Fn(&str) -> f64) -> bool {
+    valeur(&indicatrice_prevu(poste)) > 0.0
+        || variables_formule
+            .into_iter()
+            .any(|v| valeur(v) > 0.0 && !GRANDEURS.iter().any(|(grandeur, _)| grandeur == v))
+}
+
 /// Ajoute les variables dérivées des postes prévus (POSTES_PREVUS,
-/// POSTES_FORFAIT). Un poste prévu avec une grandeur inconnue donne une
-/// variable inconnue, pas 0.
+/// indicatrices de POSTES_MACHINE). Un poste prévu avec une grandeur
+/// inconnue donne une variable inconnue, pas 0.
 fn deriver_variables(variables: &mut VariablesConnues, postes_prevus: &HashSet<String>) {
     for (grandeur, prefixe) in GRANDEURS {
         let valeur = variables.get(grandeur).copied().flatten();
@@ -285,9 +406,9 @@ fn deriver_variables(variables: &mut VariablesConnues, postes_prevus: &HashSet<S
             variables.insert(variable_filtree(prefixe, suffixe), filtree);
         }
     }
-    for (poste, variable) in POSTES_FORFAIT {
+    for poste in POSTES_MACHINE {
         let valeur = if postes_prevus.contains(poste) { 1.0 } else { 0.0 };
-        variables.insert(variable.to_string(), Some(valeur));
+        variables.insert(indicatrice_prevu(poste), Some(valeur));
     }
 }
 
@@ -497,40 +618,67 @@ pub struct Prevision {
     pub total_heures: f64,
 }
 
-/// Applique la formule calibrée : temps = intercept + Σ(coef_i × x_i), ou
-/// intercept + Σ(coef_i × x_i^exposant) pour une courbe puissance, pour
-/// chaque poste calibré, à partir des variables fournies.
-pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Prevision {
-    println!("predire");
-    let mut heures_par_poste = HashMap::new();
-
-    for (poste, params) in &coeffs.postes {
-        let toutes_variables_nulles = params
-            .coefficients
-            .keys()
-            .all(|variable| variables.get(variable).copied().unwrap_or(0.0) == 0.0);
-
-        // Si aucune des variables du poste n'est renseignée (toutes à 0),
-        // il n'y a pas de travail à prévoir pour ce poste, même si
-        // l'intercept calibré est non nul.
-        let temps = if toutes_variables_nulles {
-            0.0
-        } else {
-            let mut temps = params.intercept;
-            for (variable, coef) in &params.coefficients {
-                let valeur = variables.get(variable).copied().unwrap_or(0.0);
-                temps += coef * match params.exposant {
-                    Some(exposant) => valeur.max(0.0).powf(exposant),
-                    None => valeur,
-                };
-            }
-            // Garde-fou : un temps ne peut pas être négatif (extrapolation
-            // hors du domaine calibré donnant un résultat aberrant)
-            temps.max(0.0)
+/// Formule calibrée d'un poste : intercept + Σ(coef_i × x_i), ou
+/// intercept + Σ(coef_i × x_i^exposant) pour une courbe puissance, jamais
+/// négative (extrapolation hors du domaine calibré).
+pub fn appliquer_formule(params: &PosteCoefficients, valeur: impl Fn(&str) -> f64) -> f64 {
+    let mut temps = params.intercept;
+    for (variable, coef) in &params.coefficients {
+        let x = valeur(variable);
+        temps += coef * match params.exposant {
+            Some(exposant) => x.max(0.0).powf(exposant),
+            None => x,
         };
-        heures_par_poste.insert(poste.clone(), temps);
     }
+    temps.max(0.0)
+}
 
+/// Heures prévues d'un poste.
+///
+/// Avec une présence calibrée (voir Presence) : 0 si le poste n'est pas
+/// prévu (voir poste_prevu), sinon probabilité d'utilisation × correction ×
+/// heures si le poste est utilisé -- la formule sur ses variables
+/// (probabilité si_prevu), ou, si elles sont nulles (poste prévu par la
+/// fiche mais sans longueur de coupe ni goujons lus...), la formule sur les
+/// grandeurs de taille d'où elles dérivent, ou à défaut
+/// Presence::heures_sans_quantite (probabilité si_signal_seul). 0 aussi si
+/// la probabilité est sous SEUIL_PRESENCE.
+///
+/// Sans présence (coefficients antérieurs) : la formule si une variable au
+/// moins est non nulle, 0 sinon.
+pub fn heures_poste(poste: &str, params: &PosteCoefficients, variables: &VariablesAffaire) -> f64 {
+    let valeur = |v: &str| variables.get(v).copied().unwrap_or(0.0);
+    let quantite_connue = params.coefficients.keys().any(|v| valeur(v) != 0.0);
+
+    let Some(presence) = &params.presence else {
+        return if quantite_connue { appliquer_formule(params, valeur) } else { 0.0 };
+    };
+
+    if !poste_prevu(poste, params.coefficients.keys(), valeur) {
+        return 0.0;
+    }
+    let grandeur = |v: &str| grandeur_saisie(v).map_or(0.0, |g| valeur(&g));
+    let (probabilite, heures_si_utilise) = if quantite_connue {
+        (presence.si_prevu, appliquer_formule(params, valeur))
+    } else if params.coefficients.keys().any(|v| grandeur(v) > 0.0) {
+        (presence.si_signal_seul, appliquer_formule(params, grandeur))
+    } else {
+        (presence.si_signal_seul, presence.heures_sans_quantite)
+    };
+    if probabilite < SEUIL_PRESENCE {
+        return 0.0;
+    }
+    probabilite * presence.correction * heures_si_utilise
+}
+
+/// Heures prévues de chaque poste calibré (voir heures_poste), à partir
+/// des variables fournies.
+pub fn predire(coeffs: &CoefficientsExport, variables: &VariablesAffaire) -> Prevision {
+    let heures_par_poste: HashMap<String, f64> = coeffs
+        .postes
+        .iter()
+        .map(|(poste, params)| (poste.clone(), heures_poste(poste, params, variables)))
+        .collect();
     let total_heures = heures_par_poste.values().sum();
     Prevision { heures_par_poste, total_heures }
 }

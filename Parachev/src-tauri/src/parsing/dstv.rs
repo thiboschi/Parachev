@@ -17,6 +17,13 @@
 //! certains programmes marquent avec Ø0. Ils sont comptés à part : ils
 //! prennent du temps machine (le poste forage numérique les inclut) mais ne
 //! sont pas des perçages.
+//!
+//! Bloc KO (marquage) : les programmes machine de Vacam ("REP A PROD",
+//! dossier des programmes Vacam) convertissent chaque pointeau du bloc BO
+//! en un bloc KO (petite croix) -- 327 KO pour 327 pointeaux Ø1-7 sur
+//! DW-241 REP A, 233 KO pour 233 Ø0 sur DIP Parkhaus pièce 85. Chaque bloc
+//! KO compte donc comme un pointeau (sur Donawitz, les KO sont des traits
+//! de marquage, qui prennent aussi du temps machine).
 
 use std::collections::BTreeMap;
 
@@ -25,6 +32,9 @@ pub const DIAMETRE_MAX_POINTEAU_MM: f64 = 10.0;
 
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct ProgrammeCn {
+    /// Champ commande de l'en-tête : "C086 TA" (code affaire atelier) dans
+    /// les exports Voortman de Vacam, "25PA0115-POINT" chez Wallerich...
+    pub commande: Option<String>,
     pub piece: Option<String>,
     pub profil: Option<String>,
     /// Code DSTV du type de profil ("I", "U", "B"...).
@@ -34,6 +44,8 @@ pub struct ProgrammeCn {
     /// Positions du bloc BO par diamètre (clé en dixièmes de mm pour rester
     /// un entier ordonnable), déjà multipliées par `quantite`.
     pub positions_par_diametre: BTreeMap<i64, f64>,
+    /// Blocs KO (marquages), déjà multipliés par `quantite`.
+    pub nb_marquages: f64,
 }
 
 impl ProgrammeCn {
@@ -50,8 +62,9 @@ impl ProgrammeCn {
         self.diametres().filter(|(d, _)| *d > DIAMETRE_MAX_POINTEAU_MM).map(|(_, n)| n).sum()
     }
 
+    /// Pointeaux du bloc BO et marquages KO.
     pub fn nb_pointeaux(&self) -> f64 {
-        self.diametres().filter(|(d, _)| *d <= DIAMETRE_MAX_POINTEAU_MM).map(|(_, n)| n).sum()
+        self.diametres().filter(|(d, _)| *d <= DIAMETRE_MAX_POINTEAU_MM).map(|(_, n)| n).sum::<f64>() + self.nb_marquages
     }
 
     /// Somme des diamètres des vrais trous (pour une moyenne pondérée sur
@@ -87,6 +100,7 @@ pub fn lire_programme(contenu: &str) -> Option<ProgrammeCn> {
         .unwrap_or(1.0);
 
     let mut programme = ProgrammeCn {
+        commande: champ(0),
         piece: champ(3),
         profil: champ(6),
         code_profil: champ(7),
@@ -98,6 +112,9 @@ pub fn lire_programme(contenu: &str) -> Option<ProgrammeCn> {
     for ligne in contenu.lines().map(str::trim) {
         if ligne.len() == 2 && ligne.chars().all(|c| c.is_ascii_uppercase()) {
             bloc = if ligne == "BO" { "BO" } else { "" };
+            if ligne == "KO" {
+                programme.nb_marquages += quantite;
+            }
             continue;
         }
         if bloc != "BO" {
@@ -178,6 +195,19 @@ EN
         assert_eq!(p.quantite, 6.0);
         assert!(p.est_tole());
         assert_eq!(p.nb_trous(), 6.0);
+    }
+
+    #[test]
+    fn programme_vacam_prod_pointeaux_en_ko() {
+        // "REP A PROD" (DW-241) raccourci : le trou reste en BO, les
+        // pointeaux deviennent des blocs KO.
+        let p = lire_programme(
+            "ST\n** Voortman DSTV export module, Version 2.0\n  D036\n  1\n  *\n  REP A PROD\n  S460J2W+M\n  2\n  HL 1100 B\n  I\n  30144.42\nBO\n  v   892.23o   250.14     60.00     0.00\nKO\n  o  2312.21s   295.00     0.00\n     2312.21    305.00     0.00\nKO\n  o  2512.21s    95.00     0.00\n     2512.21    105.00     0.00\nEN\n",
+        )
+        .unwrap();
+        assert_eq!(p.commande.as_deref(), Some("D036"));
+        assert_eq!(p.nb_trous(), 2.0);
+        assert_eq!(p.nb_pointeaux(), 4.0);
     }
 
     #[test]

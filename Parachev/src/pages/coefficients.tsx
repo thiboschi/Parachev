@@ -29,6 +29,12 @@ const CLE_INTERCEPT = "__intercept__"
 // (temps = coef × x^exposant au lieu de intercept + coef × x).
 const LIBELLES_VARIABLES: Record<string, string> = {
   __exposant__: "Exposant (courbe puissance)",
+  // Présence du poste (prevision::Presence) : heures = probabilité ×
+  // correction × formule quand le poste est prévu, 0 sinon.
+  __presence_si_prevu__: "Probabilité d'utilisation (prévu, quantité connue)",
+  __presence_signal_seul__: "Probabilité d'utilisation (prévu sans quantité)",
+  __correction__: "Correction heures hors prévision",
+  __heures_sans_quantite__: "Heures si prévu sans quantité",
 }
 
 // Champ éditable pour un coefficient : sauvegarde au blur/Entrée, pas à

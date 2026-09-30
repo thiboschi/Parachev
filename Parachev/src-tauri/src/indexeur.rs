@@ -17,6 +17,12 @@
 //! pas changé depuis le dernier passage n'est pas relu (table `fichiers`).
 //! Les dossiers "1100......", "1700...", "1900..." (sans n° d'affaire
 //! exploitable) sont ignorés.
+//!
+//! Hors des dossiers d'affaire, un dossier nommé d'après un code affaire
+//! atelier ("A-Vacam programmes/D090/...", "A-Vacam programmes/PROGRAMME
+//! 2025/D006/...") rattache ses fichiers à l'affaire dont la fiche porte ce
+//! code en A11 (voir rattacher_codes_affaire) : c'est ainsi que sont rangés
+//! les programmes Vacam, dans un dossier à part des commandes.
 
 use crate::erp::traiter_fichier_erp;
 use crate::parsing::{self, operations, rde, LigneOperation};
@@ -30,7 +36,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "5";
+const VERSION_INDEXEUR: &str = "6";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -155,8 +161,9 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
     )?;
     migrer_colonnes_fiche(conn)?;
     // Copie d'un autre document de la même affaire, et empreinte du contenu
-    // qui le confirme (voir marquer_doublons).
-    for colonne in ["doublon_de", "empreinte"] {
+    // qui le confirme (voir marquer_doublons) ; code affaire atelier d'un
+    // fichier rangé hors dossier d'affaire (voir rattacher_codes_affaire).
+    for colonne in ["doublon_de", "empreinte", "code_affaire"] {
         match conn.execute(&format!("ALTER TABLE documents ADD COLUMN {colonne} TEXT"), []) {
             Ok(_) => {}
             Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {}
@@ -176,6 +183,7 @@ fn migrer_colonnes_fiche(conn: &Connection) -> rusqlite::Result<()> {
         ("heures_prevues_fiche", "REAL"),
         ("chemin_fiche", "TEXT"),
         ("rang_fiche", "TEXT"),
+        ("code_affaire", "TEXT"),
     ] {
         match conn.execute(&format!("ALTER TABLE variables_affaires ADD COLUMN {colonne} {type_sql}"), []) {
             Ok(_) => {}
@@ -204,6 +212,9 @@ pub fn verifier_version(conn: &Connection) -> Result<(), String> {
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Contexte {
     pub affaire: Option<String>,
+    /// Code affaire atelier ("D090") d'un dossier hors dossier d'affaire :
+    /// dossier des programmes Vacam, rattaché à l'affaire via la fiche.
+    pub code_affaire: Option<String>,
     pub nom_dossier: Option<String>,
     pub chemin_dossier: Option<PathBuf>,
     /// Fichier directement dans le dossier de l'affaire (pas un sous-dossier).
@@ -237,6 +248,17 @@ fn ressemble_dossier_affaire(nom: &str) -> bool {
         .is_match(nom.trim())
 }
 
+/// Dossier d'une version périmée : "Ancien", "old", "D076 OLD", "D070
+/// FAUX", "Pas Bon", "TROISDORF lost", "base test"... (noms observés dans
+/// les commandes et les programmes Vacam).
+fn est_obsolete(nom: &str) -> bool {
+    let n = operations::normaliser(nom);
+    let mots: Vec<&str> = n.split(|c: char| !c.is_alphanumeric()).collect();
+    n.contains("ANCIEN")
+        || n.contains("PAS BON")
+        || mots.iter().any(|m| matches!(*m, "OLD" | "FAUX" | "LOST" | "TEST"))
+}
+
 fn est_non_conformite(nom: &str) -> bool {
     let n = operations::normaliser(nom);
     n.contains("NON-CONFORM") || n.contains("NON CONFORM")
@@ -257,7 +279,7 @@ pub fn contexte(racine: &Path, chemin: &Path) -> Contexte {
         if est_non_conformite(nom) {
             ctx.non_conformite = true;
         }
-        if ctx.affaire.is_none() {
+        if ctx.affaire.is_none() && ctx.code_affaire.is_none() {
             if let Some(numero) = numero_dossier_affaire(nom) {
                 ctx.affaire = Some(numero);
                 ctx.nom_dossier = Some(nom.clone());
@@ -266,14 +288,16 @@ pub fn contexte(racine: &Path, chemin: &Path) -> Contexte {
             } else if ressemble_dossier_affaire(nom) {
                 ctx.ignore = true;
                 return ctx;
+            } else {
+                ctx.code_affaire = parsing::code_affaire(nom);
+                ctx.ancien = ctx.code_affaire.is_some() && est_obsolete(nom);
             }
         } else {
             sous_dossiers.push(nom);
             if numero_dossier_affaire(nom).is_some() || ressemble_dossier_affaire(nom) {
                 ctx.reference = true;
             }
-            let n = operations::normaliser(nom);
-            if n.contains("ANCIEN") || n == "OLD" || n.starts_with("OLD ") {
+            if est_obsolete(nom) {
                 ctx.ancien = true;
             }
         }
@@ -347,6 +371,8 @@ pub enum Resultat {
 #[derive(Default)]
 struct Extraction {
     affaire: Option<String>,
+    /// Code affaire atelier lu dans le fichier (en-tête DSTV).
+    code_affaire: Option<String>,
     titre: String,
     contenu: String,
     principal: bool,
@@ -463,7 +489,7 @@ pub fn traiter_fichier(conn: &mut Connection, racine: &Path, chemin: &Path) -> R
         "cn" => traiter_cn(conn, &ctx, &chemin_str),
         // Export ERP : uniquement hors dossier d'affaire (un .txt rangé dans
         // un dossier d'affaire est une note, un log...).
-        "texte" if ext == "txt" && ctx.affaire.is_none() => {
+        "texte" if ext == "txt" && ctx.affaire.is_none() && ctx.code_affaire.is_none() => {
             traiter_fichier_erp(chemin, conn).map(|n| Extraction { titre: format!("Export ERP ({n} lignes)"), ..Default::default() })
         }
         _ => Ok(Extraction::default()),
@@ -474,7 +500,12 @@ pub fn traiter_fichier(conn: &mut Connection, racine: &Path, chemin: &Path) -> R
     };
 
     let affaire = ctx.affaire.clone().or(extraction.affaire.clone());
-    enregistrer_document(conn, &chemin_str, &nom, type_doc, affaire.as_deref(), &ctx, taille, &meta, &extraction)?;
+    // Code affaire : seulement hors dossier d'affaire (le dossier prime).
+    let code_affaire = match &affaire {
+        Some(_) => None,
+        None => ctx.code_affaire.clone().or(extraction.code_affaire.clone()),
+    };
+    enregistrer_document(conn, &chemin_str, &nom, type_doc, affaire.as_deref(), code_affaire.as_deref(), &ctx, taille, &meta, &extraction)?;
     let statut = if erreur.is_some() { "erreur" } else { "ok" };
     marquer_fichier(conn, &chemin_str, taille, mtime, statut, erreur.as_deref())?;
     if let Some(e) = erreur {
@@ -508,6 +539,7 @@ fn enregistrer_document(
     nom: &str,
     type_doc: &str,
     affaire: Option<&str>,
+    code_affaire: Option<&str>,
     ctx: &Contexte,
     taille: i64,
     meta: &fs::Metadata,
@@ -519,16 +551,16 @@ fn enregistrer_document(
         .map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%d").to_string());
     let titre = if extraction.titre.is_empty() { nom.to_string() } else { extraction.titre.clone() };
     conn.execute(
-        "INSERT INTO documents (chemin, affaire, type, nom, dossier_relatif, taille, date_modif, ancien, reference, titre)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+        "INSERT INTO documents (chemin, affaire, type, nom, dossier_relatif, taille, date_modif, ancien, reference, titre, code_affaire)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          ON CONFLICT(chemin) DO UPDATE SET
-            affaire = excluded.affaire, type = excluded.type, nom = excluded.nom,
+            affaire = excluded.affaire, code_affaire = excluded.code_affaire, type = excluded.type, nom = excluded.nom,
             dossier_relatif = excluded.dossier_relatif, taille = excluded.taille,
             date_modif = excluded.date_modif, ancien = excluded.ancien,
             reference = excluded.reference, titre = excluded.titre,
             -- Fichier relu (donc modifié) : empreinte à recalculer.
             empreinte = NULL",
-        params![chemin, affaire, type_doc, nom, ctx.dossier_relatif, taille, date_modif, ctx.ancien, ctx.reference, titre],
+        params![chemin, affaire, type_doc, nom, ctx.dossier_relatif, taille, date_modif, ctx.ancien, ctx.reference, titre, code_affaire],
     )
     .map_err(|e| e.to_string())?;
 
@@ -578,6 +610,33 @@ pub fn purger_absents(conn: &Connection, racine: &Path, vus: &HashSet<String>) -
         oublier_fichier(conn, chemin)?;
     }
     Ok(absents.len())
+}
+
+/// Rattache les documents rangés sous un code affaire atelier (programmes
+/// Vacam, voir `contexte`) à l'affaire dont la fiche porte ce code en A11 --
+/// aucune si le code est inconnu ou partagé par plusieurs affaires.
+/// Recalcul complet, car la fiche peut être indexée après ses programmes ;
+/// seules les lignes qui changent sont réécrites. À appeler avant
+/// marquer_doublons et quantites::consolider.
+pub fn rattacher_codes_affaire(conn: &Connection) -> Result<(), String> {
+    const AFFAIRE_DU_CODE: &str = "(SELECT CASE WHEN COUNT(DISTINCT v.affaire) = 1 THEN MIN(v.affaire) END
+                                    FROM variables_affaires v WHERE v.code_affaire = documents.code_affaire)";
+    conn.execute(
+        &format!("UPDATE documents SET affaire = {AFFAIRE_DU_CODE} WHERE code_affaire IS NOT NULL AND affaire IS NOT {AFFAIRE_DU_CODE}"),
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+    for table in ["documents_fts", "cn_programmes"] {
+        conn.execute(
+            &format!(
+                "UPDATE {table} SET affaire = d.affaire FROM documents d
+                 WHERE d.chemin = {table}.chemin AND d.code_affaire IS NOT NULL AND {table}.affaire IS NOT d.affaire"
+            ),
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 /// Taille lue au début et à la fin d'un fichier pour son empreinte.
@@ -705,6 +764,7 @@ fn traiter_fiche(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64
         ]
         .join(" "),
         principal: false,
+        ..Default::default()
     };
 
     // Fiche d'une autre affaire rangée dans ce dossier : simple référence.
@@ -760,6 +820,7 @@ fn traiter_rde(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64) 
         .collect::<Vec<_>>()
         .join(" "),
         principal: false,
+        ..Default::default()
     };
 
     if let (Some(affaire), Some(numero)) = (&ctx.affaire, &info.affaire) {
@@ -862,6 +923,7 @@ fn traiter_mail(conn: &mut Connection, ctx: &Contexte, chemin: &Path) -> Result<
         titre: msg.subject.clone(),
         contenu: format!("{} {}", tronquer(&msg.body_text, MAX_CARACTERES_CONTENU), pieces.join(" ")),
         principal: false,
+        ..Default::default()
     })
 }
 
@@ -881,6 +943,8 @@ fn traiter_cn(conn: &mut Connection, ctx: &Contexte, chemin: &str) -> Result<Ext
     let piece = p.piece.clone().unwrap_or_default();
     let profil = p.profil.clone().unwrap_or_default();
     Ok(Extraction {
+        // Export Voortman : "C086 TA" dans le champ commande de l'en-tête.
+        code_affaire: p.commande.as_deref().and_then(parsing::code_affaire),
         titre: format!("Programme CN {piece} {profil}"),
         contenu: format!("{piece} {profil} {} trous {} pointeaux", p.nb_trous(), p.nb_pointeaux()),
         ..Default::default()
@@ -968,6 +1032,80 @@ mod tests {
 
         let c = ctx("/racine/1100721669 STUPOSIANY/Non-conformité/NC 01.pdf");
         assert!(c.non_conformite);
+    }
+
+    #[test]
+    fn rattachement_par_code_vacam() {
+        let vacam = |chemin: &str| contexte(Path::new("Z:/A-Vacam programmes"), Path::new(chemin));
+        let c = vacam("Z:/A-Vacam programmes/D116/FRAMATOME/D116.nc");
+        assert_eq!(c.code_affaire.as_deref(), Some("D116"));
+        assert!(c.affaire.is_none() && !c.ancien && !c.ignore);
+        assert_eq!(c.dossier_relatif, "FRAMATOME");
+
+        let c = vacam("Z:/A-Vacam programmes/PROGRAMME 2025/D006/S-1 Express Road/P1.nc");
+        assert_eq!(c.code_affaire.as_deref(), Some("D006"));
+        for chemin in [
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D006/Ancien/P1.nc",
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D076 OLD/HIMMEL PAPESCH/D1A.NC",
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D051  old V1/KENNLACH/P1.NC",
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D070 FAUX/OA 46/REP A.NC",
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D081/Prép. PEYRAMALE/Pas Bon/1/Rep 1a.NC",
+            "Z:/A-Vacam programmes/PROGRAMME 2025/D018/TROISDORF lost/50.NC",
+        ] {
+            assert!(vacam(chemin).ancien, "{chemin}");
+        }
+        let c = vacam("Z:/A-Vacam programmes/PROGRAMME 2025/D050B/FAELBET/DG1B.NC");
+        assert_eq!(c.code_affaire.as_deref(), Some("D050"));
+        assert!(!c.ancien);
+        assert!(!vacam("Z:/A-Vacam programmes/PROGRAMME 2025/D018 BIS/TROISDORF/T4.NC").ancien);
+        assert!(vacam("Z:/A-Vacam programmes/PROGRAMME 2025/P1.nc").code_affaire.is_none());
+
+        // Dans un dossier d'affaire, le n° du dossier prime sur un
+        // sous-dossier qui ressemblerait à un code.
+        let c = ctx("/racine/1100734547 PRO DES MARGUERITES/DOC WALL/P10/P10.nc");
+        assert_eq!(c.affaire.as_deref(), Some("1100734547"));
+        assert!(c.code_affaire.is_none());
+    }
+
+    #[test]
+    fn rattacher_documents_par_code() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE variables_affaires (affaire TEXT PRIMARY KEY);
+             CREATE TABLE configuration (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);",
+        )
+        .unwrap();
+        initialiser_schema(&conn).unwrap();
+        crate::quantites::initialiser_schema(&conn).unwrap();
+        conn.execute_batch(
+            "INSERT INTO variables_affaires (affaire, code_affaire) VALUES
+                 ('1100717123', 'D006'), ('A', 'D200'), ('B', 'D200');
+             INSERT INTO documents (chemin, type, nom, code_affaire) VALUES
+                 ('v/D006/p1.nc', 'cn', 'p1.nc', 'D006'),
+                 ('v/D200/p2.nc', 'cn', 'p2.nc', 'D200'),
+                 ('v/D999/p3.nc', 'cn', 'p3.nc', 'D999');
+             INSERT INTO documents_fts (chemin, titre, contenu) VALUES ('v/D006/p1.nc', 'p1', 'p1');
+             INSERT INTO cn_programmes (chemin, quantite, nb_trous, nb_pointeaux, somme_diametres)
+                 VALUES ('v/D006/p1.nc', 1, 4, 0, 88);",
+        )
+        .unwrap();
+
+        rattacher_codes_affaire(&conn).unwrap();
+        let affaire = |table: &str, chemin: &str| -> Option<String> {
+            conn.query_row(&format!("SELECT affaire FROM {table} WHERE chemin = ?1"), [chemin], |r| r.get(0)).unwrap()
+        };
+        assert_eq!(affaire("documents", "v/D006/p1.nc").as_deref(), Some("1100717123"));
+        assert_eq!(affaire("documents_fts", "v/D006/p1.nc").as_deref(), Some("1100717123"));
+        assert_eq!(affaire("cn_programmes", "v/D006/p1.nc").as_deref(), Some("1100717123"));
+        // Code partagé par deux affaires, ou inconnu : pas de rattachement.
+        assert_eq!(affaire("documents", "v/D200/p2.nc"), None);
+        assert_eq!(affaire("documents", "v/D999/p3.nc"), None);
+
+        // Code retiré de la fiche : le programme est détaché.
+        conn.execute("UPDATE variables_affaires SET code_affaire = NULL WHERE affaire = '1100717123'", []).unwrap();
+        rattacher_codes_affaire(&conn).unwrap();
+        assert_eq!(affaire("documents", "v/D006/p1.nc"), None);
+        assert_eq!(affaire("cn_programmes", "v/D006/p1.nc"), None);
     }
 
     #[test]

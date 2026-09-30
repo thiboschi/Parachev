@@ -71,12 +71,12 @@ const EVENEMENT_PROGRESSION: &str = "indexation-progression";
 /// scan en produit un par fichier ; ~10 rafraîchissements/s suffisent).
 const INTERVALLE_ENVOI_PROGRESSION: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Lance, dans un thread dédié, le scan initial du dossier puis sa
-/// surveillance. Chaque rapport de progression met à jour l'état partagé
+/// Lance, dans un thread dédié, le scan initial des dossiers (l'un après
+/// l'autre) puis leur surveillance. Chaque rapport de progression met à jour l'état partagé
 /// (lu aussi par `obtenir_progression_indexation`) et est envoyé à
 /// l'interface au plus toutes les 100 ms. Journal : `indexation.log` dans
 /// le dossier de données de l'app.
-fn lancer_indexation(app: tauri::AppHandle, chemin_dossier: String, chemin_db: String) {
+fn lancer_indexation(app: tauri::AppHandle, chemins_dossiers: Vec<String>, chemin_db: String) {
     std::thread::spawn(move || {
         let etat = app.state::<EtatProgression>().inner().clone();
         let chemin_journal = dossier_donnees(&app).ok().map(|d| d.join("indexation.log"));
@@ -92,8 +92,10 @@ fn lancer_indexation(app: tauri::AppHandle, chemin_dossier: String, chemin_db: S
                 *dernier = std::time::Instant::now();
             }
         };
-        watcher::scanner_dossier_initial(&chemin_dossier, &chemin_db, &rapport, &journal);
-        if let Err(e) = watcher::surveiller_dossier(&chemin_dossier, &chemin_db, &journal) {
+        for chemin_dossier in &chemins_dossiers {
+            watcher::scanner_dossier_initial(chemin_dossier, &chemin_db, &rapport, &journal);
+        }
+        if let Err(e) = watcher::surveiller_dossiers(&chemins_dossiers, &chemin_db, &journal) {
             journal.ecrire(&format!("Erreur watcher: {e:?}"));
         }
     });
@@ -117,6 +119,8 @@ pub fn run() {
             lister_heures_affaire,
             obtenir_dossier_configure,
             choisir_dossier_surveille,
+            obtenir_dossier_vacam,
+            choisir_dossier_vacam,
             lister_variables_affaires,
             obtenir_variables_affaire,
             mettre_a_jour_variables_affaire,
@@ -164,15 +168,17 @@ pub fn run() {
                 }
             }
 
-            let chemin_dossier = config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
-                .map_err(|e| e.to_string())?;
+            let mut chemins_dossiers = Vec::new();
+            for cle in [config::CLE_DOSSIER_SURVEILLE, config::CLE_DOSSIER_VACAM] {
+                chemins_dossiers.extend(config::lire_config(&conn, cle).map_err(|e| e.to_string())?);
+            }
             drop(conn);
 
             // Ne démarre le watcher que si un dossier a déjà été choisi lors
             // d'un lancement précédent -- sinon on attend que l'utilisateur
             // en choisisse un via choisir_dossier_surveille().
-            if let Some(chemin_dossier) = chemin_dossier {
-                lancer_indexation(app_handle, chemin_dossier, chemin_db_str);
+            if !chemins_dossiers.is_empty() {
+                lancer_indexation(app_handle, chemins_dossiers, chemin_db_str);
             }
 
             Ok(())
@@ -190,6 +196,14 @@ fn obtenir_dossier_configure(app: tauri::AppHandle) -> Result<Option<String>, St
     config::lire_config(&conn, config::CLE_DOSSIER_SURVEILLE)
 }
 
+/// Dossier des programmes Vacam configuré, s'il y en a un.
+#[tauri::command]
+fn obtenir_dossier_vacam(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let conn = ouvrir_db(&app)?;
+    config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+    config::lire_config(&conn, config::CLE_DOSSIER_VACAM)
+}
+
 /// Ouvre un sélecteur de dossier natif, sauvegarde le choix, et démarre la
 /// surveillance sur ce dossier.
 ///
@@ -200,6 +214,18 @@ fn obtenir_dossier_configure(app: tauri::AppHandle) -> Result<Option<String>, St
 /// l'app.
 #[tauri::command]
 async  fn choisir_dossier_surveille(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    choisir_dossier(app, config::CLE_DOSSIER_SURVEILLE)
+}
+
+/// Comme choisir_dossier_surveille, pour le dossier des programmes Vacam
+/// ("Z:\A-Vacam programmes") : un sous-dossier par code affaire atelier,
+/// rattaché à l'affaire via la case A11 de la fiche (voir indexeur).
+#[tauri::command]
+async fn choisir_dossier_vacam(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    choisir_dossier(app, config::CLE_DOSSIER_VACAM)
+}
+
+fn choisir_dossier(app: tauri::AppHandle, cle: &str) -> Result<Option<String>, String> {
     let dossier = app.dialog().file().blocking_pick_folder();
 
     let Some(dossier) = dossier else {
@@ -210,10 +236,10 @@ async  fn choisir_dossier_surveille(app: tauri::AppHandle) -> Result<Option<Stri
     let chemin_db_str = chemin_db(&app)?;
     let conn = Connection::open(&chemin_db_str).map_err(|e| e.to_string())?;
     config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
-    config::ecrire_config(&conn, config::CLE_DOSSIER_SURVEILLE, &chemin)?;
+    config::ecrire_config(&conn, cle, &chemin)?;
     drop(conn);
 
-    lancer_indexation(app, chemin.clone(), chemin_db_str);
+    lancer_indexation(app, vec![chemin.clone()], chemin_db_str);
 
     Ok(Some(chemin))
 }

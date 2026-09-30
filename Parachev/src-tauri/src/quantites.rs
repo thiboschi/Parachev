@@ -23,9 +23,11 @@
 
 use crate::parsing::dstv::ProgrammeCn;
 use crate::parsing::quantites_mail::MentionQuantite;
+use regex::Regex;
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::OnceLock;
 
 pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(
@@ -84,7 +86,24 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             Err(e) => return Err(e),
         }
     }
+    match conn.execute("ALTER TABLE cn_programmes ADD COLUMN lot TEXT", []) {
+        Ok(_) => {}
+        Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {}
+        Err(e) => return Err(e),
+    }
     Ok(())
+}
+
+/// N° d'urgence (lot de livraison) dans le chemin d'un programme :
+/// "D015/URG 2/P1.NC" -> "2". Les urgences d'une affaire réutilisent les
+/// mêmes n° de pièce pour des poutres différentes (D015 : P1 en HE650B,
+/// HE600B, HE650B) : elles ne sont pas des versions l'une de l'autre.
+fn lot_urgence(chemin: &str) -> Option<String> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"(?i)\bURG(?:ENCE)?\s*(\d+)").unwrap())
+        .captures_iter(chemin)
+        .last()
+        .map(|c| c[1].to_string())
 }
 
 /// Remplace ce qui est enregistré pour un fichier CN (None : fichier qui
@@ -95,9 +114,9 @@ pub fn enregistrer_programme_cn(conn: &mut Connection, chemin: &str, affaire: Op
     tx.execute("DELETE FROM cn_percages WHERE chemin = ?1", [chemin]).map_err(|e| e.to_string())?;
     if let Some(p) = programme {
         tx.execute(
-            "INSERT INTO cn_programmes (chemin, affaire, piece, profil, code_profil, quantite, nb_trous, nb_pointeaux, somme_diametres)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![chemin, affaire, p.piece, p.profil, p.code_profil, p.quantite, p.nb_trous(), p.nb_pointeaux(), p.somme_diametres_trous()],
+            "INSERT INTO cn_programmes (chemin, affaire, piece, profil, code_profil, quantite, nb_trous, nb_pointeaux, somme_diametres, lot)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![chemin, affaire, p.piece, p.profil, p.code_profil, p.quantite, p.nb_trous(), p.nb_pointeaux(), p.somme_diametres_trous(), lot_urgence(chemin)],
         )
         .map_err(|e| e.to_string())?;
         for (diametre, nb) in p.trous_par_diametre() {
@@ -144,12 +163,19 @@ pub fn oublier_fichier(conn: &Connection, chemin: &str) -> Result<(), String> {
 /// pièce présente en plusieurs versions (DIP Parkhaus : trois dossiers de
 /// programmes pour les mêmes 32 poutrelles) n'est comptée qu'une fois, dans
 /// sa version la plus récente -- regroupées par n° de pièce seul, le
-/// libellé du profil variant d'un export à l'autre ("IPE 500 A" / "IPE500A").
+/// libellé du profil variant d'un export à l'autre ("IPE 500 A" / "IPE500A"),
+/// et par urgence (voir lot_urgence).
+///
+/// Vacam exporte chaque pièce deux fois : "REP A" (trous et pointeaux dans
+/// le bloc BO) et "REP A PROD" (programme machine : mêmes trous, pointeaux
+/// convertis en blocs KO, voir parsing::dstv). Même pièce, comptée une
+/// fois : la version sans PROD est préférée.
 const PROGRAMMES_RETENUS: &str = "
     SELECT * FROM (
         SELECT p.*, ROW_NUMBER() OVER (
-                   PARTITION BY p.affaire, COALESCE(p.piece, p.chemin)
-                   ORDER BY COALESCE(f.mtime, 0) DESC, p.chemin
+                   PARTITION BY p.affaire, COALESCE(p.lot, ''),
+                                COALESCE(CASE WHEN p.piece LIKE '% PROD' THEN RTRIM(SUBSTR(p.piece, 1, LENGTH(p.piece) - 5)) ELSE p.piece END, p.chemin)
+                   ORDER BY p.piece LIKE '% PROD', COALESCE(f.mtime, 0) DESC, p.chemin
                ) AS version
         FROM cn_programmes p
         JOIN documents d ON d.chemin = p.chemin
@@ -438,6 +464,31 @@ mod tests {
         oublier_fichier(&conn, "/A/p1.nc").unwrap();
         consolider(&conn).unwrap();
         assert_eq!(valeur::<Option<f64>>(&conn, "nb_trous_numerique"), None);
+    }
+
+    #[test]
+    fn programmes_vacam_prod_et_urgences() {
+        let mut conn = base();
+        let programme = |piece: &str, bo: &str| {
+            lire_programme(&format!("ST\nD015\nOA\n1\n{piece}\nS355\n1\nHE650B\nI\n12000\nBO\n{bo}EN\n")).unwrap()
+        };
+        // Programme plan (trou Ø26 + pointeau Ø1) et programme PROD (pointeau
+        // passé en KO) : une seule pièce, lue dans la version sans PROD.
+        let plan = programme("P1", "  o 100.00s 50.00 26.00\n  v 300.00s 50.00 1.00\n");
+        let prod = programme("P1 PROD", "  o 100.00s 50.00 26.00\n");
+        for urg in ["URG 1", "URG 2"] {
+            for (nom, p) in [("P1.NC", &plan), ("P1 PROD.NC", &prod)] {
+                let chemin = format!("/V/D015/{urg}/{nom}");
+                document(&conn, &chemin, "A", false);
+                enregistrer_programme_cn(&mut conn, &chemin, Some("A"), Some(p)).unwrap();
+            }
+        }
+        consolider(&conn).unwrap();
+        // Deux urgences (poutres différentes malgré le même n° P1).
+        assert_eq!(valeur::<f64>(&conn, "nb_trous_numerique"), 2.0);
+        assert_eq!(valeur::<f64>(&conn, "nb_pointeaux_numerique"), 2.0);
+        assert_eq!(lot_urgence("/V/D015/URG 2/P1.NC").as_deref(), Some("2"));
+        assert_eq!(lot_urgence("/V/D090/14092100/85.NC"), None);
     }
 
     #[test]

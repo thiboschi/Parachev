@@ -285,6 +285,9 @@ pub fn scanner_dossier_initial(chemin_dossier: &str, chemin_db: &str, rapport: &
         Ok(_) => {}
         Err(e) => journal.ecrire(&format!("Erreur purge index: {e}")),
     }
+    if let Err(e) = indexeur::rattacher_codes_affaire(&conn) {
+        journal.ecrire(&format!("Erreur rattachement par code affaire: {e}"));
+    }
     match indexeur::marquer_doublons(&conn) {
         Ok(n) => journal.ecrire(&format!("{n} copie(s) de documents marquée(s) comme doublons")),
         Err(e) => journal.ecrire(&format!("Erreur doublons: {e}")),
@@ -339,20 +342,20 @@ fn collecter(dossier: &Path, fichiers: &mut Vec<PathBuf>, dossiers: &mut Vec<Pat
     }
 }
 
-/// Lance la surveillance du dossier local (synchronisé OneDrive) et indexe
-/// chaque fichier créé ou modifié. Fonction bloquante : à lancer dans son
-/// propre thread (std::thread::spawn), pas besoin de tokio.
-pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str, journal: &Journal) -> notify::Result<()> {
+/// Lance la surveillance des dossiers locaux (commandes synchronisées
+/// OneDrive, programmes Vacam) et indexe chaque fichier créé ou modifié.
+/// Fonction bloquante : à lancer dans son propre thread
+/// (std::thread::spawn), pas besoin de tokio.
+pub fn surveiller_dossiers(chemins_dossiers: &[String], chemin_db: &str, journal: &Journal) -> notify::Result<()> {
     let (tx, rx) = mpsc::channel();
 
     let mut debouncer = new_debouncer(Duration::from_secs(2), tx)?;
-    debouncer
-        .watcher()
-        .watch(Path::new(chemin_dossier), RecursiveMode::Recursive)?;
+    for chemin in chemins_dossiers {
+        debouncer.watcher().watch(Path::new(chemin), RecursiveMode::Recursive)?;
+        journal.ecrire(&format!("Surveillance active sur : {chemin}"));
+    }
 
     let Some(mut conn) = ouvrir_base(chemin_db, journal) else { return Ok(()) };
-    let racine = Path::new(chemin_dossier);
-    journal.ecrire(&format!("Surveillance active sur : {chemin_dossier}"));
     for evenement in rx {
         match evenement {
             Ok(evenements) => {
@@ -360,6 +363,15 @@ pub fn surveiller_dossier(chemin_dossier: &str, chemin_db: &str, journal: &Journ
                     if e.kind != DebouncedEventKind::Any {
                         continue;
                     }
+                    // Racine la plus profonde contenant le fichier.
+                    let Some(racine) = chemins_dossiers
+                        .iter()
+                        .map(Path::new)
+                        .filter(|r| e.path.starts_with(r))
+                        .max_by_key(|r| r.components().count())
+                    else {
+                        continue;
+                    };
                     traiter_evenement(&mut conn, racine, &e.path, journal);
                 }
             }
@@ -374,6 +386,9 @@ fn traiter_evenement(conn: &mut Connection, racine: &Path, path: &Path, journal:
         let message = message_panique(panique.as_ref());
         journal.ecrire(&format!("Plantage sur {} : {message}", path.display()));
         let _ = indexeur::marquer_plantage(conn, path, &message);
+    }
+    if let Err(e) = indexeur::rattacher_codes_affaire(conn) {
+        journal.ecrire(&format!("Erreur rattachement par code affaire: {e}"));
     }
     if let Err(e) = indexeur::marquer_doublons(conn) {
         journal.ecrire(&format!("Erreur doublons: {e}"));
