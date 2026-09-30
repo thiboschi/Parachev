@@ -1,4 +1,4 @@
-use crate::prevision::{self, CoefficientsExport, PosteCoefficients, VariablesConnues, POSTES_FORFAIT};
+use crate::prevision::{self, CoefficientsExport, PosteCoefficients, Presence, VariablesConnues, POSTES_FORFAIT};
 use nalgebra::{DMatrix, DVector};
 use rusqlite::Connection;
 use std::collections::HashMap;
@@ -281,6 +281,7 @@ fn calibrer_une_variable(poste: &str, variable: &str, donnees: &[LigneCalibratio
                 intercept: 0.0,
                 coefficients: HashMap::from([(variable.to_string(), a)]),
                 exposant: Some(k),
+                presence: None,
             })
         }
         _ => {
@@ -293,6 +294,7 @@ fn calibrer_une_variable(poste: &str, variable: &str, donnees: &[LigneCalibratio
                 intercept,
                 coefficients: HashMap::from([(variable.to_string(), pente)]),
                 exposant: None,
+                presence: None,
             })
         }
     }
@@ -355,7 +357,7 @@ fn ratio_median(donnees: &[LigneCalibration], variables: &[&str]) -> Option<Post
         .enumerate()
         .map(|(i, v)| (v.to_string(), if i == 0 { ratio } else { 0.0 }))
         .collect();
-    Some(PosteCoefficients { intercept: 0.0, coefficients, exposant: None })
+    Some(PosteCoefficients { intercept: 0.0, coefficients, exposant: None, presence: None })
 }
 
 /// Forfait d'un poste de POSTES_FORFAIT : médiane des heures par affaire,
@@ -376,6 +378,7 @@ fn calibrer_forfait(conn: &Connection, poste: &str, variable: &str) -> Result<Op
             intercept: 0.0,
             coefficients: HashMap::from([(variable.to_string(), forfait)]),
             exposant: None,
+            presence: None,
         },
     }))
 }
@@ -502,7 +505,7 @@ pub fn calibrer_poste(
                 println!("[{poste}] n={}  moindres carrés  R²={:.2}  intercept={intercept:.2}  coef={:?}", donnees.len(), r2, coefficients);
                 return Ok(Some(ResultatCalibration {
                     poste: poste.to_string(),
-                    coefficients: PosteCoefficients { intercept, coefficients, exposant: None },
+                    coefficients: PosteCoefficients { intercept, coefficients, exposant: None, presence: None },
                 }));
             }
             println!("[{poste}] régression {variables:?} rejetée (coefficient négatif : {coefs:?})");
@@ -528,14 +531,78 @@ pub fn calibrer_poste(
     }))
 }
 
+/// Affaires de référence pour la présence des postes : celles qui ont des
+/// heures ERP (tous postes confondus) et une fiche lue (nb_barres connu).
+/// Une affaire sans fiche n'a aucun signal de présence : elle gonflerait la
+/// probabilité d'un poste "non prévu".
+fn affaires_de_reference(conn: &Connection, variables_affaires: &HashMap<String, VariablesConnues>) -> Result<Vec<String>, String> {
+    let mut stmt = conn.prepare("SELECT DISTINCT affaire FROM heures").map_err(|e| e.to_string())?;
+    let affaires = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| e.to_string())?;
+    Ok(affaires
+        .into_iter()
+        .filter(|a| variables_affaires.get(a).is_some_and(|v| v.get("nb_barres").copied().flatten().is_some()))
+        .collect())
+}
+
+/// Présence d'un poste (voir prevision::Presence) : part des affaires de
+/// référence ayant des heures ERP au poste parmi celles où il est prévu, et
+/// parmi celles où il ne l'est pas (même règle qu'à la prévision, voir
+/// prevision::poste_prevu). Une catégorie de moins de MIN_OBS_PAR_VARIABLE
+/// affaires garde le comportement historique : 1 si prévu, 0 sinon.
+fn calibrer_presence(
+    conn: &Connection,
+    poste: &str,
+    params: &PosteCoefficients,
+    reference: &[String],
+    variables_affaires: &HashMap<String, VariablesConnues>,
+) -> Result<Presence, String> {
+    let heures: HashMap<String, f64> = heures_par_affaire(conn, poste)?.into_iter().collect();
+    // (affaires, affaires ayant utilisé le poste)
+    let (mut prevu, mut sinon) = ((0usize, 0usize), (0usize, 0usize));
+    let (mut sans_quantite, mut toutes) = (Vec::new(), Vec::new());
+    for affaire in reference {
+        let variables = &variables_affaires[affaire];
+        let valeur = |v: &str| variables.get(v).copied().flatten().unwrap_or(0.0);
+        let utilise = heures.get(affaire).copied();
+        let categorie = if prevision::poste_prevu(poste, params.coefficients.keys(), valeur) { &mut prevu } else { &mut sinon };
+        categorie.0 += 1;
+        if let Some(h) = utilise {
+            categorie.1 += 1;
+            toutes.push(h);
+            if params.coefficients.keys().all(|v| valeur(v) == 0.0) {
+                sans_quantite.push(h);
+            }
+        }
+    }
+    let part = |(n, utilises): (usize, usize), defaut: f64| if n >= MIN_OBS_PAR_VARIABLE { utilises as f64 / n as f64 } else { defaut };
+    let moyenne = |v: &[f64]| if v.is_empty() { 0.0 } else { v.iter().sum::<f64>() / v.len() as f64 };
+    let presence = Presence {
+        si_prevu: part(prevu, 1.0),
+        sinon: part(sinon, 0.0),
+        heures_sans_quantite: if sans_quantite.len() >= MIN_OBS_REPLI { moyenne(&sans_quantite) } else { moyenne(&toutes) },
+    };
+    println!(
+        "[{poste}] présence : utilisé sur {}/{} affaires où il est prévu ({:.0} %), {}/{} sinon ({:.0} %), {:.1} h sans quantité",
+        prevu.1, prevu.0, presence.si_prevu * 100.0, sinon.1, sinon.0, presence.sinon * 100.0, presence.heures_sans_quantite
+    );
+    Ok(presence)
+}
+
 /// Calibre tous les postes exploitables et retourne un CoefficientsExport
 /// prêt à être sauvegardé (même format que celui produit par le script Python).
 pub fn calibrer_tous_les_postes(conn: &Connection) -> Result<CoefficientsExport, String> {
     let variables_affaires = prevision::charger_variables(conn, None)?;
+    let reference = affaires_de_reference(conn, &variables_affaires)?;
     let mut postes = HashMap::new();
 
     for (poste, candidats) in poste_variables() {
-        if let Some(resultat) = calibrer_poste(conn, poste, &candidats, &variables_affaires)? {
+        if let Some(mut resultat) = calibrer_poste(conn, poste, &candidats, &variables_affaires)? {
+            resultat.coefficients.presence =
+                Some(calibrer_presence(conn, poste, &resultat.coefficients, &reference, &variables_affaires)?);
             postes.insert(resultat.poste.clone(), resultat.coefficients);
         }
     }
@@ -736,6 +803,7 @@ mod tests {
                     intercept: 0.0,
                     coefficients: HashMap::from([("nb_barres_robot".to_string(), 20.0)]),
                     exposant: Some(0.5),
+                    presence: None,
                 },
             )]),
         };
