@@ -1,9 +1,11 @@
 import * as React from "react"
+import { useLocation } from "react-router-dom"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { AffaireResults } from "@/components/affaires/affaires-result"
 import { AffaireSearchBar } from "@/components/affaires/affaires-search-bar"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useEtatSession } from "@/hooks/use-etat-session"
 import { useRechercheAffaires, useRechercheTexte } from "@/hooks/use-recherche-affaires"
 import {
   FILTRES_VIDES,
@@ -11,14 +13,27 @@ import {
   nbFiltresAvances,
   optionsFiltres,
   trierAffaires,
+  type EtatNavigationRecherche,
   type Filtres,
   type Tri,
 } from "@/lib/recherche"
 
 export default function Search() {
+  // Une nouvelle clé à chaque navigation vers /search : recliquer sur Search
+  // dans la sidebar remonte la page (critères remis à zéro) même si on y est.
+  const location = useLocation()
+  const restaurer = (location.state as EtatNavigationRecherche | null)?.restaurerRecherche === true
+  return <PageRecherche key={location.key} restaurer={restaurer} />
+}
+
+function PageRecherche({ restaurer }: { restaurer: boolean }) {
   const { affaires, loading, error } = useRechercheAffaires()
-  const [filtres, setFiltres] = React.useState<Filtres>(FILTRES_VIDES)
-  const [tri, setTri] = React.useState<Tri>("affaire")
+  // Enregistrés en session, repris seulement via le bouton retour d'une affaire.
+  const [filtres, setFiltres] = useEtatSession<Filtres>("recherche.filtres", FILTRES_VIDES, {
+    restaurer,
+    fusion: (f) => ({ ...FILTRES_VIDES, ...f }),
+  })
+  const [tri, setTri] = useEtatSession<Tri>("recherche.tri", "affaire", { restaurer })
   const documentsTrouves = useRechercheTexte(filtres.texte)
 
   const options = React.useMemo(
@@ -52,6 +67,7 @@ export default function Search() {
             nbFiltresAvances={nbFiltresAvances(filtres)}
             tri={tri}
             onTriChange={setTri}
+            restaurer={restaurer}
           />
 
           <AffaireResults

@@ -80,6 +80,16 @@ function exigencesAffaire(a: AffaireRecherche): string[] {
   return [...(a.exigence_fabrication ? [a.exigence_fabrication] : []), ...a.exigences_acier]
 }
 
+// États de navigation (location.state) entre la recherche et une affaire :
+// une affaire ouverte depuis la recherche propose un retour qui restaure les
+// critères ; toute autre arrivée sur /search (sidebar…) repart de zéro.
+export interface EtatNavigationRecherche {
+  depuisRecherche?: boolean
+  restaurerRecherche?: boolean
+}
+export const DEPUIS_RECHERCHE: EtatNavigationRecherche = { depuisRecherche: true }
+export const RETOUR_RECHERCHE: EtatNavigationRecherche = { restaurerRecherche: true }
+
 export interface Filtres {
   texte: string
   client: string

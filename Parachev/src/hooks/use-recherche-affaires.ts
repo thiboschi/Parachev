@@ -112,13 +112,19 @@ export function useRechercheAffaires() {
   return { affaires, loading, error }
 }
 
+// Dernier résultat plein texte : réaffiché tel quel au retour sur la page
+// de recherche, sans attendre la nouvelle requête.
+let dernierResultat: { requete: string; resultats: Map<string, ResultatTexte[]> } | null = null
+
 /**
  * Recherche plein texte (mails, RDE, fiches, noms de fichiers), relancée
  * 300 ms après la dernière frappe. Résultats regroupés par affaire ; `null`
  * tant qu'aucun texte n'est saisi (pas de filtre plein texte).
  */
 export function useRechercheTexte(texte: string) {
-  const [resultats, setResultats] = React.useState<Map<string, ResultatTexte[]> | null>(null)
+  const [resultats, setResultats] = React.useState<Map<string, ResultatTexte[]> | null>(() =>
+    dernierResultat && dernierResultat.requete === texte.trim() ? dernierResultat.resultats : null
+  )
 
   React.useEffect(() => {
     const requete = texte.trim()
@@ -137,6 +143,7 @@ export function useRechercheTexte(texte: string) {
             liste.push(l)
             parAffaire.set(l.affaire, liste)
           }
+          dernierResultat = { requete, resultats: parAffaire }
           setResultats(parAffaire)
         })
         .catch(() => {

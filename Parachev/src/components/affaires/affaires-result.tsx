@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { AffaireRecherche, ResultatTexte } from "@/hooks/use-recherche-affaires"
 import { POSTES_HORS_MACHINES, libellePoste } from "@/lib/postes"
+import { DEPUIS_RECHERCHE } from "@/lib/recherche"
 
 interface AffaireResultsProps {
   results: AffaireRecherche[]
@@ -42,7 +43,7 @@ export function AffaireResults({ results, documentsTrouves, loading, error }: Af
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {affiches.map((item) => {
-          const ouvrir = () => navigate(`/prevision/${item.affaire}`)
+          const ouvrir = () => navigate(`/prevision/${item.affaire}`, { state: DEPUIS_RECHERCHE })
           const machines = item.postes_realises.filter((p) => !POSTES_HORS_MACHINES.has(p))
           const documents = documentsTrouves?.get(item.affaire) ?? []
           const periode = [formatDate(item.date_production_debut), formatDate(item.date_production_fin)]

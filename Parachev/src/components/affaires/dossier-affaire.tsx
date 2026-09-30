@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link } from "react-router-dom"
+import { Link, useLocation } from "react-router-dom"
 import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
 import { IconChevronRight, IconExternalLink } from "@tabler/icons-react"
@@ -93,6 +93,8 @@ interface DossierAffaireProps {
 }
 
 export function DossierAffaire({ affaire, heuresParPoste }: DossierAffaireProps) {
+  // Transmis aux affaires liées pour garder le retour vers la recherche.
+  const location = useLocation()
   const [data, setData] = React.useState<DossierAffaireData | null>(null)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -317,7 +319,7 @@ export function DossierAffaire({ affaire, heuresParPoste }: DossierAffaireProps)
             {data.references.map((r) => (
               <div key={`ref-${r.affaire}`} className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Référence utilisée pour la préparation</span>
-                <Link to={`/prevision/${r.affaire}`} className="underline-offset-2 hover:underline">
+                <Link to={`/prevision/${r.affaire}`} state={location.state} className="underline-offset-2 hover:underline">
                   {r.nom_dossier ?? r.affaire}
                 </Link>
               </div>
@@ -325,7 +327,7 @@ export function DossierAffaire({ affaire, heuresParPoste }: DossierAffaireProps)
             {data.cite_par.map((r) => (
               <div key={`cite-${r.affaire}`} className="flex items-center justify-between gap-2">
                 <span className="text-muted-foreground">Sert de référence à</span>
-                <Link to={`/prevision/${r.affaire}`} className="underline-offset-2 hover:underline">
+                <Link to={`/prevision/${r.affaire}`} state={location.state} className="underline-offset-2 hover:underline">
                   {r.nom_dossier ?? r.affaire}
                 </Link>
               </div>

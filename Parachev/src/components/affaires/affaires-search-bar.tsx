@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
+import { useEtatSession } from "@/hooks/use-etat-session"
 import { CHAMPS_VARIABLES_NUMERIQUES } from "@/lib/variables-affaires"
 import {
   CHAMPS_DATE,
@@ -27,6 +28,8 @@ interface AffaireSearchBarProps {
   nbFiltresAvances: number
   tri: Tri
   onTriChange: (tri: Tri) => void
+  /** Reprendre l'état enregistré (retour depuis une affaire). */
+  restaurer: boolean
 }
 
 const STATUTS = { toutes: "Toutes", actives: "Non annulées", annulees: "Annulées" } as const
@@ -78,8 +81,9 @@ export function AffaireSearchBar({
   nbFiltresAvances,
   tri,
   onTriChange,
+  restaurer,
 }: AffaireSearchBarProps) {
-  const [ouvert, setOuvert] = React.useState(false)
+  const [ouvert, setOuvert] = useEtatSession("recherche.filtresAvancesOuverts", false, { restaurer })
   const multi = (
     cle: keyof Filtres & keyof OptionsFiltres,
     label: string,

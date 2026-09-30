@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useLocation, useNavigate, useParams } from "react-router-dom"
 import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -10,11 +10,12 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible"
-import { IconChevronRight } from "@tabler/icons-react"
+import { IconArrowLeft, IconChevronRight } from "@tabler/icons-react"
 import { useAffaireDb, type MentionMail } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
 import { DossierAffaire } from "@/components/affaires/dossier-affaire"
+import { RETOUR_RECHERCHE, type EtatNavigationRecherche } from "@/lib/recherche"
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
@@ -78,6 +79,8 @@ export default function Prevision() {
   // affaire afficher -- toutes les données viennent de la base SQLite via
   // les commandes Tauri scopées par affaire, plus aucun mock JSON.
   const { affaire } = useParams<{ affaire: string }>()
+  const navigate = useNavigate()
+  const depuisRecherche = (useLocation().state as EtatNavigationRecherche | null)?.depuisRecherche === true
   const {
     client,
     variables,
@@ -191,6 +194,17 @@ export default function Prevision() {
             <div className="flex flex-col gap-4 px-4 lg:px-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
+                  {depuisRecherche && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Retour à la recherche"
+                      aria-label="Retour à la recherche"
+                      onClick={() => navigate("/search", { state: RETOUR_RECHERCHE })}
+                    >
+                      <IconArrowLeft />
+                    </Button>
+                  )}
                   <h1 className="text-xl font-semibold">
                     {loading ? "Chargement…" : client ?? "Client inconnu"}
                   </h1>
