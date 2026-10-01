@@ -268,8 +268,31 @@ export interface LigneTonnage {
   client: string | null
   /** Date ISO retenue selon la base (commande ou fin de production). */
   date: string
+  /** Valeur de la mesure : tonnes, ou trous / barres (voir MESURES). */
   tonnes: number
   heures: number
+}
+
+// Les onglets Perçage et Barres réutilisent les agrégations du tonnage sur
+// une autre donnée d'affaire : nombre de trous (forage manuel + numérique,
+// rapporté aux heures ERP des deux postes de forage) ou nombre de barres
+// (rapporté aux heures ERP totales).
+export type Mesure = "tonnage" | "percage" | "barres"
+
+const POSTES_FORAGE = new Set(["forage_manuel", "forage_numerique"])
+
+export const trousAffaire = (a: AffaireRecherche) => ({
+  manuel: a.variables?.nb_trous_manuel ?? 0,
+  numerique: a.variables?.nb_trous_numerique ?? 0,
+})
+
+const MESURES: Record<Mesure, { valeur: (a: AffaireRecherche) => number | null; heures: (a: AffaireRecherche) => number }> = {
+  tonnage: { valeur: (a) => a.poids_t, heures: (a) => a.heures_reelles },
+  percage: {
+    valeur: (a) => trousAffaire(a).manuel + trousAffaire(a).numerique,
+    heures: (a) => a.heures_par_poste.filter((h) => POSTES_FORAGE.has(h.poste)).reduce((s, h) => s + h.heures, 0),
+  },
+  barres: { valeur: (a) => a.nb_barres, heures: (a) => a.heures_reelles },
 }
 
 const dateTonnage = (a: AffaireRecherche, base: BaseTonnage) =>
@@ -278,14 +301,17 @@ const dateTonnage = (a: AffaireRecherche, base: BaseTonnage) =>
 /**
  * Affaires pesées du périmètre (client, type de production, période sur la
  * date de la base), hors affaires annulées. `sansPoids` compte les affaires
- * du même périmètre écartées faute de poids, pour afficher la couverture.
+ * du même périmètre écartées faute de poids (ou de trous, de barres selon
+ * la mesure), pour afficher la couverture.
  */
 export function affairesTonnage(
   affaires: AffaireRecherche[],
   types: Map<string, string[]>,
   f: FiltresDashboard,
-  base: BaseTonnage
+  base: BaseTonnage,
+  mesure: Mesure = "tonnage"
 ): { lignes: LigneTonnage[]; sansPoids: number } {
+  const { valeur, heures } = MESURES[mesure]
   const lignes: LigneTonnage[] = []
   let sansPoids = 0
   for (const a of affaires) {
@@ -294,11 +320,12 @@ export function affairesTonnage(
     if (f.typesProduction.length > 0 && !f.typesProduction.some((t) => types.get(a.affaire)?.includes(t))) continue
     const date = dateTonnage(a, base)
     if (!date || !dansPeriode(date, f)) continue
-    if (!a.poids_t || a.poids_t <= 0) {
+    const v = valeur(a)
+    if (!v || v <= 0) {
       sansPoids += 1
       continue
     }
-    lignes.push({ affaire: a.affaire, client: a.client, date, tonnes: a.poids_t, heures: a.heures_reelles })
+    lignes.push({ affaire: a.affaire, client: a.client, date, tonnes: v, heures: heures(a) })
   }
   return { lignes, sansPoids }
 }

@@ -191,8 +191,17 @@ export const formatPeriode = (cle: string) => {
 
 export function GraphiqueTonnage({
   donnees,
+  formatValeur = formatTonnes,
+  nomValeur = "tonnage",
+  formatRatio = (r) => `${tonnes.format(r)} h/t`,
+  nomRatio = "heures ERP par tonne",
 }: {
   donnees: { periode: string; tonnes: number; affaires: number; heuresParTonne: number | null }[]
+  /** Autre mesure que le tonnage (trous, barres) : formats et libellés de l'infobulle. */
+  formatValeur?: (v: number) => string
+  nomValeur?: string
+  formatRatio?: (heuresParUnite: number) => string
+  nomRatio?: string
 }) {
   return (
     <div className="h-64 w-full">
@@ -210,9 +219,9 @@ export function GraphiqueTonnage({
                 <Infobulle
                   titre={formatPeriode(String(label))}
                   lignes={[
-                    { couleur: COULEUR_ACCENT, valeur: formatTonnes(d.tonnes), nom: "tonnage" },
+                    { couleur: COULEUR_ACCENT, valeur: formatValeur(d.tonnes), nom: nomValeur },
                     { valeur: nombre.format(d.affaires), nom: d.affaires > 1 ? "affaires" : "affaire" },
-                    ...(d.heuresParTonne == null ? [] : [{ valeur: `${tonnes.format(d.heuresParTonne)} h/t`, nom: "heures ERP par tonne" }]),
+                    ...(d.heuresParTonne == null ? [] : [{ valeur: formatRatio(d.heuresParTonne), nom: nomRatio }]),
                   ]}
                 />
               )
