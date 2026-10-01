@@ -5,9 +5,6 @@
 import type { AffaireRecherche } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, affaireCorrespondAuType } from "@/lib/flux-production"
 import { POSTES_HORS_MACHINES, libellePoste } from "@/lib/postes"
-import { CHAMPS_VARIABLES_NUMERIQUES } from "@/lib/variables-affaires"
-
-type ChampVariableKey = (typeof CHAMPS_VARIABLES_NUMERIQUES)[number]["key"]
 
 // Cases "Opérations de fabrication" du RDE (clés de parsing/operations.rs).
 export const OPERATIONS_RDE: Record<string, string> = {
@@ -90,6 +87,52 @@ export interface EtatNavigationRecherche {
 export const DEPUIS_RECHERCHE: EtatNavigationRecherche = { depuisRecherche: true }
 export const RETOUR_RECHERCHE: EtatNavigationRecherche = { restaurerRecherche: true }
 
+export type CleQuantite =
+  | "nbBarres"
+  | "poids"
+  | "heuresReelles"
+  | "heuresPrevues"
+  | "nbGoujons"
+  | "nbTrousManuel"
+  | "nbTrousNumerique"
+  | "diametreMoyen"
+  | "longueurCoupe"
+  | "contreFleche"
+
+/**
+ * Quantités filtrables par intervalle min / max, dans l'ordre d'affichage.
+ * `valeur` est exprimée dans l'unité du libellé (la longueur de coupe est
+ * stockée en mm mais saisie en m). Sans valeur (null), l'affaire est écartée
+ * dès qu'une borne est saisie.
+ */
+export const QUANTITES: {
+  cle: CleQuantite
+  label: string
+  valeur: (a: AffaireRecherche) => number | null | undefined
+}[] = [
+  { cle: "nbBarres", label: "Nombre de barres", valeur: (a) => a.nb_barres },
+  { cle: "poids", label: "Poids (t)", valeur: (a) => a.poids_t },
+  { cle: "heuresReelles", label: "Heures réelles (ERP)", valeur: (a) => a.heures_reelles },
+  { cle: "heuresPrevues", label: "Heures prévues (fiche)", valeur: (a) => a.heures_prevues },
+  { cle: "nbGoujons", label: "Nombre de goujons", valeur: (a) => a.variables?.nb_goujons },
+  { cle: "nbTrousManuel", label: "Trous (forage manuel)", valeur: (a) => a.variables?.nb_trous_manuel },
+  { cle: "nbTrousNumerique", label: "Trous (forage numérique)", valeur: (a) => a.variables?.nb_trous_numerique },
+  { cle: "diametreMoyen", label: "Ø moyen des trous (mm)", valeur: (a) => a.variables?.diametre_moyen_numerique },
+  {
+    cle: "longueurCoupe",
+    label: "Longueur de coupe (m)",
+    valeur: (a) => (a.variables?.longueur_coupe == null ? null : a.variables.longueur_coupe / 1000),
+  },
+  { cle: "contreFleche", label: "Contre-flèche moyenne (mm)", valeur: (a) => a.variables?.contre_fleche },
+]
+
+export interface IntervalleFiltre {
+  min: string
+  max: string
+}
+
+export const INTERVALLE_VIDE: IntervalleFiltre = { min: "", max: "" }
+
 export interface Filtres {
   texte: string
   client: string
@@ -118,13 +161,8 @@ export interface Filtres {
   profils: string[]
   nuances: string[]
   usines: string[]
-  nbBarresMin: string
-  nbBarresMax: string
-  poidsMin: string
-  poidsMax: string
-  heuresMin: string
-  heuresMax: string
-  variables: Partial<Record<ChampVariableKey, string>>
+  /** Bornes saisies par quantité (voir QUANTITES) ; absente = pas de filtre. */
+  quantites: Partial<Record<CleQuantite, IntervalleFiltre>>
   avecNonConformite: boolean
   avecRde: boolean
   avecFiche: boolean
@@ -155,13 +193,7 @@ export const FILTRES_VIDES: Filtres = {
   profils: [],
   nuances: [],
   usines: [],
-  nbBarresMin: "",
-  nbBarresMax: "",
-  poidsMin: "",
-  poidsMax: "",
-  heuresMin: "",
-  heuresMax: "",
-  variables: {},
+  quantites: {},
   avecNonConformite: false,
   avecRde: false,
   avecFiche: false,
@@ -171,11 +203,11 @@ export const FILTRES_VIDES: Filtres = {
 export function nbFiltresAvances(f: Filtres): number {
   let n = 0
   for (const cle of Object.keys(FILTRES_VIDES) as (keyof Filtres)[]) {
-    if (["texte", "client", "champDate", "sourceMachines", "fluxStrict", "variables"].includes(cle)) continue
+    if (["texte", "client", "champDate", "sourceMachines", "fluxStrict", "quantites"].includes(cle)) continue
     const v = f[cle]
     if (Array.isArray(v) ? v.length > 0 : typeof v === "boolean" ? v : v !== FILTRES_VIDES[cle]) n++
   }
-  n += Object.values(f.variables).filter((v) => v && v.trim()).length
+  n += Object.values(f.quantites).filter((i) => i.min.trim() !== "" || i.max.trim() !== "").length
   return n
 }
 
@@ -251,14 +283,53 @@ export function optionsFiltres(affaires: AffaireRecherche[], fluxStrict = false)
   }
 }
 
-const nombre = (s: string) => (s.trim() === "" ? null : Number(s.replace(",", ".")))
+/** Borne saisie ; null si vide ou illisible (la borne est alors ignorée). */
+function borne(s: string): number | null {
+  if (s.trim() === "") return null
+  const n = Number(s.replace(",", "."))
+  return Number.isNaN(n) ? null : n
+}
 
-function dansIntervalle(valeur: number | null, min: string, max: string): boolean {
-  const bas = nombre(min)
-  const haut = nombre(max)
-  if ((bas == null || Number.isNaN(bas)) && (haut == null || Number.isNaN(haut))) return true
+/** true si les deux bornes sont saisies et que min dépasse max (aucun résultat possible). */
+export function intervalleInverse({ min, max }: IntervalleFiltre): boolean {
+  const bas = borne(min)
+  const haut = borne(max)
+  return bas != null && haut != null && bas > haut
+}
+
+function dansIntervalle(valeur: number | null | undefined, { min, max }: IntervalleFiltre): boolean {
+  const bas = borne(min)
+  const haut = borne(max)
+  if (bas == null && haut == null) return true
   if (valeur == null) return false
-  return (bas == null || Number.isNaN(bas) || valeur >= bas) && (haut == null || Number.isNaN(haut) || valeur <= haut)
+  return (bas == null || valeur >= bas) && (haut == null || valeur <= haut)
+}
+
+export interface EtendueQuantite {
+  /** Nombre d'affaires où la quantité est renseignée. */
+  nombre: number
+  min: number
+  max: number
+}
+
+/** Étendue de chaque quantité dans les données, affichée comme repère de saisie. */
+export function etenduesQuantites(affaires: AffaireRecherche[]): Partial<Record<CleQuantite, EtendueQuantite>> {
+  const etendues: Partial<Record<CleQuantite, EtendueQuantite>> = {}
+  for (const { cle, valeur } of QUANTITES) {
+    for (const a of affaires) {
+      const v = valeur(a)
+      if (v == null) continue
+      const e = etendues[cle]
+      if (e) {
+        e.nombre++
+        e.min = Math.min(e.min, v)
+        e.max = Math.max(e.max, v)
+      } else {
+        etendues[cle] = { nombre: 1, min: v, max: v }
+      }
+    }
+  }
+  return etendues
 }
 
 /** OU : au moins une valeur de l'affaire parmi les valeurs cochées. */
@@ -303,6 +374,10 @@ export function filtrerAffaires(
 ): AffaireRecherche[] {
   const requete = f.texte.trim().toLowerCase()
   const typesProduction = TYPES_PRODUCTION.filter((t) => f.typesProduction.includes(t.nom))
+  const quantites = QUANTITES.flatMap(({ cle, valeur }) => {
+    const intervalle = f.quantites[cle]
+    return intervalle ? [{ valeur, intervalle }] : []
+  })
 
   return affaires.filter((a) => {
     if (requete && !correspondTexte(a, requete) && !affairesTexte?.has(a.affaire)) return false
@@ -342,18 +417,7 @@ export function filtrerAffaires(
     if (!unParmi(f.nuances, a.nuances)) return false
     if (!unParmi(f.usines, a.usines)) return false
 
-    if (!dansIntervalle(a.nb_barres, f.nbBarresMin, f.nbBarresMax)) return false
-    if (!dansIntervalle(a.poids_t, f.poidsMin, f.poidsMax)) return false
-    if (!dansIntervalle(a.heures_reelles, f.heuresMin, f.heuresMax)) return false
-
-    return CHAMPS_VARIABLES_NUMERIQUES.every(({ key }) => {
-      const filtre = f.variables[key]?.trim()
-      if (!filtre || !filtre.startsWith(">")) return true
-      const seuil = Number(filtre.slice(1))
-      if (Number.isNaN(seuil)) return true
-      const valeur = a.variables?.[key]
-      return typeof valeur === "number" && valeur > seuil
-    })
+    return quantites.every(({ valeur, intervalle }) => dansIntervalle(valeur(a), intervalle))
   })
 }
 
@@ -372,5 +436,3 @@ export function trierAffaires(affaires: AffaireRecherche[], tri: Tri): AffaireRe
     return copie.sort((a, b) => (b.date_commande ?? "").localeCompare(a.date_commande ?? ""))
   return copie.sort((a, b) => b.affaire.localeCompare(a.affaire))
 }
-
-export type { ChampVariableKey }

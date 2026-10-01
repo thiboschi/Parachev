@@ -9,6 +9,7 @@ import { useEtatSession } from "@/hooks/use-etat-session"
 import { useRechercheAffaires, useRechercheTexte } from "@/hooks/use-recherche-affaires"
 import {
   FILTRES_VIDES,
+  etenduesQuantites,
   filtrerAffaires,
   nbFiltresAvances,
   optionsFiltres,
@@ -40,6 +41,7 @@ function PageRecherche({ restaurer }: { restaurer: boolean }) {
     () => optionsFiltres(affaires, filtres.fluxStrict),
     [affaires, filtres.fluxStrict]
   )
+  const etendues = React.useMemo(() => etenduesQuantites(affaires), [affaires])
 
   const results = React.useMemo(() => {
     const affairesTexte = documentsTrouves ? new Set(documentsTrouves.keys()) : null
@@ -64,6 +66,7 @@ function PageRecherche({ restaurer }: { restaurer: boolean }) {
             onChange={(modif) => setFiltres((prev) => ({ ...prev, ...modif }))}
             onReset={() => setFiltres((prev) => ({ ...FILTRES_VIDES, texte: prev.texte, client: prev.client }))}
             options={options}
+            etendues={etendues}
             nbFiltresAvances={nbFiltresAvances(filtres)}
             tri={tri}
             onTriChange={setTri}

@@ -9,12 +9,17 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
 import { useEtatSession } from "@/hooks/use-etat-session"
-import { CHAMPS_VARIABLES_NUMERIQUES } from "@/lib/variables-affaires"
 import {
   CHAMPS_DATE,
+  INTERVALLE_VIDE,
+  QUANTITES,
   TRIS,
+  etenduesQuantites,
+  intervalleInverse,
   type ChampDate,
+  type EtendueQuantite,
   type Filtres,
+  type IntervalleFiltre,
   type OptionsFiltres,
   type SourceMachines,
   type Tri,
@@ -25,6 +30,8 @@ interface AffaireSearchBarProps {
   onChange: (modif: Partial<Filtres>) => void
   onReset: () => void
   options: OptionsFiltres
+  /** Étendue de chaque quantité dans les données (repère de saisie). */
+  etendues: ReturnType<typeof etenduesQuantites>
   nbFiltresAvances: number
   tri: Tri
   onTriChange: (tri: Tri) => void
@@ -48,26 +55,52 @@ function Section({ titre, children }: { titre: string; children: React.ReactNode
   )
 }
 
-/** Deux champs numériques min / max côte à côte. */
+const formatBorne = (n: number) => n.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
+
+/**
+ * Deux champs numériques min / max côte à côte. L'étendue observée dans les
+ * données sert de repère (placeholders) et le libellé rappelle combien
+ * d'affaires ont la quantité renseignée.
+ */
 function Intervalle({
   label,
-  min,
-  max,
-  onMin,
-  onMax,
+  valeur,
+  etendue,
+  onChange,
 }: {
   label: string
-  min: string
-  max: string
-  onMin: (v: string) => void
-  onMax: (v: string) => void
+  valeur: IntervalleFiltre
+  etendue?: EtendueQuantite
+  onChange: (valeur: IntervalleFiltre) => void
 }) {
+  const inverse = intervalleInverse(valeur)
   return (
     <div className="flex flex-col gap-1">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label className="text-xs text-muted-foreground">
+        {label}
+        <span className="font-normal opacity-70">· {etendue?.nombre ?? 0} aff.</span>
+      </Label>
       <div className="flex gap-2">
-        <Input type="number" placeholder="min" value={min} onChange={(e) => onMin(e.target.value)} />
-        <Input type="number" placeholder="max" value={max} onChange={(e) => onMax(e.target.value)} />
+        <Input
+          type="number"
+          min={0}
+          step="any"
+          aria-label={`${label} : minimum`}
+          aria-invalid={inverse}
+          placeholder={etendue ? `min ${formatBorne(etendue.min)}` : "min"}
+          value={valeur.min}
+          onChange={(e) => onChange({ ...valeur, min: e.target.value })}
+        />
+        <Input
+          type="number"
+          min={0}
+          step="any"
+          aria-label={`${label} : maximum`}
+          aria-invalid={inverse}
+          placeholder={etendue ? `max ${formatBorne(etendue.max)}` : "max"}
+          value={valeur.max}
+          onChange={(e) => onChange({ ...valeur, max: e.target.value })}
+        />
       </div>
     </div>
   )
@@ -78,6 +111,7 @@ export function AffaireSearchBar({
   onChange,
   onReset,
   options,
+  etendues,
   nbFiltresAvances,
   tri,
   onTriChange,
@@ -259,53 +293,15 @@ export function AffaireSearchBar({
             </Section>
 
             <Section titre="Quantités">
-              <Intervalle
-                label="Nombre de barres"
-                min={filtres.nbBarresMin}
-                max={filtres.nbBarresMax}
-                onMin={(v) => onChange({ nbBarresMin: v })}
-                onMax={(v) => onChange({ nbBarresMax: v })}
-              />
-              <Intervalle
-                label="Poids (t)"
-                min={filtres.poidsMin}
-                max={filtres.poidsMax}
-                onMin={(v) => onChange({ poidsMin: v })}
-                onMax={(v) => onChange({ poidsMax: v })}
-              />
-              <Intervalle
-                label="Heures réelles (ERP)"
-                min={filtres.heuresMin}
-                max={filtres.heuresMax}
-                onMin={(v) => onChange({ heuresMin: v })}
-                onMax={(v) => onChange({ heuresMax: v })}
-              />
-              {CHAMPS_VARIABLES_NUMERIQUES.filter(({ key }) => key !== "nb_barres").map(({ key, label, seuils }) => {
-                const items = { all: "Tous", ...Object.fromEntries(seuils.map((s) => [`>${s}`, `> ${s}`])) }
-                return (
-                  <div key={key} className="flex flex-col gap-1">
-                    <Label className="text-xs text-muted-foreground">{label}</Label>
-                    <Select
-                      items={items}
-                      value={filtres.variables[key] || "all"}
-                      onValueChange={(v) =>
-                        onChange({ variables: { ...filtres.variables, [key]: !v || v === "all" ? "" : v } })
-                      }
-                    >
-                      <SelectTrigger className="w-full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {Object.entries(items).map(([valeur, libelle]) => (
-                          <SelectItem key={valeur} value={valeur}>
-                            {libelle}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )
-              })}
+              {QUANTITES.map(({ cle, label }) => (
+                <Intervalle
+                  key={cle}
+                  label={label}
+                  valeur={filtres.quantites[cle] ?? INTERVALLE_VIDE}
+                  etendue={etendues[cle]}
+                  onChange={(valeur) => onChange({ quantites: { ...filtres.quantites, [cle]: valeur } })}
+                />
+              ))}
             </Section>
 
             <Section titre="Dossier">
