@@ -15,15 +15,27 @@ export interface ProfilAffaireRow {
 }
 
 // Shape returned by the `lister_goujons_affaire` Tauri command
-// (GoujonAffaireRow in lib.rs) -- une ligne par poutre (rep) et par type de
-// goujon (diamètre x hauteur) ; une poutre peut mélanger plusieurs
-// diamètres, d'où le regroupement par rep fait dans useAffaireDb.
+// (GoujonAffaireRow in lib.rs) -- une ligne par poutre (rep), par type de
+// goujon (diamètre x hauteur) et par zone ; une poutre peut mélanger
+// plusieurs diamètres, d'où le regroupement par rep fait dans useAffaireDb.
+// `zone` : case cochée dans FC-GOUJ, null si aucune (ou affaire parsée
+// avant l'ajout de la zone).
+export type ZoneGoujons = "ame" | "aile_sup" | "aile_inf" | "tete"
+
+export const LIBELLES_ZONE_GOUJONS: Record<ZoneGoujons, string> = {
+  ame: "Âme",
+  aile_sup: "Aile sup",
+  aile_inf: "Aile inf",
+  tete: "Tête",
+}
+
 export interface GoujonAffaireRow {
   rep: string
   profil: string
   longueur: number
   diametre: number | null
   hauteur: number | null
+  zone: ZoneGoujons | null
   nb_goujons: number
 }
 
@@ -31,7 +43,15 @@ export interface GoujonsPoutre {
   rep: string
   profil: string
   longueur: number
-  groupes: { diametre: number | null; hauteur: number | null; nb_goujons: number }[]
+  groupes: { diametre: number | null; hauteur: number | null; zone: ZoneGoujons | null; nb_goujons: number }[]
+}
+
+// Goujons de l'affaire par zone, et retournements de poutres qu'ils imposent
+// (zones goujonnées d'une poutre − 1, sommées sur l'affaire -- même calcul
+// que nb_retournements_goujons dans prevision.rs).
+export interface ZonesGoujons {
+  zones: { zone: ZoneGoujons; nb_goujons: number }[]
+  retournements: number
 }
 
 // Shape returned by the `lister_cfl_affaire` Tauri command (CflAffaireRow in
@@ -75,6 +95,8 @@ interface UseAffaireDbResult {
   variables: VariablesAffaireRow | null
   profils: ProfilAffaireRow[]
   goujonsParPoutre: GoujonsPoutre[]
+  /** null sans goujons, ou si la zone d'un groupe de goujons est inconnue. */
+  zonesGoujons: ZonesGoujons | null
   cflParBarre: CflAffaireRow[]
   quantites: QuantitesAffaire | null
   heures: HeureRow[]
@@ -165,15 +187,37 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
   const goujonsParPoutre = React.useMemo<GoujonsPoutre[]>(() => {
     const poutres = new Map<string, GoujonsPoutre>()
-    for (const { rep, profil, longueur, diametre, hauteur, nb_goujons } of goujons) {
+    for (const { rep, profil, longueur, diametre, hauteur, zone, nb_goujons } of goujons) {
       let poutre = poutres.get(rep)
       if (!poutre) {
         poutre = { rep, profil, longueur, groupes: [] }
         poutres.set(rep, poutre)
       }
-      poutre.groupes.push({ diametre, hauteur, nb_goujons })
+      poutre.groupes.push({ diametre, hauteur, zone, nb_goujons })
     }
     return Array.from(poutres.values())
+  }, [goujons])
+
+  const zonesGoujons = React.useMemo<ZonesGoujons | null>(() => {
+    if (goujons.length === 0) return null
+    const parZone = new Map<ZoneGoujons, number>()
+    const zonesParPoutre = new Map<string, Set<ZoneGoujons>>()
+    for (const { rep, zone, nb_goujons } of goujons) {
+      if (zone == null) return null
+      parZone.set(zone, (parZone.get(zone) ?? 0) + nb_goujons)
+      let zones = zonesParPoutre.get(rep)
+      if (!zones) {
+        zones = new Set()
+        zonesParPoutre.set(rep, zones)
+      }
+      zones.add(zone)
+    }
+    let retournements = 0
+    for (const zones of zonesParPoutre.values()) retournements += zones.size - 1
+    return {
+      zones: Array.from(parZone, ([zone, nb_goujons]) => ({ zone, nb_goujons })),
+      retournements,
+    }
   }, [goujons])
 
   return {
@@ -181,6 +225,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
     variables,
     profils,
     goujonsParPoutre,
+    zonesGoujons,
     cflParBarre,
     quantites,
     heures,

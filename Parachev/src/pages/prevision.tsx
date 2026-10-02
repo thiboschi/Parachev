@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from "@/components/ui/collapsible"
 import { IconArrowLeft, IconChevronRight } from "@tabler/icons-react"
-import { useAffaireDb, type MentionMail } from "@/hooks/use-affaire-db"
+import { LIBELLES_ZONE_GOUJONS, useAffaireDb, type MentionMail } from "@/hooks/use-affaire-db"
 import type { VariablesAffaireRow } from "@/hooks/use-affaires-db"
 import { libellePoste } from "@/lib/postes"
 import { DossierAffaire } from "@/components/affaires/dossier-affaire"
@@ -86,6 +86,7 @@ export default function Prevision() {
     variables,
     profils,
     goujonsParPoutre,
+    zonesGoujons,
     cflParBarre,
     quantites,
     heuresParPoste,
@@ -340,6 +341,14 @@ export default function Prevision() {
                               `${quantites.source_nb_goujons ? " · " : ""}besoin cité dans les mails : ${quantites.nb_goujons_mails}`}
                           </LigneSource>
                         )}
+                        {zonesGoujons && (
+                          <LigneSource>
+                            {zonesGoujons.zones
+                              .map((z) => `${LIBELLES_ZONE_GOUJONS[z.zone]} : ${z.nb_goujons}`)
+                              .join(" · ")}
+                            {` · ${zonesGoujons.retournements} retournement${zonesGoujons.retournements > 1 ? "s" : ""} de poutre`}
+                          </LigneSource>
+                        )}
                         {goujonsParPoutre.length > 0 && (
                           <Collapsible className="flex flex-col gap-1.5 pb-1.5">
                             <CollapsibleTrigger className="group flex items-center gap-1 text-muted-foreground">
@@ -361,6 +370,7 @@ export default function Prevision() {
                                         <span>
                                           {g.diametre != null ? `Ø${g.diametre}` : "Ø ?"}
                                           {g.hauteur != null ? ` × ${g.hauteur}mm` : ""}
+                                          {g.zone != null ? ` · ${LIBELLES_ZONE_GOUJONS[g.zone]}` : ""}
                                         </span>
                                         <span className="tabular-nums">{g.nb_goujons}</span>
                                       </div>

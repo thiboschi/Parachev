@@ -228,7 +228,8 @@ pub fn inserer_profils_affaire(conn: &mut Connection, affaire: &str, groupes: &[
 }
 
 /// Remplace le détail des goujons d'une affaire dans `goujons_affaires` :
-/// une ligne par poutre (rep) et par type de goujon (diamètre x hauteur).
+/// une ligne par poutre (rep), par type de goujon (diamètre x hauteur) et
+/// par zone.
 pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[BarreGoujons]) -> Result<(), String> {
     let tx = conn.savepoint().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM goujons_affaires WHERE affaire = ?1", params![affaire])
@@ -236,9 +237,9 @@ pub fn inserer_goujons_affaire(conn: &mut Connection, affaire: &str, poutres: &[
     for poutre in poutres {
         for g in &poutre.groupes {
             tx.execute(
-                "INSERT INTO goujons_affaires (affaire, rep, profil, longueur, diametre, hauteur, nb_goujons)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![affaire, poutre.rep, poutre.profil, poutre.longueur, g.diametre, g.hauteur, g.nb_goujons],
+                "INSERT INTO goujons_affaires (affaire, rep, profil, longueur, diametre, hauteur, nb_goujons, zone)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![affaire, poutre.rep, poutre.profil, poutre.longueur, g.diametre, g.hauteur, g.nb_goujons, g.zone],
             )
             .map_err(|e| e.to_string())?;
         }

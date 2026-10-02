@@ -19,6 +19,15 @@ use std::collections::HashMap;
 /// validation croisée 81 % contre 80 % pour la courbe sur le poids seul) --
 /// la combinaison reste candidate pour le jour où les données la justifient.
 ///
+/// Retournements dus aux goujons (prevision::RETOURNEMENTS_GOUJONS : des
+/// goujons sur plusieurs zones d'une poutre obligent à la retourner) :
+/// candidats en manutention (avec le poids) et en goujonnage (avec le nombre
+/// de goujons), aux mêmes conditions. Sur les 16 fiches à goujons
+/// disponibles hors de la base au 02/10/2026, l'écart n'est pas mesurable
+/// (heures réelles / prévues, médiane : manutention 0,60 sur une zone contre
+/// 0,57 sur plusieurs, goujonnage 0,63 contre 0,76) -- à la calibration de
+/// trancher une fois les zones lues sur toutes les affaires.
+///
 /// Grandeurs candidates retenues d'après les données de 2025 (erreur en
 /// validation croisée, nombre de barres -> meilleure grandeur) : P3 63 % ->
 /// poids 42 %, mise à longueur 105 % -> mètres de poutre 74 %, presse
@@ -52,6 +61,7 @@ pub fn poste_variables() -> HashMap<&'static str, Vec<Vec<String>>> {
                 une("metres"),
                 une("nb_barres_cfl"),
                 vec!["poids_t".to_string(), "metres".to_string()],
+                vec!["poids_t".to_string(), prevision::RETOURNEMENTS_GOUJONS.to_string()],
             ],
         ),
         ("mise_a_longueur", vec![une("nb_barres"), une("poids_t"), une("metres")]),
@@ -60,7 +70,10 @@ pub fn poste_variables() -> HashMap<&'static str, Vec<Vec<String>>> {
             vec![vec!["nb_trous_manuel".to_string(), "diametre_moyen_manuel".to_string()], une("nb_trous_manuel")],
         ),
         ("forage_numerique", forage_numerique),
-        ("goujonnage", vec![une("nb_goujons")]),
+        (
+            "goujonnage",
+            vec![une("nb_goujons"), vec!["nb_goujons".to_string(), prevision::RETOURNEMENTS_GOUJONS.to_string()]],
+        ),
         ("oxycoupage", vec![une("longueur_coupe")]),
         ("assemblage_tracage", filtrees("assemblage", &["nb_barres", "poids", "metres"])),
         ("presse_cintrage", filtrees("presse", &["nb_barres", "poids", "metres", "nb_barres_cfl"])),
@@ -514,7 +527,10 @@ fn erreur_validation_croisee_lineaire(donnees: &[LigneCalibration], n_variables:
 /// affaires où ses variables et `variable` (la grandeur simple choisie,
 /// connue sur `n_simple` affaires) sont connues, il prévoit mieux qu'elle
 /// (droite ou courbe). Mêmes conditions que le candidat de tête par
-/// ailleurs : assez d'affaires, couverture, coefficients positifs.
+/// ailleurs : assez d'affaires, couverture, coefficients positifs. Chacune de
+/// ses variables doit en plus être non nulle sur MIN_OBS_PAR_VARIABLE
+/// affaires : une variable nulle presque partout (retournements dus aux
+/// goujons, sur des affaires sans goujons) ne peut pas être calibrée.
 fn calibrer_combinaison(
     conn: &Connection,
     poste: &str,
@@ -538,6 +554,13 @@ fn calibrer_combinaison(
             .collect()
     };
     let (donnees, simple) = (lignes(0..n_variables), lignes(n_variables..n_variables + 1));
+    for (j, nom) in combinaison.iter().enumerate() {
+        let n_non_nulles = donnees.iter().filter(|l| l.valeurs[j] != 0.0).count();
+        if n_non_nulles < MIN_OBS_PAR_VARIABLE {
+            println!("[{poste}] {combinaison:?} : {nom} non nulle sur {n_non_nulles} affaires (minimum {MIN_OBS_PAR_VARIABLE}), écartées");
+            return Ok(None);
+        }
+    }
 
     let (intercept, coefs, r2) = regression_lineaire(&donnees, n_variables);
     if coefs.iter().any(|c| *c < 0.0) {
@@ -928,6 +951,83 @@ mod tests {
         let variables = prevision::charger_variables(&conn, None).unwrap();
         let coefficients = calibrer_poste(&conn, "manutention", &candidats, &variables).unwrap().unwrap().coefficients;
         assert_eq!(coefficients.coefficients.keys().collect::<Vec<_>>(), ["poids_t"]);
+    }
+
+    /// 30 affaires de goujonnage, 2 poutres chacune ; les poutres des
+    /// affaires paires ont des goujons sur 3 zones (2 retournements par
+    /// poutre), les autres sur une seule. `heures(goujons, retournements)`.
+    fn affaires_goujonnage(conn: &Connection, zones_lues: bool, heures: impl Fn(f64, f64) -> f64) {
+        for i in 0..30 {
+            let affaire_i = format!("A{i}");
+            let goujons = 100.0 * (((i * 7) % 11) + 1) as f64;
+            let zones: &[&str] = if i % 2 == 0 { &["aile_sup", "aile_inf", "tete"] } else { &["aile_sup"] };
+            affaire(conn, &affaire_i, 2.0, false, 0.0);
+            conn.execute("UPDATE variables_affaires SET nb_goujons = ?1 WHERE affaire = ?2", rusqlite::params![goujons, affaire_i])
+                .unwrap();
+            for rep in ["1a", "1b"] {
+                for zone in zones {
+                    conn.execute(
+                        "INSERT INTO goujons_affaires (affaire, rep, diametre, hauteur, nb_goujons, zone)
+                         VALUES (?1, ?2, 22, 150, 10, ?3)",
+                        rusqlite::params![affaire_i, rep, zones_lues.then_some(zone)],
+                    )
+                    .unwrap();
+                }
+            }
+            let retournements = 2.0 * (zones.len() - 1) as f64;
+            conn.execute(
+                "INSERT INTO heures (affaire, poste, heures) VALUES (?1, 'goujonnage', ?2)",
+                rusqlite::params![affaire_i, heures(goujons, retournements)],
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn goujonnage_retournements_si_meilleurs() {
+        let candidats = poste_variables()["goujonnage"].clone();
+        let retournements = prevision::RETOURNEMENTS_GOUJONS;
+
+        // Heures qui dépendent des goujons et des retournements.
+        let conn = base();
+        affaires_goujonnage(&conn, true, |goujons, retournements| 2.0 + 0.05 * goujons + 6.0 * retournements);
+        affaire(&conn, "SANS_GOUJONS", 4.0, false, 0.0);
+        conn.execute("UPDATE variables_affaires SET nb_goujons = 0 WHERE affaire = 'SANS_GOUJONS'", []).unwrap();
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        assert_eq!(variables["A0"][retournements], Some(4.0));
+        assert_eq!(variables["A1"][retournements], Some(0.0));
+        assert_eq!(variables["SANS_GOUJONS"][retournements], Some(0.0));
+        let coefficients = calibrer_poste(&conn, "goujonnage", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert!((coefficients.coefficients["nb_goujons"] - 0.05).abs() < 1e-6, "{coefficients:?}");
+        assert!((coefficients.coefficients[retournements] - 6.0).abs() < 1e-6, "{coefficients:?}");
+
+        // Heures qui ne dépendent que des goujons : la grandeur simple reste.
+        let conn = base();
+        affaires_goujonnage(&conn, true, |goujons, _| 0.5 * goujons.powf(0.8));
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        let coefficients = calibrer_poste(&conn, "goujonnage", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert_eq!(coefficients.coefficients.keys().collect::<Vec<_>>(), ["nb_goujons"]);
+
+        // Zones pas encore lues : retournements inconnus, grandeur simple.
+        let conn = base();
+        affaires_goujonnage(&conn, false, |goujons, retournements| 2.0 + 0.05 * goujons + 6.0 * retournements);
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        assert_eq!(variables["A0"][retournements], None);
+        let coefficients = calibrer_poste(&conn, "goujonnage", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert_eq!(coefficients.coefficients.keys().collect::<Vec<_>>(), ["nb_goujons"]);
+    }
+
+    #[test]
+    fn manutention_sans_retournements_connus() {
+        // Aucune affaire à goujons : les retournements valent 0 partout, la
+        // combinaison poids + retournements n'est pas calibrable.
+        let conn = base();
+        affaires_manutention(&conn, |poids, _| 3.0 + 0.1 * poids);
+        conn.execute("UPDATE variables_affaires SET nb_goujons = 0", []).unwrap();
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        let candidats = poste_variables()["manutention"].clone();
+        let coefficients = calibrer_poste(&conn, "manutention", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert!(!coefficients.coefficients.contains_key(prevision::RETOURNEMENTS_GOUJONS), "{coefficients:?}");
     }
 
     #[test]

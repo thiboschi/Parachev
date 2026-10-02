@@ -149,6 +149,7 @@ pub fn run() {
             erp::migrer_ajouter_colonne_client(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonnes_profil_numero_plan(&conn).map_err(|e| e.to_string())?;
             erp::migrer_ajouter_colonne_contre_fleche(&conn).map_err(|e| e.to_string())?;
+            erp::migrer_ajouter_colonne_zone_goujons(&conn).map_err(|e| e.to_string())?;
             erp::migrer_profils_affaires_ajouter_longueur(&conn).map_err(|e| e.to_string())?;
             config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
@@ -645,11 +646,13 @@ struct GoujonAffaireRow {
     longueur: f64,
     diametre: Option<f64>,
     hauteur: Option<f64>,
+    zone: Option<String>,
     nb_goujons: f64,
 }
 
 /// Détail des goujons d'une affaire (table `goujons_affaires`) : une ligne
-/// par poutre (rep) et par type de goujon (diamètre x hauteur), une même
+/// par poutre (rep), par type de goujon (diamètre x hauteur) et par zone
+/// (ame / aile_sup / aile_inf / tete), une même
 /// poutre pouvant mélanger plusieurs diamètres -- regroupement par rep
 /// laissé au front (voir GoujonsAffaireRow côté TS). Vide si l'affaire n'a
 /// pas de goujonnage ou n'a pas encore été parsée.
@@ -658,8 +661,8 @@ fn lister_goujons_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<
     let conn = ouvrir_db(&app)?;
     let mut stmt = conn
         .prepare(
-            "SELECT rep, profil, longueur, diametre, hauteur, nb_goujons FROM goujons_affaires
-             WHERE affaire = ?1 ORDER BY rep, diametre, hauteur",
+            "SELECT rep, profil, longueur, diametre, hauteur, nb_goujons, zone FROM goujons_affaires
+             WHERE affaire = ?1 ORDER BY rep, diametre, hauteur, zone",
         )
         .map_err(|e| e.to_string())?;
 
@@ -671,6 +674,7 @@ fn lister_goujons_affaire(app: tauri::AppHandle, affaire: String) -> Result<Vec<
                 longueur: row.get(2)?,
                 diametre: row.get(3)?,
                 hauteur: row.get(4)?,
+                zone: row.get(6)?,
                 nb_goujons: row.get(5)?,
             })
         })

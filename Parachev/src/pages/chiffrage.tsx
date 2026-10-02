@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
 import { CalculateurSoudage } from "@/components/chiffrage/calculateur-soudage"
+import { LIBELLES_ZONE_GOUJONS, type ZoneGoujons } from "@/hooks/use-affaire-db"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
@@ -84,6 +85,7 @@ type Champ =
   | "metres"
   | "nb_barres_cfl"
   | "nb_goujons"
+  | "nb_retournements_goujons"
   | "nb_trous_manuel"
   | "diametre_moyen_manuel"
   | "nb_trous_numerique"
@@ -96,6 +98,7 @@ const LIBELLES_CHAMPS: Record<Champ, string> = {
   metres: "Longueur par barre (m)",
   nb_barres_cfl: "Barres avec contre-flèche",
   nb_goujons: "Goujons par barre",
+  nb_retournements_goujons: "Retournements par barre",
   nb_trous_manuel: "Trous perçage manuel par barre",
   diametre_moyen_manuel: "Diamètre moyen manuel (mm)",
   nb_trous_numerique: "Trous perçage numérique par barre",
@@ -109,6 +112,7 @@ const CHAMPS_PAR_BARRE = new Set<Champ>([
   "poids_t",
   "metres",
   "nb_goujons",
+  "nb_retournements_goujons",
   "nb_trous_manuel",
   "nb_trous_numerique",
   "longueur_coupe",
@@ -133,6 +137,11 @@ const CHAMPS_MODULE: Record<string, Champ[]> = {
   goujonnage: ["nb_goujons"],
   oxycoupage: ["longueur_coupe"],
 }
+
+// Zones d'une barre qui reçoivent des goujons, cochées dans le module
+// "Goujonnage" (mêmes zones que FC-GOUJ) : chaque zone au-delà de la
+// première impose un retournement de la barre (nb_retournements_goujons).
+const ZONES_GOUJONS = Object.keys(LIBELLES_ZONE_GOUJONS) as ZoneGoujons[]
 
 // Trous oblongs d'une barre, en option des modules qui peuvent les réaliser :
 // aucun poste ne les chiffre d'après leur nombre, ils ne servent qu'au temps
@@ -181,7 +190,7 @@ const postesParDefaut = (modules: ModulePoste[]) =>
   new Set(modules.filter((m) => !m.optionnel).map((m) => m.poste))
 
 // Ajoute ou retire `cle` d'un ensemble de cases cochées.
-function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<string> {
+function basculer<T extends string>(ensemble: Set<T>, cle: T, coche: boolean): Set<T> {
   const suivant = new Set(ensemble)
   if (coche) suivant.add(cle)
   else suivant.delete(cle)
@@ -305,6 +314,8 @@ export default function Chiffrage() {
   )
   const [contreFleche, setContreFleche] = useState("")
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
+  const [zonesGoujons, setZonesGoujons] = useState<Set<ZoneGoujons>>(new Set())
+  const retournementsParBarre = Math.max(zonesGoujons.size - 1, 0)
   // Option "Trous oblongs" de chaque module de POSTES_AVEC_OBLONGS : cochée
   // ou non, et ses dimensions (propres au poste).
   const [oblongsActifs, setOblongsActifs] = useState<Set<string>>(new Set())
@@ -378,6 +389,7 @@ export default function Chiffrage() {
     setProfil("")
     setContreFleche("")
     setValeurs(CHAMPS_VIDES)
+    setZonesGoujons(new Set())
     setOblongsActifs(new Set())
     setOblongs({})
     setPostes(new Set())
@@ -415,6 +427,7 @@ export default function Chiffrage() {
         champs.includes(key) ? totalProjet(key) : 0,
       ])
     )
+    if (postes.has("goujonnage")) variables.nb_retournements_goujons = retournementsParBarre * nbBarres
     const postesChiffres = Array.from(postes)
 
     setCalcul(true)
@@ -498,6 +511,10 @@ export default function Chiffrage() {
         .filter((key) => valeurs[key].trim() !== "")
         .map((key) => `${LIBELLES_CHAMPS[key]} : ${avecTotal(key)}`)
       if (poste === "presse_cintrage" && contreFleche.trim() !== "") details.push(`CFL : ${contreFleche}`)
+      if (poste === "goujonnage" && zonesGoujons.size > 0) {
+        const zones = ZONES_GOUJONS.filter((zone) => zonesGoujons.has(zone)).map((zone) => LIBELLES_ZONE_GOUJONS[zone])
+        details.push(`Zones goujonnées : ${zones.join(", ")} (${retournementsParBarre} retournement${retournementsParBarre > 1 ? "s" : ""} par barre)`)
+      }
       if (oblongsActifs.has(poste)) {
         const { nombre: nb, longueur, largeur } = oblongsDuPoste(poste)
         details.push(`Trous oblongs : ${nb || "—"} par barre, ${longueur || "—"} × ${largeur || "—"} mm`)
@@ -734,6 +751,35 @@ export default function Chiffrage() {
                                   onChange={(e) => setContreFleche(e.target.value)}
                                 />
                               </ChampSaisie>
+                            )}
+                          </div>
+                        )}
+                        {poste === "goujonnage" && (
+                          <div className="flex flex-col gap-2">
+                            <span className="text-muted-foreground">Zones goujonnées</span>
+                            <div className="flex flex-wrap gap-x-4 gap-y-2">
+                              {ZONES_GOUJONS.map((zone) => (
+                                <div key={zone} className="flex items-center gap-2">
+                                  <Checkbox
+                                    id={`zone-goujons-${zone}`}
+                                    checked={zonesGoujons.has(zone)}
+                                    onCheckedChange={(coche) =>
+                                      setZonesGoujons((prev) => basculer(prev, zone, coche === true))
+                                    }
+                                  />
+                                  <Label htmlFor={`zone-goujons-${zone}`} className="text-sm font-normal">
+                                    {LIBELLES_ZONE_GOUJONS[zone]}
+                                  </Label>
+                                </div>
+                              ))}
+                            </div>
+                            {zonesGoujons.size > 0 && (
+                              <span className="text-xs text-muted-foreground">
+                                {retournementsParBarre} retournement{retournementsParBarre > 1 ? "s" : ""} par barre
+                                {nbBarres > 0 && retournementsParBarre > 0
+                                  ? ` (total : ${formatHeures(retournementsParBarre * nbBarres)})`
+                                  : ""}
+                              </span>
                             )}
                           </div>
                         )}

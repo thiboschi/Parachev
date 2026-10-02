@@ -41,7 +41,8 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
         -- groupe profil+longueur = une ligne, avec son propre nb_barres et
         -- son L-LAM, la longueur brute livrée par le laminoir).
         -- Goujons par poutre : une ligne par poutre (rep de FC-GOUJ) et par
-        -- type de goujon (diamètre x hauteur), avec son nombre.
+        -- type de goujon (diamètre x hauteur) et par zone (ame / aile_sup /
+        -- aile_inf / tete, NULL si non cochée), avec son nombre.
         CREATE TABLE IF NOT EXISTS goujons_affaires (
             affaire    TEXT NOT NULL,
             rep        TEXT NOT NULL,
@@ -49,7 +50,8 @@ pub fn initialiser_schema(conn: &Connection) -> rusqlite::Result<()> {
             longueur   REAL,
             diametre   REAL,
             hauteur    REAL,
-            nb_goujons REAL NOT NULL
+            nb_goujons REAL NOT NULL,
+            zone       TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_goujons_affaire ON goujons_affaires(affaire);
 
@@ -115,6 +117,19 @@ pub fn migrer_ajouter_colonnes_profil_numero_plan(conn: &Connection) -> rusqlite
 /// les bases créées avant ce correctif.
 pub fn migrer_ajouter_colonne_contre_fleche(conn: &Connection) -> rusqlite::Result<()> {
     match conn.execute("ALTER TABLE variables_affaires ADD COLUMN contre_fleche REAL", []) {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Ajoute la colonne `zone` à goujons_affaires si elle n'existe pas déjà --
+/// même migration idempotente que pour `client`. Les lignes déjà en base
+/// restent à NULL jusqu'au prochain parsing de la fiche.
+pub fn migrer_ajouter_colonne_zone_goujons(conn: &Connection) -> rusqlite::Result<()> {
+    match conn.execute("ALTER TABLE goujons_affaires ADD COLUMN zone TEXT", []) {
         Ok(_) => Ok(()),
         Err(rusqlite::Error::SqliteFailure(_, Some(msg))) if msg.contains("duplicate column") => {
             Ok(())

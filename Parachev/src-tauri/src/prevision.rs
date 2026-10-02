@@ -308,6 +308,13 @@ pub const GRANDEURS: [(&str, &str); 4] = [
     ("nb_barres_cfl", "nb_barres_cfl"),
 ];
 
+/// Retournements de poutres imposés par le goujonnage : pour chaque poutre de
+/// `goujons_affaires`, nombre de zones goujonnées (âme, aile sup, aile inf,
+/// tête) moins une -- une poutre goujonnée sur une seule zone ne se retourne
+/// pas. Candidate en manutention et en goujonnage (voir
+/// calibration::poste_variables).
+pub const RETOURNEMENTS_GOUJONS: &str = "nb_retournements_goujons";
+
 /// Postes dont le temps suit la taille de ce qui y passe, avec le suffixe de
 /// leurs variables réservées : `<préfixe de GRANDEURS>_<suffixe>` vaut la
 /// grandeur si le poste est prévu, 0 sinon (ex. nb_barres_presse,
@@ -508,10 +515,27 @@ pub fn charger_variables(conn: &Connection, affaire: Option<&str>) -> Result<Has
         affaire,
     )?;
 
+    // Une poutre dont une zone n'est pas cochée sur FC-GOUJ (ou lue avant
+    // l'ajout de la zone) rend le nombre de retournements de l'affaire inconnu.
+    let retournements = valeurs_par_affaire(
+        conn,
+        "SELECT affaire, CASE WHEN SUM(zones_inconnues) = 0 THEN SUM(nb_zones - 1) END
+         FROM (SELECT affaire, COUNT(DISTINCT zone) AS nb_zones, SUM(zone IS NULL) AS zones_inconnues
+               FROM goujons_affaires WHERE ?1 IS NULL OR affaire = ?1 GROUP BY affaire, rep)
+         GROUP BY affaire",
+        affaire,
+    )?;
+
     let aucun_poste = HashSet::new();
     let mut resultat = HashMap::new();
     for ligne in lignes {
         let (affaire, mut variables) = ligne.map_err(|e| e.to_string())?;
+        // Sans goujons (fiche lue, FC-GOUJ vide) : aucun retournement.
+        let sans_goujons = variables.get("nb_goujons") == Some(&Some(0.0));
+        variables.insert(
+            RETOURNEMENTS_GOUJONS.into(),
+            retournements.get(&affaire).copied().or(sans_goujons.then_some(0.0)),
+        );
         variables.insert("metres".into(), metres.get(&affaire).copied());
         variables.insert("nb_barres_cfl".into(), nb_barres_cfl.get(&affaire).copied());
         deriver_variables(&mut variables, postes_prevus.get(&affaire).unwrap_or(&aucun_poste));

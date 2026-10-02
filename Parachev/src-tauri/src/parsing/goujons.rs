@@ -4,18 +4,26 @@
 //! - Lignes 13-16 (1-based) : en-têtes multilingues (FR/DE/EN/PL)
 //! - À partir de la ligne 17 : une ligne par barre physique (Rep = identifiant
 //!   de barre, ex. "1A", "T01"...)
-//! - 3 groupes de colonnes (Âme / Aile sup / Aile inf), chacun avec :
+//! - 3 groupes de colonnes, chacun avec :
 //!   Diam., Nb plan (Sol Menge -- planifié), Nb réel (Ist Menge -- réalisé)
+//! - Lignes 10-12 : au-dessus de chaque groupe, la zone de la poutre qui
+//!   reçoit ses goujons (Âme / Aile sup / Aile inf / Tête), cochée d'un "X"
+//!   -- la position du groupe ne dit rien : sur 1100732005 les trois groupes
+//!   sont Aile sup, Aile inf et Tête (plaques de tête).
 
 use super::{cellule_est_erreur, cellule_vers_texte, cellule_vide};
 use calamine::{open_workbook, Data, DataType, Reader, Xlsx};
 use regex::Regex;
 
-/// Un type de goujon (diamètre x hauteur) et son nombre sur une poutre.
+/// Un type de goujon (diamètre x hauteur) sur une zone d'une poutre, et son
+/// nombre.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupeGoujons {
     pub diametre: Option<f64>,
     pub hauteur: Option<f64>,
+    /// "ame", "aile_sup", "aile_inf" ou "tete" ; None si aucune zone n'est
+    /// cochée pour ce groupe de colonnes.
+    pub zone: Option<&'static str>,
     pub nb_goujons: f64,
 }
 
@@ -37,9 +45,12 @@ pub struct ResultatGoujons {
     pub detail: Vec<BarreGoujons>,
 }
 
-// Colonnes "Nb plan" (Sol Menge) pour les 3 zones Âme / Aile sup / Aile inf.
-// Index 0-based (calamine).
+// Colonnes "Nb plan" (Sol Menge) des 3 groupes. Index 0-based (calamine).
 const COLONNES_NB_PLAN: [u32; 3] = [7, 10, 13];
+// Choix de la zone d'un groupe : libellés dans la colonne "Nb plan", "X"
+// dans la colonne suivante, sur les lignes 10-12 (1-based).
+const LIGNES_ZONES: std::ops::Range<u32> = 9..12;
+const DECALAGE_COCHE_ZONE: u32 = 1;
 // La colonne "Diam." (contient diamètre et hauteur, ex. "19x125") précède
 // immédiatement chaque colonne "Nb plan".
 const DECALAGE_DIAM: u32 = 1;
@@ -67,6 +78,34 @@ fn lire_diametre_hauteur(cell: Option<&Data>) -> (Option<f64>, Option<f64>) {
     (re_seul.captures(&texte).and_then(|c| nb(&c[1])), None)
 }
 
+/// Normalise un libellé de zone : "Âme/Steg/Web/ Trzon" -> "ame",
+/// "Aile inf./Unterflange/..." -> "aile_inf", "plq de tête" -> "tete".
+fn normaliser_zone(libelle: &str) -> Option<&'static str> {
+    let l = libelle.trim().to_lowercase();
+    if l.contains("tête") || l.contains("tete") {
+        Some("tete")
+    } else if l.starts_with("aile sup") {
+        Some("aile_sup")
+    } else if l.starts_with("aile inf") {
+        Some("aile_inf")
+    } else if l.starts_with("âme") || l.starts_with("ame") {
+        Some("ame")
+    } else {
+        None
+    }
+}
+
+/// Zone cochée ("X") pour le groupe dont la colonne "Nb plan" est `col`.
+fn lire_zone(range: &calamine::Range<Data>, col: u32) -> Option<&'static str> {
+    LIGNES_ZONES
+        .filter(|&r| {
+            range
+                .get_value((r, col + DECALAGE_COCHE_ZONE))
+                .is_some_and(|c| cellule_vers_texte(c).eq_ignore_ascii_case("x"))
+        })
+        .find_map(|r| normaliser_zone(&cellule_vers_texte(range.get_value((r, col))?)))
+}
+
 /// Extrait le nombre total de goujons planifiés depuis FC-GOUJ.
 /// Retourne None si la feuille n'existe pas (affaire sans goujonnage).
 pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatGoujons>, String> {
@@ -82,6 +121,8 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
         .get_value((LIGNE_COMMANDE, COL_COMMANDE))
         .map(cellule_vers_texte)
         .filter(|s| !s.is_empty());
+
+    let zones = COLONNES_NB_PLAN.map(|col| lire_zone(&range, col));
 
     let mut detail = Vec::new();
     let mut nb_goujons_total = 0.0;
@@ -102,7 +143,7 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
 
         let mut goujons_ligne = 0.0;
         let mut groupes: Vec<GroupeGoujons> = Vec::new();
-        for &col in &COLONNES_NB_PLAN {
+        for (&col, &zone) in COLONNES_NB_PLAN.iter().zip(&zones) {
             let Some(n) = range.get_value((r, col)).and_then(|v| v.as_f64()) else {
                 continue;
             };
@@ -111,10 +152,13 @@ pub fn extraire_goujons_fc_gouj(chemin_fichier: &str) -> Result<Option<ResultatG
                 continue;
             }
             let (diametre, hauteur) = lire_diametre_hauteur(range.get_value((r, col - DECALAGE_DIAM)));
-            // Un même type peut apparaître dans plusieurs zones (âme / ailes).
-            match groupes.iter_mut().find(|g| g.diametre == diametre && g.hauteur == hauteur) {
+            // Deux groupes de colonnes peuvent porter le même type sur la même zone.
+            match groupes
+                .iter_mut()
+                .find(|g| g.diametre == diametre && g.hauteur == hauteur && g.zone == zone)
+            {
                 Some(g) => g.nb_goujons += n,
-                None => groupes.push(GroupeGoujons { diametre, hauteur, nb_goujons: n }),
+                None => groupes.push(GroupeGoujons { diametre, hauteur, zone, nb_goujons: n }),
             }
         }
 
@@ -154,5 +198,32 @@ mod tests {
             lire_diametre_hauteur(Some(&Data::String("Ø22x150 ".to_string()))),
             (Some(22.0), Some(150.0))
         );
+    }
+
+    #[test]
+    fn zones_cochees_sur_fiche_reelle() {
+        // 1100732005 (Pont Peyramale) : Aile sup / Aile inf / Tête cochées.
+        let chemin = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../COMMANDES FINIES/1a COMMANDES FINIES 2025/1100732005 PONT PEYRAMALE/1100732005.xlsx"
+        );
+        if !std::path::Path::new(chemin).exists() {
+            return; // données réelles absentes de cette machine
+        }
+        let resultat = extraire_goujons_fc_gouj(chemin).unwrap().unwrap();
+        assert_eq!(resultat.nb_goujons_total, 1984.0);
+        let zones: Vec<_> = resultat.detail[0].groupes.iter().map(|g| (g.zone, g.nb_goujons)).collect();
+        assert_eq!(zones, vec![(Some("aile_sup"), 90.0), (Some("aile_inf"), 10.0), (Some("tete"), 10.0)]);
+    }
+
+    #[test]
+    fn zones_normalisees() {
+        // Libellés réels des lignes 10-12 de FC-GOUJ.
+        assert_eq!(normaliser_zone("Âme/Steg/Web/ Trzon"), Some("ame"));
+        assert_eq!(normaliser_zone("Aile sup / Oberflange / Upper flange / Szeroki"), Some("aile_sup"));
+        assert_eq!(normaliser_zone("Aile inf./Unterflange/ Lower flange / Wąski"), Some("aile_inf"));
+        assert_eq!(normaliser_zone("Tête"), Some("tete"));
+        assert_eq!(normaliser_zone("plq de tête"), Some("tete"));
+        assert_eq!(normaliser_zone("Bureaux"), None);
     }
 }
