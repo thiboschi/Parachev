@@ -21,6 +21,7 @@ export interface VariablesAffaireRow {
   nb_barres: number | null
   nb_goujons: number | null
   nb_trous_manuel: number | null
+  diametre_moyen_manuel: number | null
   nb_trous_numerique: number | null
   diametre_moyen_numerique: number | null
   longueur_coupe: number | null

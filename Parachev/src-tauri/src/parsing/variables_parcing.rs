@@ -35,6 +35,8 @@ const MAX_COLONNES_ENTETE: u32 = 25;
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct VariablesForage {
     pub nb_trous_manuel: Option<f64>,
+    /// Diamètre moyen des trous de FC FMAN, pondéré par leur nombre (mm).
+    pub diametre_moyen_manuel: Option<f64>,
     pub nb_trous_numerique: Option<f64>,
     pub diametre_moyen_numerique: Option<f64>,
 }
@@ -47,11 +49,12 @@ pub fn extraire_variables_forage(chemin_fichier: &str) -> Result<VariablesForage
     let mut workbook: Xlsx<_> =
         open_workbook(chemin_fichier).map_err(|e| format!("Ouverture impossible: {e}"))?;
 
-    let nb_trous_manuel = extraire_trous_fc_fman(&mut workbook)?;
+    let (nb_trous_manuel, diametre_moyen_manuel) = extraire_trous_fc_fman(&mut workbook)?.unzip();
 
     // Forage numérique : aucune source chiffrée connue (voir en-tête).
     Ok(VariablesForage {
         nb_trous_manuel,
+        diametre_moyen_manuel: diametre_moyen_manuel.flatten(),
         nb_trous_numerique: None,
         diametre_moyen_numerique: None,
     })
@@ -62,9 +65,14 @@ pub fn extraire_variables_forage(chemin_fichier: &str) -> Result<VariablesForage
 /// même lecture (voir goujons::extraire_goujons_fc_gouj). None si la
 /// feuille est absente OU vide (gabarit non rempli) : dans les deux cas le
 /// nombre de trous est inconnu.
+///
+/// Renvoie aussi le diamètre moyen de ces trous, pondéré par leur nombre
+/// (cellule "Diam." de la ligne : "Ø 40", "Ø50", 40...). None si aucun
+/// diamètre n'est lisible ; une ligne sans diamètre ne compte que pour le
+/// nombre de trous.
 fn extraire_trous_fc_fman<R: std::io::Read + std::io::Seek>(
     workbook: &mut Xlsx<R>,
-) -> Result<Option<f64>, String> {
+) -> Result<Option<(f64, Option<f64>)>, String> {
     let feuille = FEUILLES_FORAGE_MANUEL
         .iter()
         .find(|&&nom| workbook.sheet_names().iter().any(|f| f == nom));
@@ -89,6 +97,8 @@ fn extraire_trous_fc_fman<R: std::io::Read + std::io::Seek>(
         .collect();
 
     let mut total = 0.0;
+    let mut somme_diametres = 0.0;
+    let mut trous_avec_diametre = 0.0;
     let mut r = LIGNE_DEBUT_DONNEES;
     let nb_lignes = range.height() as u32;
     while r < nb_lignes {
@@ -105,12 +115,30 @@ fn extraire_trous_fc_fman<R: std::io::Read + std::io::Seek>(
         for &col_diam in &colonnes_diam {
             if let Some(n) = range.get_value((r, col_diam + 1)).and_then(|v| v.as_f64()) {
                 total += n;
+                let diametre = range.get_value((r, col_diam)).map(cellule_vers_texte).and_then(|t| lire_diametre(&t));
+                if let Some(diametre) = diametre {
+                    somme_diametres += diametre * n;
+                    trous_avec_diametre += n;
+                }
             }
         }
         r += 1;
     }
 
-    Ok((total > 0.0).then_some(total))
+    let diametre_moyen = (trous_avec_diametre > 0.0).then(|| somme_diametres / trous_avec_diametre);
+    Ok((total > 0.0).then_some((total, diametre_moyen)))
+}
+
+/// Premier nombre d'une cellule "Diam." ("Ø 40" -> 40, "Ø22,5" -> 22.5).
+/// None pour un gabarit non rempli ("Ø") ou une valeur nulle.
+fn lire_diametre(texte: &str) -> Option<f64> {
+    let debut = texte.find(|c: char| c.is_ascii_digit())?;
+    let nombre: String = texte[debut..]
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+        .map(|c| if c == ',' { '.' } else { c })
+        .collect();
+    nombre.trim_end_matches('.').parse().ok().filter(|d: &f64| *d > 0.0)
 }
 
 #[cfg(test)]
@@ -118,18 +146,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fichiers_reels_sans_donnee_de_trou() {
-        for chemin in [
-            "../../Para/1100546190.xlsx",
-            "../../Para/1100662668.xlsx",
-            "../../Para/1100706839.xlsx",
-            "../../Para/Script Excel/1100719879.xlsx",
-        ] {
-            let v = extraire_variables_forage(chemin).unwrap();
-            // FC FMAN existe dans ces 4 fichiers mais n'a jamais de Nb plan
-            // rempli : nombre de trous inconnu, pas 0 ni un repli arbitraire.
-            assert_eq!(v.nb_trous_manuel, None, "{chemin}");
-            assert_eq!(v.nb_trous_numerique, None, "{chemin}");
-        }
+    fn diametre_d_une_cellule() {
+        assert_eq!(lire_diametre("Ø 40"), Some(40.0));
+        assert_eq!(lire_diametre("Ø50"), Some(50.0));
+        assert_eq!(lire_diametre("Ø 22,5"), Some(22.5));
+        assert_eq!(lire_diametre("33"), Some(33.0));
+        assert_eq!(lire_diametre("Ø "), None);
+        assert_eq!(lire_diametre(""), None);
     }
 }

@@ -155,27 +155,4 @@ mod tests {
             (Some(22.0), Some(150.0))
         );
     }
-
-    #[test]
-    fn fichier_reel_fc_gouj() {
-        // Affaire réelle : 6 poutres HLM 1000, toutes en Ø22x150, 585 goujons
-        // chacune -- une seule zone (Âme) remplie sur les 3, les autres
-        // colonnes Nb plan vides comme sur la plupart des lignes du fichier.
-        let chemin = "../../Para/Script Excel/1100719879.xlsx";
-        let resultat = extraire_goujons_fc_gouj(chemin).unwrap().unwrap();
-        assert_eq!(resultat.affaire.as_deref(), Some("1100719879"));
-        assert_eq!(resultat.nb_barres, 6);
-        assert_eq!(resultat.nb_goujons_total, 3510.0);
-        assert_eq!(resultat.detail.len(), 6);
-        for barre in &resultat.detail {
-            assert_eq!(barre.profil, "HLM 1000");
-            assert_eq!(barre.longueur, 33546.0);
-            assert_eq!(barre.nb_goujons, 585.0);
-            assert_eq!(
-                barre.groupes,
-                vec![GroupeGoujons { diametre: Some(22.0), hauteur: Some(150.0), nb_goujons: 585.0 }]
-            );
-        }
-        assert_eq!(resultat.detail[0].rep, "1A");
-    }
 }

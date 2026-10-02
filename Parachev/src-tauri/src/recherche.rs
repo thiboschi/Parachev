@@ -25,6 +25,7 @@ pub struct VariablesLigne {
     pub diametre_moyen_numerique: Option<f64>,
     pub longueur_coupe: Option<f64>,
     pub contre_fleche: Option<f64>,
+    pub diametre_moyen_manuel: Option<f64>,
 }
 
 #[derive(Serialize, Clone)]
@@ -142,7 +143,7 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         conn,
         "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons, nb_trous_manuel,
                 nb_trous_numerique, diametre_moyen_numerique, longueur_coupe, contre_fleche,
-                date_fiche, poids_t, heures_prevues_fiche, chemin_fiche
+                date_fiche, poids_t, heures_prevues_fiche, chemin_fiche, diametre_moyen_manuel
          FROM variables_affaires",
         |r| {
             Ok((
@@ -159,6 +160,7 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
                     diametre_moyen_numerique: r.get(9)?,
                     longueur_coupe: r.get(10)?,
                     contre_fleche: r.get(11)?,
+                    diametre_moyen_manuel: r.get(16)?,
                 },
                 r.get::<_, Option<String>>(12)?,
                 r.get::<_, Option<f64>>(13)?,

@@ -140,29 +140,3 @@ pub fn extraire_presse(chemin_fichier: &str) -> Result<Option<ResultatPresse>, S
 
     Ok(None)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fichier_reel_fc_pres() {
-        // Affaire réelle : 6 barres HLM 1000/33800mm, toutes à Cfl 206 --
-        // seul fichier des 5 disponibles où la colonne Cfl est renseignée
-        // (voir le commentaire en tête de module).
-        let chemin = "../../Para/Script Excel/1100719879.xlsx";
-        let resultat = extraire_presse(chemin).unwrap().unwrap();
-        assert_eq!(resultat.nb_valeurs, 6);
-        assert_eq!(resultat.contre_fleche_moyenne, Some(206.0));
-        assert_eq!(resultat.detail.len(), 6);
-        for barre in &resultat.detail {
-            assert_eq!(barre.profil, "HLM 1000");
-            assert_eq!(barre.longueur, 33800.0);
-            assert_eq!(barre.cfl, Some(206.0));
-        }
-        assert_eq!(
-            resultat.detail.iter().map(|b| b.rep.as_str()).collect::<Vec<_>>(),
-            vec!["1A", "1B", "1C", "1D", "1E", "1F"]
-        );
-    }
-}

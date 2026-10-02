@@ -69,6 +69,7 @@ pub struct VariablesAffaire {
     pub nb_goujons: f64,
     pub longueur_coupe: f64,
     pub nb_trous_manuel: Option<f64>,
+    pub diametre_moyen_manuel: Option<f64>,
     pub nb_trous_numerique: Option<f64>,
     pub diametre_moyen_numerique: Option<f64>,
     /// Contre-flèche (Cfl axe fort) moyenne, extraite de la feuille
@@ -124,6 +125,7 @@ pub fn extraire_variables_affaire(chemin_fichier: &str) -> Result<VariablesAffai
         nb_goujons: goujons.map(|g| g.nb_goujons_total).unwrap_or(0.0),
         longueur_coupe: oxycoupage.map(|o| o.longueur_coupe_totale).unwrap_or(0.0),
         nb_trous_manuel: forage.nb_trous_manuel,
+        diametre_moyen_manuel: forage.diametre_moyen_manuel,
         nb_trous_numerique: forage.nb_trous_numerique,
         diametre_moyen_numerique: forage.diametre_moyen_numerique,
         contre_fleche,
@@ -151,8 +153,9 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
         "INSERT INTO variables_affaires
             (affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons, longueur_coupe,
              nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, contre_fleche,
-             date_fiche, poids_t, taux_horaire, heures_prevues_fiche, source_nb_goujons, code_affaire)
-         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16, ?17, ?18)
+             date_fiche, poids_t, taux_horaire, heures_prevues_fiche, source_nb_goujons, code_affaire,
+             diametre_moyen_manuel)
+         VALUES (?1, ?2, ?3, ?4, ?12, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
          ON CONFLICT(affaire) DO UPDATE SET
             -- Le nom client extrait de l'Excel (encodage fiable) prime sur
             -- celui du fichier ERP (voir erp::inserer_clients) -- on ne
@@ -167,6 +170,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             source_nb_goujons = excluded.source_nb_goujons,
             longueur_coupe = excluded.longueur_coupe,
             nb_trous_manuel = excluded.nb_trous_manuel,
+            diametre_moyen_manuel = excluded.diametre_moyen_manuel,
             nb_trous_numerique = COALESCE(excluded.nb_trous_numerique, variables_affaires.nb_trous_numerique),
             diametre_moyen_numerique = COALESCE(excluded.diametre_moyen_numerique, variables_affaires.diametre_moyen_numerique),
             contre_fleche = excluded.contre_fleche,
@@ -193,6 +197,7 @@ pub fn inserer_variables_affaire(conn: &Connection, variables: &VariablesAffaire
             variables.heures_prevues_fiche,
             (variables.nb_goujons > 0.0).then_some("fc-gouj"),
             variables.code_affaire,
+            variables.diametre_moyen_manuel,
         ],
     )
     .map_err(|e| format!("Erreur insertion variables_affaires: {e}"))?;

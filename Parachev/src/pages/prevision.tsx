@@ -90,7 +90,6 @@ export default function Prevision() {
     quantites,
     heuresParPoste,
     totalHeures,
-    previsions,
     loading,
     error,
     refetch,
@@ -100,7 +99,7 @@ export default function Prevision() {
   const [saving, setSaving] = useState(false)
 
   // Resynchronise le formulaire à chaque (re)chargement des variables --
-  // changement d'affaire, ou refetch après une sauvegarde/prévision.
+  // changement d'affaire, ou refetch après une sauvegarde.
   useEffect(() => {
     setEdition(versEdition(variables))
   }, [variables])
@@ -161,22 +160,6 @@ export default function Prevision() {
     )
   }
 
-  function executerPrevision() {
-    console.log("try executing previ")
-    if (!affaire) return
-    toast.promise(
-      invoke("previsualiser_affaire", { affaire }).then((resultat) => {
-        refetch()
-        return resultat
-      }),
-      {
-        loading: `Calcul de la prévision pour ${affaire}…`,
-        success: "Prévision calculée",
-        error: (e) => (e instanceof Error ? e.message : String(e)),
-      }
-    )
-  }
-
   return (
     <SidebarProvider
       style={
@@ -192,41 +175,36 @@ export default function Prevision() {
         <div className="flex flex-1 flex-col">
           <div className="@container/main flex flex-1 flex-col gap-4 py-4 md:gap-6 md:py-6">
             <div className="flex flex-col gap-4 px-4 lg:px-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  {depuisRecherche && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      title="Retour à la recherche"
-                      aria-label="Retour à la recherche"
-                      onClick={() => navigate("/search", { state: RETOUR_RECHERCHE })}
-                    >
-                      <IconArrowLeft />
-                    </Button>
-                  )}
-                  <h1 className="text-xl font-semibold">
-                    {loading ? "Chargement…" : client ?? "Client inconnu"}
-                  </h1>
-                  {affaire && (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {affaire}
-                    </Badge>
-                  )}
-                  {variables?.numero_plan && (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {variables.numero_plan}
-                    </Badge>
-                  )}
-                  {variables?.numero_offre && (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      {variables.numero_offre}
-                    </Badge>
-                  )}
-                </div>
-                <Button className="w-fit" onClick={executerPrevision} disabled={!affaire}>
-                  previ
-                </Button>
+              <div className="flex items-center gap-2">
+                {depuisRecherche && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Retour à la recherche"
+                    aria-label="Retour à la recherche"
+                    onClick={() => navigate("/search", { state: RETOUR_RECHERCHE })}
+                  >
+                    <IconArrowLeft />
+                  </Button>
+                )}
+                <h1 className="text-xl font-semibold">
+                  {loading ? "Chargement…" : client ?? "Client inconnu"}
+                </h1>
+                {affaire && (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    {affaire}
+                  </Badge>
+                )}
+                {variables?.numero_plan && (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    {variables.numero_plan}
+                  </Badge>
+                )}
+                {variables?.numero_offre && (
+                  <Badge variant="outline" className="text-muted-foreground">
+                    {variables.numero_offre}
+                  </Badge>
+                )}
               </div>
 
               {error && !loading && (
@@ -402,6 +380,11 @@ export default function Prevision() {
                             onChange={(e) => modifierChamp("nb_trous_manuel", e.target.value)}
                           />
                         </div>
+                        {variables.diametre_moyen_manuel != null && (
+                          <LigneSource>
+                            Ø moyen {variables.diametre_moyen_manuel.toLocaleString("fr-BE", { maximumFractionDigits: 1 })}
+                          </LigneSource>
+                        )}
                         <div className="flex items-center justify-between gap-2">
                           <span className="shrink-0 text-muted-foreground">Trous (numérique)</span>
                           <Input
@@ -480,35 +463,6 @@ export default function Prevision() {
                   </CardContent>
                 </Card>
               </div>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-sm text-muted-foreground">
-                    Prévisions enregistrées
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-1.5 text-sm">
-                  {previsions.length === 0 && (
-                    <span className="text-muted-foreground">
-                      Aucune prévision calculée pour cette affaire
-                    </span>
-                  )}
-                  {previsions.map((p) => (
-                    <div key={p.poste} className="flex items-center justify-between">
-                      <span className="text-muted-foreground">{libellePoste(p.poste)}</span>
-                      <span className="tabular-nums">{formatHeures(p.heures_prevues)}</span>
-                    </div>
-                  ))}
-                  {previsions.length > 0 && (
-                    <div className="mt-1 flex items-center justify-between border-t pt-1.5 font-medium">
-                      <span>Total</span>
-                      <span className="tabular-nums">
-                        {formatHeures(previsions.reduce((somme, p) => somme + p.heures_prevues, 0))}
-                      </span>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
 
               {affaire && (
                 <DossierAffaire key={affaire} affaire={affaire} heuresParPoste={heuresParPoste} />

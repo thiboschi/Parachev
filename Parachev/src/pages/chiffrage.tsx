@@ -15,6 +15,7 @@ import { MultiSelect } from "@/components/affaires/multi-select"
 import { CalculateurSoudage } from "@/components/chiffrage/calculateur-soudage"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
+import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
 import { familleProfil, optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 
@@ -82,6 +83,7 @@ type Champ =
   | "nb_barres_cfl"
   | "nb_goujons"
   | "nb_trous_manuel"
+  | "diametre_moyen_manuel"
   | "nb_trous_numerique"
   | "diametre_moyen_numerique"
   | "longueur_coupe"
@@ -93,6 +95,7 @@ const LIBELLES_CHAMPS: Record<Champ, string> = {
   nb_barres_cfl: "Barres avec contre-flèche",
   nb_goujons: "Goujons par barre",
   nb_trous_manuel: "Trous perçage manuel par barre",
+  diametre_moyen_manuel: "Diamètre moyen manuel (mm)",
   nb_trous_numerique: "Trous perçage numérique par barre",
   diametre_moyen_numerique: "Diamètre moyen numérique (mm)",
   longueur_coupe: "Longueur de coupe par barre (mm)",
@@ -124,10 +127,22 @@ const CHAMPS_POUTRE: Champ[] = ["nb_barres", "poids_t", "metres"]
 const CHAMPS_MODULE: Record<string, Champ[]> = {
   presse_cintrage: ["nb_barres_cfl"],
   forage_numerique: ["nb_trous_numerique", "diametre_moyen_numerique"],
-  forage_manuel: ["nb_trous_manuel"],
+  forage_manuel: ["nb_trous_manuel", "diametre_moyen_manuel"],
   goujonnage: ["nb_goujons"],
   oxycoupage: ["longueur_coupe"],
 }
+
+// Trous oblongs d'une barre : aucun poste ne les chiffre d'après leur nombre,
+// ils ne servent qu'au temps barème (voir heuresOblongs).
+type ChampOblong = "nombre" | "longueur" | "largeur"
+
+const CHAMPS_OBLONGS: { key: ChampOblong; label: string }[] = [
+  { key: "nombre", label: "Oblongs par barre" },
+  { key: "longueur", label: "Longueur (mm)" },
+  { key: "largeur", label: "Largeur (mm)" },
+]
+
+const OBLONGS_VIDES: Record<ChampOblong, string> = { nombre: "", longueur: "", largeur: "" }
 
 // Présente sur presque toutes les affaires sans faire partie d'une gamme
 // (voir POSTES_ANNEXES dans flux-production.ts) : proposée pour tous les types.
@@ -285,6 +300,7 @@ export default function Chiffrage() {
   )
   const [contreFleche, setContreFleche] = useState("")
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
+  const [oblongs, setOblongs] = useState<Record<ChampOblong, string>>(OBLONGS_VIDES)
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
   const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
   // Modules cochés : un poste non coché est chiffré à 0 h.
@@ -351,6 +367,7 @@ export default function Chiffrage() {
     setProfil("")
     setContreFleche("")
     setValeurs(CHAMPS_VIDES)
+    setOblongs(OBLONGS_VIDES)
     setPostes(new Set())
     setResultat(null)
   }
@@ -409,6 +426,31 @@ export default function Chiffrage() {
       })
       .finally(() => setCalcul(false))
   }
+
+  // Temps barème des modules de perçage (voir lib/percage.ts), affiché pour
+  // comparaison : l'estimation reste celle de la calibration.
+  const baremePercage: Record<string, string | undefined> = {
+    forage_manuel: (() => {
+      const heures = heuresForageManuel(totalProjet("nb_trous_manuel"), nombre(valeurs.diametre_moyen_manuel))
+      return heures === null ? undefined : `Barème atelier (FMAN) : ${formatHeures(heures)} h.`
+    })(),
+    forage_numerique: (() => {
+      const heures = heuresForageNumerique(
+        totalProjet("nb_trous_numerique"),
+        nombre(valeurs.diametre_moyen_numerique),
+        profil
+      )
+      return heures === null
+        ? undefined
+        : `Barème atelier (FWAG) : ${formatHeures(heures.ame)} h dans l'âme, ${formatHeures(heures.aile)} h dans les ailes.`
+    })(),
+  }
+
+  const heuresOblongsBareme = heuresOblongs(
+    nombre(oblongs.nombre) * nbBarres,
+    nombre(oblongs.longueur),
+    nombre(oblongs.largeur)
+  )
 
   // Dans l'ordre de la gamme.
   const heuresParPoste = resultat
@@ -608,6 +650,9 @@ export default function Chiffrage() {
                                   ? "Calculé d'après les quantités ci-dessus."
                                   : "Chiffré au forfait."}
                           </span>
+                          {baremePercage[poste] && (
+                            <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
+                          )}
                         </CardContent>
                       )}
                     </Card>
@@ -620,6 +665,37 @@ export default function Chiffrage() {
                   </div>
                 )
               })}
+
+              {type && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">Trous oblongs</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3 text-sm">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {CHAMPS_OBLONGS.map(({ key, label }) => (
+                        <ChampSaisie key={key} id={`oblongs-${key}`} label={label}>
+                          <Input
+                            id={`oblongs-${key}`}
+                            className="text-right tabular-nums"
+                            inputMode="decimal"
+                            value={oblongs[key]}
+                            onChange={(e) => setOblongs((prev) => ({ ...prev, [key]: e.target.value }))}
+                          />
+                        </ChampSaisie>
+                      ))}
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      {heuresOblongsBareme
+                        ? `Barème atelier (DATA-TEMPS), oxycoupage : ${formatHeures(heuresOblongsBareme.avecPreforage)} h avec préforage au programme, ${formatHeures(heuresOblongsBareme.sansPreforage)} h sans.`
+                        : "Renseignez le nombre de barres, puis le nombre et les dimensions des oblongs."}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Temps indicatif, non ajouté à l'estimation.
+                    </span>
+                  </CardContent>
+                </Card>
+              )}
             </div>
 
             <Card className="lg:sticky lg:top-4">
@@ -708,6 +784,8 @@ export default function Chiffrage() {
                   <Button variant="ghost" onClick={reinitialiser} disabled={calcul}>
                     Réinitialiser
                   </Button>
+                  {/* Export PDF du chiffrage : à brancher. */}
+                  <Button variant="outline">PDF</Button>
                 </div>
               </CardContent>
             </Card>

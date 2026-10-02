@@ -283,10 +283,11 @@ pub type VariablesAffaire = HashMap<String, f64>;
 pub type VariablesConnues = HashMap<String, Option<f64>>;
 
 /// Colonnes de `variables_affaires` reprises telles quelles comme variables.
-const COLONNES_VARIABLES: [&str; 7] = [
+const COLONNES_VARIABLES: [&str; 8] = [
     "nb_barres",
     "nb_goujons",
     "nb_trous_manuel",
+    "diametre_moyen_manuel",
     "nb_trous_numerique",
     "diametre_moyen_numerique",
     "longueur_coupe",

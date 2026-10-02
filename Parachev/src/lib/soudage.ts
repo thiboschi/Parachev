@@ -5,7 +5,8 @@
 // Le classeur donne le nombre de passes, les pauses, le total par barre et
 // la masse déposée. Les cadences (vitesse de soudage, meulage, EPI,
 // manutention) y sont des formules de cellules non reprises ici : ce sont
-// des paramètres à saisir (voir ParametresSoudage).
+// des paramètres modifiables, proposés avec les valeurs relevées dans les
+// récapitulatifs du classeur (voir PARAMETRES_DEFAUT).
 
 export type Preparation = "angle" | "II" | "V" | "demiV" | "X" | "K"
 
@@ -157,12 +158,18 @@ export const PARAMETRES: { key: ParametreSoudure; label: string }[] = [
   { key: "retournements", label: "Retournements de la barre (0 à 3)" },
 ]
 
-export const PARAMETRES_VIDES: ParametresSoudure = {
-  vitesse: "",
-  meulage: "",
-  epi: "",
-  manutention: "",
-  retournements: "0",
+// Cadences relevées dans les "Récapitulatif des temps de soudure du projet"
+// de 4 commandes de 2025 (DW-241, Pont Peyramale, Frankfurt EÜ, Ostrow),
+// identiques de l'une à l'autre : 280 mm/min par passe, 25 min d'EPI par 6 h,
+// 17 min par retournement et 3 retournements (2 sur Frankfurt). Le meulage
+// est celui des plaques de tête et platines (11,5 min/m) ; les goussets et
+// raidisseurs y sont comptés de 28 à 45 min/m selon la pièce.
+export const PARAMETRES_DEFAUT: ParametresSoudure = {
+  vitesse: "280",
+  meulage: "11,5",
+  epi: "25",
+  manutention: "17",
+  retournements: "3",
 }
 
 // Section de cordon retenue par le classeur pour la masse déposée (36 mm²)

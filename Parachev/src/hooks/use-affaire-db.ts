@@ -2,16 +2,6 @@ import * as React from "react"
 import { invoke } from "@tauri-apps/api/core"
 import type { HeureRow, HeuresParPoste, VariablesAffaireRow } from "./use-affaires-db"
 
-// Shape returned by the `lister_previsions_affaire` Tauri command
-// (PrevisionRow in lib.rs).
-export interface PrevisionRow {
-  affaire: string
-  poste: string
-  heures_prevues: number
-  date_prevision: string
-  version_coefficients: string | null
-}
-
 // Shape returned by the `lister_profils_affaire` Tauri command
 // (ProfilAffaireRow in lib.rs) -- détail par profil+longueur distinct
 // d'une affaire. `longueur` est la longueur finale de la barre, `l_lam` la
@@ -90,25 +80,22 @@ interface UseAffaireDbResult {
   heures: HeureRow[]
   heuresParPoste: HeuresParPoste[]
   totalHeures: number
-  previsions: PrevisionRow[]
   loading: boolean
   error: string | null
-  /** Relit les quatre tables -- à appeler après un nouveau calcul de prévision. */
+  /** Relit les tables -- à appeler après une modification des variables. */
   refetch: () => void
 }
 
 /**
  * Charge, pour une seule affaire (clé privée `affaire`), ses variables
- * (`obtenir_variables_affaire`), son détail par profil (`lister_profils_affaire`),
- * ses heures pointées (`lister_heures_affaire`) et ses prévisions déjà
- * enregistrées (`lister_previsions_affaire`) -- les quatre commandes Tauri
+ * (`obtenir_variables_affaire`), son détail par profil (`lister_profils_affaire`)
+ * et ses heures pointées (`lister_heures_affaire`) -- les commandes Tauri
  * scopées par affaire, en parallèle.
  *
  * `obtenir_variables_affaire` échoue si l'affaire n'a pas encore de ligne
  * dans `variables_affaires` (ex. devis pas encore importé) : c'est traité
  * comme un cas normal (variables = null), pas comme une erreur globale --
- * seul un échec de `lister_heures_affaire` ou `lister_previsions_affaire`
- * est reflété dans `error`.
+ * seul un échec des commandes `lister_*` est reflété dans `error`.
  */
 export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [variables, setVariables] = React.useState<VariablesAffaireRow | null>(null)
@@ -117,7 +104,6 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
   const [cflParBarre, setCflParBarre] = React.useState<CflAffaireRow[]>([])
   const [quantites, setQuantites] = React.useState<QuantitesAffaire | null>(null)
   const [heures, setHeures] = React.useState<HeureRow[]>([])
-  const [previsions, setPrevisions] = React.useState<PrevisionRow[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [version, setVersion] = React.useState(0)
@@ -133,7 +119,7 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
 
     async function charger() {
       try {
-        const [variablesRes, profilsRes, goujonsRes, cflRes, quantitesRes, heuresRes, previsionsRes] = await Promise.all([
+        const [variablesRes, profilsRes, goujonsRes, cflRes, quantitesRes, heuresRes] = await Promise.all([
           invoke<VariablesAffaireRow>("obtenir_variables_affaire", { affaire }).catch(
             () => null
           ),
@@ -142,7 +128,6 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
           invoke<CflAffaireRow[]>("lister_cfl_affaire", { affaire }),
           invoke<QuantitesAffaire>("obtenir_quantites_affaire", { affaire }).catch(() => null),
           invoke<HeureRow[]>("lister_heures_affaire", { affaire }),
-          invoke<PrevisionRow[]>("lister_previsions_affaire", { affaire }),
         ])
         if (!annule) {
           setVariables(variablesRes)
@@ -151,7 +136,6 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
           setCflParBarre(cflRes)
           setQuantites(quantitesRes)
           setHeures(heuresRes)
-          setPrevisions(previsionsRes)
           setError(null)
         }
       } catch (e) {
@@ -202,7 +186,6 @@ export function useAffaireDb(affaire: string | undefined): UseAffaireDbResult {
     heures,
     heuresParPoste,
     totalHeures,
-    previsions,
     loading,
     error,
     refetch: () => setVersion((v) => v + 1),

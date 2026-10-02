@@ -96,6 +96,7 @@ export type CleQuantite =
   | "nbTrousManuel"
   | "nbTrousNumerique"
   | "diametreMoyen"
+  | "diametreMoyenManuel"
   | "longueurCoupe"
   | "contreFleche"
 
@@ -117,7 +118,12 @@ export const QUANTITES: {
   { cle: "nbGoujons", label: "Nombre de goujons", valeur: (a) => a.variables?.nb_goujons },
   { cle: "nbTrousManuel", label: "Trous (forage manuel)", valeur: (a) => a.variables?.nb_trous_manuel },
   { cle: "nbTrousNumerique", label: "Trous (forage numérique)", valeur: (a) => a.variables?.nb_trous_numerique },
-  { cle: "diametreMoyen", label: "Ø moyen des trous (mm)", valeur: (a) => a.variables?.diametre_moyen_numerique },
+  { cle: "diametreMoyen", label: "Ø moyen des trous numériques (mm)", valeur: (a) => a.variables?.diametre_moyen_numerique },
+  {
+    cle: "diametreMoyenManuel",
+    label: "Ø moyen des trous manuels (mm)",
+    valeur: (a) => a.variables?.diametre_moyen_manuel,
+  },
   {
     cle: "longueurCoupe",
     label: "Longueur de coupe (m)",

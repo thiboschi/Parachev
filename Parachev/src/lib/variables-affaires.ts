@@ -15,6 +15,11 @@ export const CHAMPS_VARIABLES_NUMERIQUES: {
   { key: "nb_barres", label: "Nb barres" },
   { key: "nb_goujons", label: "Nb goujons" },
   { key: "nb_trous_manuel", label: "Trous (manuel)" },
+  {
+    key: "diametre_moyen_manuel",
+    label: "Ø moyen manuel",
+    format: (v) => `${formatNombre(v)} mm`,
+  },
   { key: "nb_trous_numerique", label: "Trous (numérique)" },
   {
     key: "diametre_moyen_numerique",

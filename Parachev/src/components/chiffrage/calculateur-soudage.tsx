@@ -6,7 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   CHAMPS_PREPARATION,
   PARAMETRES,
-  PARAMETRES_VIDES,
+  PARAMETRES_DEFAUT,
   PREPARATIONS,
   calculerSoudage,
   ligneVide,
@@ -18,14 +18,17 @@ import {
 } from "@/lib/soudage"
 
 // Les cadences sont propres à l'atelier, pas au projet : conservées d'un
-// chiffrage à l'autre.
+// chiffrage à l'autre. Une cadence jamais saisie (ou effacée) reprend sa
+// valeur par défaut.
 const CLE_PARAMETRES = "chiffrage-parametres-soudage"
 
 function lireParametres(): ParametresSoudure {
   try {
-    return { ...PARAMETRES_VIDES, ...JSON.parse(localStorage.getItem(CLE_PARAMETRES) ?? "{}") }
+    const saisies: Partial<ParametresSoudure> = JSON.parse(localStorage.getItem(CLE_PARAMETRES) ?? "{}")
+    const conservees = Object.entries(saisies).filter(([, valeur]) => typeof valeur === "string" && valeur.trim() !== "")
+    return { ...PARAMETRES_DEFAUT, ...Object.fromEntries(conservees) }
   } catch {
-    return PARAMETRES_VIDES
+    return PARAMETRES_DEFAUT
   }
 }
 

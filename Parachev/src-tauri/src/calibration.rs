@@ -7,8 +7,8 @@ use std::collections::HashMap;
 /// une liste de variables (voir prevision::charger_variables). La
 /// calibration garde, parmi les candidats à une variable, la grandeur qui
 /// prévoit le mieux en validation croisée (voir choisir_variable) ; un
-/// candidat à plusieurs variables en tête de liste (forage numérique : trous
-/// + diamètre) passe avant dès qu'il est calibrable. Le premier candidat
+/// candidat à plusieurs variables en tête de liste (forage numérique et
+/// manuel : trous + diamètre) passe avant dès qu'il est calibrable. Le premier candidat
 /// est le modèle par défaut (affiché pour un poste pas encore calibré).
 ///
 /// Grandeurs candidates retenues d'après les données de 2025 (erreur en
@@ -38,7 +38,10 @@ pub fn poste_variables() -> HashMap<&'static str, Vec<Vec<String>>> {
     let mut postes = HashMap::from([
         ("manutention", vec![une("nb_barres"), une("poids_t"), une("metres"), une("nb_barres_cfl")]),
         ("mise_a_longueur", vec![une("nb_barres"), une("poids_t"), une("metres")]),
-        ("forage_manuel", vec![une("nb_trous_manuel")]),
+        (
+            "forage_manuel",
+            vec![vec!["nb_trous_manuel".to_string(), "diametre_moyen_manuel".to_string()], une("nb_trous_manuel")],
+        ),
         ("forage_numerique", forage_numerique),
         ("goujonnage", vec![une("nb_goujons")]),
         ("oxycoupage", vec![une("longueur_coupe")]),

@@ -469,6 +469,7 @@ struct VariablesAffaireRow {
     diametre_moyen_numerique: Option<f64>,
     longueur_coupe: Option<f64>,
     contre_fleche: Option<f64>,
+    diametre_moyen_manuel: Option<f64>,
 }
 
 #[tauri::command]
@@ -478,7 +479,7 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
         .prepare(
             "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
                     nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
-                    contre_fleche
+                    contre_fleche, diametre_moyen_manuel
              FROM variables_affaires ORDER BY affaire",
         )
         .map_err(|e| e.to_string())?;
@@ -498,6 +499,7 @@ fn lister_variables_affaires(app: tauri::AppHandle) -> Result<Vec<VariablesAffai
                 diametre_moyen_numerique: row.get(9)?,
                 longueur_coupe: row.get(10)?,
                 contre_fleche: row.get(11)?,
+                diametre_moyen_manuel: row.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -514,7 +516,7 @@ fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
     conn.query_row(
         "SELECT affaire, client, profil, numero_plan, numero_offre, nb_barres, nb_goujons,
                 nb_trous_manuel, nb_trous_numerique, diametre_moyen_numerique, longueur_coupe,
-                contre_fleche
+                contre_fleche, diametre_moyen_manuel
          FROM variables_affaires WHERE affaire = ?1",
         [&affaire],
         |row| {
@@ -531,6 +533,7 @@ fn obtenir_variables_affaire(app: tauri::AppHandle, affaire: String) -> Result<V
                 diametre_moyen_numerique: row.get(9)?,
                 longueur_coupe: row.get(10)?,
                 contre_fleche: row.get(11)?,
+                diametre_moyen_manuel: row.get(12)?,
             })
         },
     )

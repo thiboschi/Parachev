@@ -36,7 +36,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "6";
+const VERSION_INDEXEUR: &str = "7";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -184,6 +184,7 @@ fn migrer_colonnes_fiche(conn: &Connection) -> rusqlite::Result<()> {
         ("chemin_fiche", "TEXT"),
         ("rang_fiche", "TEXT"),
         ("code_affaire", "TEXT"),
+        ("diametre_moyen_manuel", "REAL"),
     ] {
         match conn.execute(&format!("ALTER TABLE variables_affaires ADD COLUMN {colonne} {type_sql}"), []) {
             Ok(_) => {}
