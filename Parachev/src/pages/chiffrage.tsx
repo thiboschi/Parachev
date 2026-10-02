@@ -4,18 +4,72 @@ import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { useAffairesDb } from "@/hooks/use-affaires-db"
+import { MultiSelect } from "@/components/affaires/multi-select"
+import { CalculateurSoudage } from "@/components/chiffrage/calculateur-soudage"
+import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
+import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { libellePoste } from "@/lib/postes"
+import { optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 
-// Sentinelle pour "aucun profil sélectionné" -- un Select ne peut pas
-// prendre une valeur vide comme item.
-const PROFIL_NON_RENSEIGNE = "none"
+// Sentinelle pour "rien de sélectionné" -- un Select ne peut pas prendre
+// une valeur vide comme item.
+const NON_RENSEIGNE = "none"
+
+// Champs purement informatifs de la section "Infos Client" : ni envoyés à
+// `chiffrer_manuellement`, ni utilisés dans le calcul. Le n° 11 est le
+// numéro de commande (1100...), le n° 19 la commande de laminage (1900...).
+type ChampClient = "numero_11" | "numero_19" | "numero_offre" | "client"
+
+const CHAMPS_CLIENT: { key: ChampClient; label: string; placeholder?: string }[] = [
+  { key: "numero_11", label: "N° 11", placeholder: "1100…" },
+  { key: "numero_19", label: "N° 19", placeholder: "1900…" },
+  { key: "numero_offre", label: "N° d'offre" },
+  { key: "client", label: "Nom du client" },
+]
+
+const CLIENT_VIDE: Record<ChampClient, string> = {
+  numero_11: "",
+  numero_19: "",
+  numero_offre: "",
+  client: "",
+}
+
+// Mêmes champs que la section "Normes et exigences (RDE)" des filtres de la
+// recherche (voir affaires-search-bar.tsx), avec les valeurs relevées dans
+// les RDE déjà en base. Une seule valeur par champ, sauf les exigences
+// particulières (voir `exigences`).
+type ChampNorme = "exc" | "en10163" | "tolerance" | "en10204" | "prep" | "classeUs"
+
+const CHAMPS_NORMES: { key: ChampNorme; label: string }[] = [
+  { key: "exc", label: "Classe d'exécution (EN 1090)" },
+  { key: "en10163", label: "Réparation (EN 10163-3)" },
+  { key: "tolerance", label: "Tolérance géométrique" },
+  { key: "en10204", label: "Document de contrôle (EN 10204)" },
+  { key: "prep", label: "Préparation (EN 8501-3)" },
+  { key: "classeUs", label: "Contrôle US" },
+]
+
+const NORMES_VIDES: Record<ChampNorme, string> = {
+  exc: "",
+  en10163: "",
+  tolerance: "",
+  en10204: "",
+  prep: "",
+  classeUs: "",
+}
+
+// Majorations du temps total déduites des normes choisies (cumulatives).
+const TOLERANCE_MAJOREE = "Classe 2"
+const EXIGENCE_MAJOREE = "DBS"
+const MAJORATION_TOLERANCE = 1.25
+const MAJORATION_DBS = 1.2
 
 // Variables explicatives acceptées par `chiffrer_manuellement` (voir
 // poste_variables dans calibration.rs) -- les mêmes que variables_affaires,
@@ -32,52 +86,67 @@ type Champ =
   | "diametre_moyen_numerique"
   | "longueur_coupe"
 
-const CHAMPS: { key: Champ; label: string }[] = [
-  { key: "nb_barres", label: "Nombre de barres" },
-  { key: "poids_t", label: "Poids total (t)" },
-  { key: "metres", label: "Longueur totale de poutres (m)" },
-  { key: "nb_barres_cfl", label: "Barres avec contre-flèche" },
-  { key: "nb_goujons", label: "Nombre de goujons" },
-  { key: "nb_trous_manuel", label: "Trous perçage manuel" },
-  { key: "nb_trous_numerique", label: "Trous perçage numérique" },
-  { key: "diametre_moyen_numerique", label: "Diamètre moyen numérique (mm)" },
-  { key: "longueur_coupe", label: "Longueur de coupe totale (mm)" },
-]
+const LIBELLES_CHAMPS: Record<Champ, string> = {
+  nb_barres: "Nombre de barres",
+  poids_t: "Poids total (t)",
+  metres: "Longueur totale de poutres (m)",
+  nb_barres_cfl: "Barres avec contre-flèche",
+  nb_goujons: "Nombre de goujons",
+  nb_trous_manuel: "Trous perçage manuel",
+  nb_trous_numerique: "Trous perçage numérique",
+  diametre_moyen_numerique: "Diamètre moyen numérique (mm)",
+  longueur_coupe: "Longueur de coupe totale (mm)",
+}
 
-// Cases "Opérations de fabrication" du RDE qui rendent des postes
-// nécessaires (clés de operations::operation_rde, correspondance dans
-// operations::postes_depuis_operation_rde) : contre-flèche -> presse et
-// forage numérique, assemblage/soudage -> soudage et assemblage, etc.
-const OPERATIONS_RDE: { key: string; label: string }[] = [
-  { key: "contre_fleche", label: "Contre-flèche" },
-  { key: "double_redressage", label: "Double redressage" },
-  { key: "usinage_tetes", label: "Usinage des têtes" },
-  { key: "assemblage", label: "Assemblage" },
-  { key: "soudage", label: "Soudage" },
-  { key: "goujonnage", label: "Goujonnage" },
-  { key: "grugeage", label: "Grugeage" },
-  { key: "preparation_bord", label: "Préparation bord" },
-]
+const CHAMPS_VIDES = Object.fromEntries(
+  Object.keys(LIBELLES_CHAMPS).map((key) => [key, ""])
+) as Record<Champ, string>
 
-// Postes cochables directement, en plus de ceux déduits des cases du RDE :
-// leur temps dépend de leur présence dans le projet (voir POSTES_PREVUS /
-// POSTES_FORFAIT dans prevision.rs) -- envoyés à `chiffrer_manuellement`,
-// qui en dérive les variables de ces postes (nombre de barres qui passent
-// à la presse, forfait CND...).
-const POSTES_COCHABLES = [
-  "mise_a_longueur",
-  "manutention",
-  "presse_cintrage",
-  "forage_numerique",
-  "robot",
-  "p3",
-  "soudage_sous_flux",
-  "controle_cnd",
-]
+// Grandeurs de taille de la poutre, communes à tous les modules (GRANDEURS
+// dans prevision.rs) : saisies une fois dans la section "Poutre". Poids et
+// mètres laissés vides sont estimés d'après le nombre de barres.
+const CHAMPS_POUTRE: Champ[] = ["nb_barres", "poids_t", "metres"]
 
-// Un poste non coché est chiffré à 0 h (voir prevision::heures_poste) : la
-// mise à longueur, utilisée sur 61 % des affaires, est cochée d'office.
-const POSTES_COCHES_PAR_DEFAUT = ["mise_a_longueur"]
+// Quantités propres à un poste, saisies dans son module de prédiction. Les
+// postes absents n'ont que les grandeurs de la poutre (ou un forfait).
+const CHAMPS_MODULE: Record<string, Champ[]> = {
+  presse_cintrage: ["nb_barres_cfl"],
+  forage_numerique: ["nb_trous_numerique", "diametre_moyen_numerique"],
+  forage_manuel: ["nb_trous_manuel"],
+  goujonnage: ["nb_goujons"],
+  oxycoupage: ["longueur_coupe"],
+}
+
+// Présente sur presque toutes les affaires sans faire partie d'une gamme
+// (voir POSTES_ANNEXES dans flux-production.ts) : proposée pour tous les types.
+const POSTE_TOUJOURS_PROPOSE = "manutention"
+
+/** Un module de prédiction = un poste de la gamme du type de poutre. */
+interface ModulePoste {
+  poste: string
+  /** Absent d'une variante de la gamme, ou alternative d'une étape (OU). */
+  optionnel: boolean
+}
+
+// Modules d'un type du "Flux de production BFC" : tous les postes de ses
+// itinéraires, dans l'ordre de la gamme. Un poste est obligatoire s'il est
+// une étape à lui seul dans chaque itinéraire.
+function modulesDuType(type: TypeProduction): ModulePoste[] {
+  const postes = Array.from(new Set(type.itineraires.flat(2)))
+  const modules = postes.map((poste) => ({
+    poste,
+    optionnel: !type.itineraires.every((itineraire) =>
+      itineraire.some((etape) => etape.length === 1 && etape[0] === poste)
+    ),
+  }))
+  if (!postes.includes(POSTE_TOUJOURS_PROPOSE)) {
+    modules.push({ poste: POSTE_TOUJOURS_PROPOSE, optionnel: false })
+  }
+  return modules
+}
+
+const postesParDefaut = (modules: ModulePoste[]) =>
+  new Set(modules.filter((m) => !m.optionnel).map((m) => m.poste))
 
 // Ajoute ou retire `cle` d'un ensemble de cases cochées.
 function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<string> {
@@ -87,108 +156,202 @@ function basculer(ensemble: Set<string>, cle: string, coche: boolean): Set<strin
   return suivant
 }
 
-const CHAMPS_VIDES: Record<Champ, string> = {
-  nb_barres: "",
-  poids_t: "",
-  metres: "",
-  nb_barres_cfl: "",
-  nb_goujons: "",
-  nb_trous_manuel: "",
-  nb_trous_numerique: "",
-  diametre_moyen_numerique: "",
-  longueur_coupe: "",
-}
-
-// Champs purement informatifs : ni envoyés à `chiffrer_manuellement`, ni
-// utilisés dans le calcul (comme `profil`/`contre_fleche` dans
-// variables_affaires, voir prevision.tsx) -- juste affichés à côté de
-// l'estimation pour le contexte du projet.
-type ChampInfo = "profil" | "contre_fleche"
-
-const INFOS_VIDES: Record<ChampInfo, string> = {
-  profil: "",
-  contre_fleche: "",
-}
+// Nombre saisi (virgule ou point décimal) ; NaN si illisible, 0 si vide.
+const nombre = (brut: string) => (brut.trim() === "" ? 0 : Number(brut.trim().replace(",", ".")))
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
 
-export default function Chiffrage() {
-  // Mêmes profils que le filtre de la page Search : distincts, non nuls,
-  // triés, tirés des affaires déjà en base.
-  const { affaires } = useAffairesDb()
-  const profilOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          affaires.map((item) => item.variables?.profil).filter((p): p is string => !!p)
-        )
-      ).sort(),
-    [affaires]
+function Section({ titre, children }: { titre: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <span className="text-xs font-medium text-muted-foreground uppercase">{titre}</span>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>
+    </div>
   )
+}
 
+function ChampSaisie({
+  id,
+  label,
+  aide,
+  children,
+}: {
+  id?: string
+  label: string
+  aide?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <Label htmlFor={id} className="text-xs text-muted-foreground">
+        {label}
+        {aide && <span className="font-normal opacity-70"> · {aide}</span>}
+      </Label>
+      {children}
+    </div>
+  )
+}
+
+/** Liste déroulante à choix unique ; "" = non renseigné. */
+function Liste({
+  label,
+  valeur,
+  options,
+  vide = "Non renseigné",
+  onChange,
+}: {
+  label: string
+  valeur: string
+  options: { valeur: string; libelle: string }[]
+  vide?: string
+  onChange: (valeur: string) => void
+}) {
+  const items = {
+    [NON_RENSEIGNE]: vide,
+    ...Object.fromEntries(options.map((o) => [o.valeur, o.libelle])),
+  }
+  return (
+    <ChampSaisie label={label}>
+      <Select
+        items={items}
+        value={valeur === "" ? NON_RENSEIGNE : valeur}
+        onValueChange={(v) => onChange(!v || v === NON_RENSEIGNE ? "" : v)}
+      >
+        <SelectTrigger className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NON_RENSEIGNE}>{vide}</SelectItem>
+          {options.map((o) => (
+            <SelectItem key={o.valeur} value={o.valeur}>
+              {o.libelle}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </ChampSaisie>
+  )
+}
+
+const versOptions = (valeurs: string[]) => valeurs.map((v) => ({ valeur: v, libelle: v }))
+
+export default function Chiffrage() {
+  // Valeurs proposées dans les listes : celles des affaires déjà en base,
+  // comme les filtres de la page Search.
+  const { affaires } = useRechercheAffaires()
+  const options: OptionsFiltres = useMemo(() => optionsFiltres(affaires), [affaires])
+
+  const [client, setClient] = useState<Record<ChampClient, string>>(CLIENT_VIDE)
+  const [normes, setNormes] = useState<Record<ChampNorme, string>>(NORMES_VIDES)
+  const [exigences, setExigences] = useState<string[]>([])
+
+  // La valeur majorée reste proposée même sans affaire en base qui la porte.
+  const avecValeur = (liste: OptionFiltre[], valeur: string): OptionFiltre[] =>
+    liste.some((o) => o.valeur === valeur) ? liste : [...liste, { valeur, libelle: valeur, nombre: 0 }]
+  const optionsTolerance = avecValeur(options.tolerance, TOLERANCE_MAJOREE)
+  const optionsExigences = avecValeur(options.exigences, EXIGENCE_MAJOREE)
+
+  const [typeNom, setTypeNom] = useState("")
+  const [profil, setProfil] = useState("")
+  const [contreFleche, setContreFleche] = useState("")
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
-  const [infos, setInfos] = useState<Record<ChampInfo, string>>(INFOS_VIDES)
-  const [postes, setPostes] = useState<Set<string>>(new Set(POSTES_COCHES_PAR_DEFAUT))
-  const [operationsRde, setOperationsRde] = useState<Set<string>>(new Set())
-  // Champ -> postes qui en dépendent avec la calibration actuelle (voir
+  const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
+  const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
+  // Modules cochés : un poste non coché est chiffré à 0 h.
+  const [postes, setPostes] = useState<Set<string>>(new Set())
+
+  // Poste -> grandeurs dont il dépend avec la calibration actuelle (voir
   // lister_grandeurs_utilisees) : chaque poste calibre sa propre grandeur
-  // (poids, mètres, barres...), un champ utilisé laissé vide chiffre son
-  // poste à 0 h -- sauf poids et mètres, estimés d'après le nombre de barres.
-  const [grandeursUtilisees, setGrandeursUtilisees] = useState<Record<string, string[]>>({})
+  // (poids, mètres, barres...), une grandeur utilisée laissée vide chiffre
+  // son poste à 0 h -- sauf poids et mètres, estimés d'après le nombre de barres.
+  const [grandeursParPoste, setGrandeursParPoste] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
     const charger = () =>
       invoke<Record<string, string[]>>("lister_grandeurs_utilisees")
-        .then(setGrandeursUtilisees)
-        .catch(() => setGrandeursUtilisees({}))
+        .then((parGrandeur) => {
+          const parPoste: Record<string, string[]> = {}
+          for (const [grandeur, postesGrandeur] of Object.entries(parGrandeur)) {
+            for (const poste of postesGrandeur) (parPoste[poste] ??= []).push(grandeur)
+          }
+          setGrandeursParPoste(parPoste)
+        })
+        .catch(() => setGrandeursParPoste({}))
     charger()
     window.addEventListener("coefficients-updated", charger)
     return () => window.removeEventListener("coefficients-updated", charger)
   }, [])
-  const [resultat, setResultat] = useState<Record<string, number> | null>(null)
+
+  const [resultatBrut, setResultat] = useState<Record<string, number> | null>(null)
+  // Heures de soudage du calculateur (affiché avec le module "Soudage"),
+  // null tant qu'il est incomplet : elles remplacent celles de la
+  // calibration dans l'estimation.
+  const [soudageCalcule, setSoudageCalcule] = useState<number | null>(null)
+  const soudageActif = postes.has("soudage")
+  const resultat = useMemo(() => {
+    if (!resultatBrut || !soudageActif || soudageCalcule === null) return resultatBrut
+    const total = (resultatBrut.total ?? 0) - (resultatBrut.soudage ?? 0) + soudageCalcule
+    return { ...resultatBrut, soudage: soudageCalcule, total }
+  }, [resultatBrut, soudageActif, soudageCalcule])
   const [calcul, setCalcul] = useState(false)
-  const [dbs, setDbs] = useState(false)
-  const [classeTolerance2, setClasseTolerance2] = useState(false)
   const [multiplicateur, setMultiplicateur] = useState("")
 
   function modifier(champ: Champ, valeur: string) {
     setValeurs((prev) => ({ ...prev, [champ]: valeur }))
   }
 
-  function modifierInfo(champ: ChampInfo, valeur: string) {
-    setInfos((prev) => ({ ...prev, [champ]: valeur }))
+  function choisirType(nom: string) {
+    setTypeNom(nom)
+    const choisi = TYPES_PRODUCTION.find((t) => t.nom === nom)
+    setPostes(choisi ? postesParDefaut(modulesDuType(choisi)) : new Set())
+    setResultat(null)
   }
 
   function reinitialiser() {
+    setClient(CLIENT_VIDE)
+    setNormes(NORMES_VIDES)
+    setExigences([])
+    setTypeNom("")
+    setProfil("")
+    setContreFleche("")
     setValeurs(CHAMPS_VIDES)
-    setInfos(INFOS_VIDES)
-    setPostes(new Set(POSTES_COCHES_PAR_DEFAUT))
-    setOperationsRde(new Set())
+    setPostes(new Set())
     setResultat(null)
   }
 
   function chiffrer() {
-    const champInvalide = CHAMPS.find(({ key }) => {
-      const brut = valeurs[key].trim()
-      return brut !== "" && Number.isNaN(Number(brut))
-    })
+    // Seules les quantités de la poutre et des modules cochés comptent.
+    const champs = [...CHAMPS_POUTRE, ...[...postes].flatMap((poste) => CHAMPS_MODULE[poste] ?? [])]
+    const champInvalide = champs.find((key) => Number.isNaN(nombre(valeurs[key])))
     if (champInvalide) {
-      toast.error(`Valeur invalide pour "${champInvalide.label}"`)
+      toast.error(`Valeur invalide pour "${LIBELLES_CHAMPS[champInvalide]}"`)
       return
     }
 
     const variables = Object.fromEntries(
-      CHAMPS.map(({ key }) => [key, valeurs[key].trim() === "" ? 0 : Number(valeurs[key])])
+      (Object.keys(LIBELLES_CHAMPS) as Champ[]).map((key) => [
+        key,
+        champs.includes(key) ? nombre(valeurs[key]) : 0,
+      ])
     )
+    const postesChiffres = Array.from(postes)
 
     setCalcul(true)
     invoke<Record<string, number>>("chiffrer_manuellement", {
       variables,
-      postes: Array.from(postes),
-      operationsRde: Array.from(operationsRde),
+      postes: postesChiffres,
+      operationsRde: [],
     })
-      .then(setResultat)
+      .then((heures) => {
+        // Ne garde que les modules cochés : sans présence calibrée, un poste
+        // hors gamme peut recevoir des heures d'après la seule taille de la poutre.
+        const retenues = Object.fromEntries(
+          postesChiffres.filter((poste) => (heures[poste] ?? 0) > 0).map((poste) => [poste, heures[poste]])
+        )
+        const total = Object.values(retenues).reduce((somme, h) => somme + h, 0)
+        setResultat({ ...retenues, total })
+      })
       .catch((e) => {
         setResultat(null)
         toast.error(e instanceof Error ? e.message : String(e))
@@ -196,23 +359,29 @@ export default function Chiffrage() {
       .finally(() => setCalcul(false))
   }
 
+  // Dans l'ordre de la gamme.
   const heuresParPoste = resultat
-    ? Object.entries(resultat)
-        .filter(([poste, heures]) => poste !== "total" && heures > 0)
-        .sort(([a], [b]) => a.localeCompare(b))
+    ? modules
+        .filter(({ poste }) => postes.has(poste) && (resultat[poste] ?? 0) > 0)
+        .map(({ poste }) => [poste, resultat[poste]] as const)
     : []
 
-  // Sous-total = total après application des majorations DBS / Classe
-  // Tolérance 2 sélectionnées (cumulatives si les deux sont cochées).
+  const dbs = exigences.includes(EXIGENCE_MAJOREE)
+  const classeTolerance2 = normes.tolerance === TOLERANCE_MAJOREE
+
+  // Sous-total = total après application des majorations DBS / tolérance
+  // classe 2 (cumulatives si les deux s'appliquent).
   const sousTotal = resultat
-    ? (resultat.total ?? 0) * (dbs ? 1.2 : 1) * (classeTolerance2 ? 1.25 : 1)
+    ? (resultat.total ?? 0) *
+      (dbs ? MAJORATION_DBS : 1) *
+      (classeTolerance2 ? MAJORATION_TOLERANCE : 1)
     : 0
 
-  const baseMultiplicateur = dbs || classeTolerance2 ? sousTotal : resultat?.total ?? 0
-
-  const multiplicateurNombre = Number(multiplicateur.trim())
+  const multiplicateurNombre = nombre(multiplicateur)
   const multiplicateurValide =
     multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
+
+  const nbBarres = nombre(valeurs.nb_barres)
 
   return (
     <SidebarProvider
@@ -236,140 +405,176 @@ export default function Chiffrage() {
             </p>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm text-muted-foreground">
-                  Variables du projet
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="shrink-0 text-sm text-muted-foreground">Profil</span>
-                  <Select
-                    value={infos.profil === "" ? PROFIL_NON_RENSEIGNE : infos.profil}
-                    onValueChange={(value) =>
-                      modifierInfo("profil", value === PROFIL_NON_RENSEIGNE ? "" : (value ?? ""))
-                    }
-                  >
-                    <SelectTrigger className="w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={PROFIL_NON_RENSEIGNE}>Non renseigné</SelectItem>
-                      {profilOptions.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="shrink-0 text-sm text-muted-foreground">CFL</span>
-                  <Input
-                    className="h-8 max-w-36 text-right tabular-nums"
-                    inputMode="decimal"
-                    value={infos.contre_fleche}
-                    onChange={(e) => modifierInfo("contre_fleche", e.target.value)}
-                  />
-                </div>
-                <div className="my-1 border-t" />
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            <div className="flex min-w-0 flex-col gap-4">
+              <Card>
+                <CardContent className="flex flex-col gap-5">
+                  <Section titre="Infos Client">
+                    {CHAMPS_CLIENT.map(({ key, label, placeholder }) => (
+                      <ChampSaisie key={key} id={`client-${key}`} label={label}>
+                        <Input
+                          id={`client-${key}`}
+                          placeholder={placeholder}
+                          value={client[key]}
+                          onChange={(e) => setClient((prev) => ({ ...prev, [key]: e.target.value }))}
+                        />
+                      </ChampSaisie>
+                    ))}
+                  </Section>
 
-                {CHAMPS.map(({ key, label }) => (
-                  <div key={key} className="flex items-center justify-between gap-2">
-                    <div className="flex flex-col">
-                      <span className="text-sm text-muted-foreground">{label}</span>
-                      {grandeursUtilisees[key] && (
-                        <span className="text-xs text-muted-foreground/70">
-                          utilisé par : {grandeursUtilisees[key].map(libellePoste).join(", ")}
-                        </span>
-                      )}
-                    </div>
-                    <Input
-                      className="h-8 max-w-36 text-right tabular-nums"
-                      inputMode="decimal"
-                      value={valeurs[key]}
-                      onChange={(e) => modifier(key, e.target.value)}
+                  <div className="border-t" />
+                  <Section titre="Normes et Exigences">
+                    {CHAMPS_NORMES.map(({ key, label }) => (
+                      <Liste
+                        key={key}
+                        label={label}
+                        valeur={normes[key]}
+                        options={key === "tolerance" ? optionsTolerance : options[key]}
+                        onChange={(valeur) => setNormes((prev) => ({ ...prev, [key]: valeur }))}
+                      />
+                    ))}
+                    <MultiSelect
+                      label="Exigences particulières"
+                      vide="Aucune"
+                      options={optionsExigences}
+                      valeurs={exigences}
+                      onChange={setExigences}
                     />
-                  </div>
-                ))}
-                <div className="my-1 border-t" />
-                <span className="text-sm text-muted-foreground">Opérations cochées au RDE</span>
-                <div className="grid grid-cols-2 gap-2">
-                  {OPERATIONS_RDE.map(({ key, label }) => (
-                    <div key={key} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`rde-${key}`}
-                        checked={operationsRde.has(key)}
-                        onCheckedChange={(checked) =>
-                          setOperationsRde((prev) => basculer(prev, key, checked === true))
-                        }
-                      />
-                      <Label htmlFor={`rde-${key}`} className="text-sm font-normal">
-                        {label}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-                <div className="my-1 border-t" />
-                <span className="text-sm text-muted-foreground">Autres postes prévus</span>
-                <div className="grid grid-cols-2 gap-2">
-                  {POSTES_COCHABLES.map((poste) => (
-                    <div key={poste} className="flex items-center gap-2">
-                      <Checkbox
-                        id={`poste-${poste}`}
-                        checked={postes.has(poste)}
-                        onCheckedChange={(checked) =>
-                          setPostes((prev) => basculer(prev, poste, checked === true))
-                        }
-                      />
-                      <Label htmlFor={`poste-${poste}`} className="text-sm font-normal">
-                        {libellePoste(poste)}
-                      </Label>
-                    </div>
-                  ))}
-                </div>
-                <div className="my-1 border-t" />
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="dbs"
-                    checked={dbs}
-                    onCheckedChange={(checked) => setDbs(checked === true)}
-                  />
-                  <Label htmlFor="dbs" className="text-sm font-normal">
-                    DBS (1,20)
-                  </Label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="classe-tolerance-2"
-                    checked={classeTolerance2}
-                    onCheckedChange={(checked) => setClasseTolerance2(checked === true)}
-                  />
-                  <Label htmlFor="classe-tolerance-2" className="text-sm font-normal">
-                    Classe Tolérance 2 (1,25)
-                  </Label>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                  <Button onClick={chiffrer} disabled={calcul}>
-                    {calcul ? "Calcul…" : "Chiffrer"}
-                  </Button>
-                  <Button variant="ghost" onClick={reinitialiser} disabled={calcul}>
-                    Réinitialiser
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                  </Section>
 
-            <Card>
+                  <div className="border-t" />
+                  <Section titre="Poutre">
+                    <Liste
+                      label="Type d'affaire"
+                      vide="Choisir un type…"
+                      valeur={typeNom}
+                      options={versOptions(TYPES_PRODUCTION.map((t) => t.nom))}
+                      onChange={choisirType}
+                    />
+                    <Liste
+                      label="Profil"
+                      valeur={profil}
+                      options={options.profils}
+                      onChange={setProfil}
+                    />
+                    {type &&
+                      CHAMPS_POUTRE.map((key) => (
+                        <ChampSaisie key={key} id={`poutre-${key}`} label={LIBELLES_CHAMPS[key]}>
+                          <Input
+                            id={`poutre-${key}`}
+                            className="text-right tabular-nums"
+                            inputMode="decimal"
+                            value={valeurs[key]}
+                            onChange={(e) => modifier(key, e.target.value)}
+                          />
+                        </ChampSaisie>
+                      ))}
+                  </Section>
+                  {!type && (
+                    <span className="text-sm text-muted-foreground">
+                      Choisissez un type d'affaire pour ouvrir ses modules de prédiction.
+                    </span>
+                  )}
+                </CardContent>
+              </Card>
+
+              {modules.map(({ poste, optionnel }) => {
+                const actif = postes.has(poste)
+                const champs = CHAMPS_MODULE[poste] ?? []
+                const grandeurs = (grandeursParPoste[poste] ?? []).filter(
+                  (g) => !champs.includes(g as Champ)
+                )
+                const heures = resultat?.[poste]
+                return (
+                  <div key={poste} className="flex flex-col gap-4">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center gap-2 text-sm">
+                          <Checkbox
+                            id={`module-${poste}`}
+                            checked={actif}
+                            onCheckedChange={(coche) =>
+                              setPostes((prev) => basculer(prev, poste, coche === true))
+                            }
+                          />
+                          <Label htmlFor={`module-${poste}`} className="text-sm font-medium">
+                            {libellePoste(poste)}
+                          </Label>
+                          {optionnel && <Badge variant="outline">Optionnel</Badge>}
+                          {actif && heures !== undefined && (
+                            <span className="ml-auto tabular-nums">{formatHeures(heures)} h</span>
+                          )}
+                        </CardTitle>
+                      </CardHeader>
+                      {actif && (
+                        <CardContent className="flex flex-col gap-3 text-sm">
+                          {champs.length > 0 && (
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                              {champs.map((key) => (
+                                <ChampSaisie key={key} id={`module-${poste}-${key}`} label={LIBELLES_CHAMPS[key]}>
+                                  <Input
+                                    id={`module-${poste}-${key}`}
+                                    className="text-right tabular-nums"
+                                    inputMode="decimal"
+                                    value={valeurs[key]}
+                                    onChange={(e) => modifier(key, e.target.value)}
+                                  />
+                                </ChampSaisie>
+                              ))}
+                              {poste === "presse_cintrage" && (
+                                <ChampSaisie id="module-cfl" label="CFL" aide="pour information">
+                                  <Input
+                                    id="module-cfl"
+                                    className="text-right tabular-nums"
+                                    inputMode="decimal"
+                                    value={contreFleche}
+                                    onChange={(e) => setContreFleche(e.target.value)}
+                                  />
+                                </ChampSaisie>
+                              )}
+                            </div>
+                          )}
+                          <span className="text-xs text-muted-foreground">
+                            {poste === "soudage"
+                              ? "Chiffré par le calculateur ci-dessous ; tant qu'il est incomplet, par la calibration."
+                              : grandeurs.length > 0
+                                ? `Calculé d'après : ${grandeurs
+                                    .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
+                                    .join(", ")
+                                    .toLowerCase()}.`
+                                : champs.length > 0
+                                  ? "Calculé d'après les quantités ci-dessus."
+                                  : "Chiffré au forfait."}
+                          </span>
+                        </CardContent>
+                      )}
+                    </Card>
+                    {poste === "soudage" && actif && (
+                      <CalculateurSoudage
+                        nbBarres={nbBarres > 0 ? nbBarres : 1}
+                        onHeures={setSoudageCalcule}
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <Card className="lg:sticky lg:top-4">
               <CardHeader>
                 <CardTitle className="text-sm text-muted-foreground">Estimation</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-1.5 text-sm">
+                {(client.client || client.numero_11 || client.numero_offre) && (
+                  <span className="pb-1 font-medium">
+                    {[client.client, client.numero_11, client.numero_offre].filter(Boolean).join(" · ")}
+                  </span>
+                )}
                 {!resultat && (
                   <span className="text-muted-foreground">
-                    Renseignez les variables puis cliquez sur « Chiffrer ».
+                    {type
+                      ? "Renseignez la poutre et les modules puis cliquez sur « Chiffrer »."
+                      : "Choisissez un type d'affaire dans la section « Poutre »."}
                   </span>
                 )}
                 {resultat && heuresParPoste.length === 0 && (
@@ -379,7 +584,10 @@ export default function Chiffrage() {
                 )}
                 {heuresParPoste.map(([poste, heures]) => (
                   <div key={poste} className="flex items-center justify-between">
-                    <span className="text-muted-foreground">{libellePoste(poste)}</span>
+                    <span className="text-muted-foreground">
+                      {libellePoste(poste)}
+                      {poste === "soudage" && soudageCalcule !== null && " (calculateur)"}
+                    </span>
                     <span className="tabular-nums">{formatHeures(heures)} h</span>
                   </div>
                 ))}
@@ -392,13 +600,17 @@ export default function Chiffrage() {
                 {resultat && dbs && (
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>DBS (×1,20)</span>
-                    <span className="tabular-nums">{formatHeures((resultat.total ?? 0) * 1.2)} h</span>
+                    <span className="tabular-nums">
+                      {formatHeures((resultat.total ?? 0) * MAJORATION_DBS)} h
+                    </span>
                   </div>
                 )}
                 {resultat && classeTolerance2 && (
                   <div className="flex items-center justify-between text-muted-foreground">
-                    <span>Classe Tolérance 2 (×1,25)</span>
-                    <span className="tabular-nums">{formatHeures((resultat.total ?? 0) * 1.25)} h</span>
+                    <span>Tolérance classe 2 (×1,25)</span>
+                    <span className="tabular-nums">
+                      {formatHeures((resultat.total ?? 0) * MAJORATION_TOLERANCE)} h
+                    </span>
                   </div>
                 )}
                 {resultat && (dbs || classeTolerance2) && (
@@ -407,7 +619,7 @@ export default function Chiffrage() {
                     <span className="tabular-nums">{formatHeures(sousTotal)} h</span>
                   </div>
                 )}
-                <div className="mt-auto flex items-center justify-between gap-2 border-t pt-1.5">
+                <div className="mt-2 flex items-center justify-between gap-2 border-t pt-1.5">
                   <Label htmlFor="multiplicateur" className="text-sm font-normal text-muted-foreground">
                     Multiplicateur
                   </Label>
@@ -423,10 +635,18 @@ export default function Chiffrage() {
                   <div className="flex items-center justify-between font-medium">
                     <span>Résultat</span>
                     <span className="tabular-nums">
-                      {formatHeures(baseMultiplicateur * multiplicateurNombre)} €
+                      {formatHeures(sousTotal * multiplicateurNombre)} €
                     </span>
                   </div>
                 )}
+                <div className="mt-2 flex items-center gap-2">
+                  <Button onClick={chiffrer} disabled={calcul || !type}>
+                    {calcul ? "Calcul…" : "Chiffrer"}
+                  </Button>
+                  <Button variant="ghost" onClick={reinitialiser} disabled={calcul}>
+                    Réinitialiser
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>

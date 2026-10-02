@@ -18,16 +18,18 @@ interface MultiSelectProps {
   onChange: (valeurs: string[]) => void
   /** Texte affiché sous le libellé (ex. "toutes les cases cochées"). */
   aide?: string
+  /** Texte du bouton quand rien n'est coché ("Tous" pour un filtre). */
+  vide?: string
 }
 
 /** Liste déroulante à cases à cocher ; le menu reste ouvert entre deux clics. */
-export function MultiSelect({ label, options, valeurs, onChange, aide }: MultiSelectProps) {
+export function MultiSelect({ label, options, valeurs, onChange, aide, vide = "Tous" }: MultiSelectProps) {
   const basculer = (valeur: string, coche: boolean) =>
     onChange(coche ? [...valeurs, valeur] : valeurs.filter((v) => v !== valeur))
 
   const resume =
     valeurs.length === 0
-      ? "Tous"
+      ? vide
       : valeurs.length === 1
         ? (options.find((o) => o.valeur === valeurs[0])?.libelle ?? valeurs[0])
         : `${valeurs.length} sélectionnés`
