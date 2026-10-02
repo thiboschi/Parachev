@@ -132,8 +132,11 @@ const CHAMPS_MODULE: Record<string, Champ[]> = {
   oxycoupage: ["longueur_coupe"],
 }
 
-// Trous oblongs d'une barre : aucun poste ne les chiffre d'après leur nombre,
-// ils ne servent qu'au temps barème (voir heuresOblongs).
+// Trous oblongs d'une barre, en option des modules qui peuvent les réaliser :
+// aucun poste ne les chiffre d'après leur nombre, ils ne servent qu'au temps
+// barème (voir heuresOblongs).
+const POSTES_AVEC_OBLONGS = ["forage_manuel", "oxycoupage"]
+
 type ChampOblong = "nombre" | "longueur" | "largeur"
 
 const CHAMPS_OBLONGS: { key: ChampOblong; label: string }[] = [
@@ -300,7 +303,10 @@ export default function Chiffrage() {
   )
   const [contreFleche, setContreFleche] = useState("")
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
-  const [oblongs, setOblongs] = useState<Record<ChampOblong, string>>(OBLONGS_VIDES)
+  // Option "Trous oblongs" de chaque module de POSTES_AVEC_OBLONGS : cochée
+  // ou non, et ses dimensions (propres au poste).
+  const [oblongsActifs, setOblongsActifs] = useState<Set<string>>(new Set())
+  const [oblongs, setOblongs] = useState<Record<string, Record<ChampOblong, string>>>({})
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
   const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
   // Modules cochés : un poste non coché est chiffré à 0 h.
@@ -367,7 +373,8 @@ export default function Chiffrage() {
     setProfil("")
     setContreFleche("")
     setValeurs(CHAMPS_VIDES)
-    setOblongs(OBLONGS_VIDES)
+    setOblongsActifs(new Set())
+    setOblongs({})
     setPostes(new Set())
     setResultat(null)
   }
@@ -446,11 +453,11 @@ export default function Chiffrage() {
     })(),
   }
 
-  const heuresOblongsBareme = heuresOblongs(
-    nombre(oblongs.nombre) * nbBarres,
-    nombre(oblongs.longueur),
-    nombre(oblongs.largeur)
-  )
+  const oblongsDuPoste = (poste: string) => oblongs[poste] ?? OBLONGS_VIDES
+  const heuresOblongsBareme = (poste: string) => {
+    const saisie = oblongsDuPoste(poste)
+    return heuresOblongs(nombre(saisie.nombre) * nbBarres, nombre(saisie.longueur), nombre(saisie.largeur))
+  }
 
   // Dans l'ordre de la gamme.
   const heuresParPoste = resultat
@@ -584,6 +591,9 @@ export default function Chiffrage() {
                   (g) => !champs.includes(g as Champ)
                 )
                 const heures = resultat?.[poste]
+                const avecOblongs = POSTES_AVEC_OBLONGS.includes(poste)
+                const oblongsCoches = oblongsActifs.has(poste)
+                const baremeOblongs = heuresOblongsBareme(poste)
                 return (
                   <div key={poste} className="flex flex-col gap-4">
                     <Card>
@@ -653,6 +663,50 @@ export default function Chiffrage() {
                           {baremePercage[poste] && (
                             <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
                           )}
+                          {avecOblongs && (
+                            <div className="flex flex-col gap-3 border-t pt-3">
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`oblongs-${poste}`}
+                                  checked={oblongsCoches}
+                                  onCheckedChange={(coche) =>
+                                    setOblongsActifs((prev) => basculer(prev, poste, coche === true))
+                                  }
+                                />
+                                <Label htmlFor={`oblongs-${poste}`} className="text-sm font-normal">
+                                  Trous oblongs
+                                </Label>
+                              </div>
+                              {oblongsCoches && (
+                                <>
+                                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                    {CHAMPS_OBLONGS.map(({ key, label }) => (
+                                      <ChampSaisie key={key} id={`oblongs-${poste}-${key}`} label={label}>
+                                        <Input
+                                          id={`oblongs-${poste}-${key}`}
+                                          className="text-right tabular-nums"
+                                          inputMode="decimal"
+                                          value={oblongsDuPoste(poste)[key]}
+                                          onChange={(e) =>
+                                            setOblongs((prev) => ({
+                                              ...prev,
+                                              [poste]: { ...(prev[poste] ?? OBLONGS_VIDES), [key]: e.target.value },
+                                            }))
+                                          }
+                                        />
+                                      </ChampSaisie>
+                                    ))}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">
+                                    {baremeOblongs
+                                      ? `Barème atelier (DATA-TEMPS), oxycoupage : ${formatHeures(baremeOblongs.avecPreforage)} h avec préforage au programme, ${formatHeures(baremeOblongs.sansPreforage)} h sans.`
+                                      : "Renseignez le nombre de barres, puis le nombre et les dimensions des oblongs."}{" "}
+                                    Temps indicatif, non ajouté à l'estimation.
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </CardContent>
                       )}
                     </Card>
@@ -665,37 +719,6 @@ export default function Chiffrage() {
                   </div>
                 )
               })}
-
-              {type && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-sm">Trous oblongs</CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-3 text-sm">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      {CHAMPS_OBLONGS.map(({ key, label }) => (
-                        <ChampSaisie key={key} id={`oblongs-${key}`} label={label}>
-                          <Input
-                            id={`oblongs-${key}`}
-                            className="text-right tabular-nums"
-                            inputMode="decimal"
-                            value={oblongs[key]}
-                            onChange={(e) => setOblongs((prev) => ({ ...prev, [key]: e.target.value }))}
-                          />
-                        </ChampSaisie>
-                      ))}
-                    </div>
-                    <span className="text-xs text-muted-foreground">
-                      {heuresOblongsBareme
-                        ? `Barème atelier (DATA-TEMPS), oxycoupage : ${formatHeures(heuresOblongsBareme.avecPreforage)} h avec préforage au programme, ${formatHeures(heuresOblongsBareme.sansPreforage)} h sans.`
-                        : "Renseignez le nombre de barres, puis le nombre et les dimensions des oblongs."}
-                    </span>
-                    <span className="text-xs text-muted-foreground">
-                      Temps indicatif, non ajouté à l'estimation.
-                    </span>
-                  </CardContent>
-                </Card>
-              )}
             </div>
 
             <Card className="lg:sticky lg:top-4">
