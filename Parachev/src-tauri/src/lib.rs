@@ -133,6 +133,7 @@ pub fn run() {
             rechercher_texte,
             obtenir_dossier_affaire,
             ouvrir_document,
+            enregistrer_pdf,
             obtenir_progression_indexation
         ])
         .setup(|app| {
@@ -793,4 +794,27 @@ fn ouvrir_document(app: tauri::AppHandle, chemin: String) -> Result<(), String> 
         return Err("Document inconnu de l'index".into());
     }
     tauri_plugin_opener::open_path(&chemin, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// Enregistre un PDF généré par l'interface (offre de la page "Chiffrage")
+/// à l'emplacement choisi par l'utilisateur, puis l'ouvre. Retourne le
+/// chemin du fichier, ou None si l'utilisateur a annulé.
+#[tauri::command]
+async fn enregistrer_pdf(app: tauri::AppHandle, nom: String, contenu: Vec<u8>) -> Result<Option<String>, String> {
+    let fichier = app
+        .dialog()
+        .file()
+        .set_file_name(&nom)
+        .add_filter("PDF", &["pdf"])
+        .blocking_save_file();
+
+    let Some(fichier) = fichier else {
+        return Ok(None); // l'utilisateur a annulé l'enregistrement
+    };
+    let chemin = fichier.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&chemin, contenu).map_err(|e| e.to_string())?;
+
+    let chemin = chemin.to_string_lossy().to_string();
+    let _ = tauri_plugin_opener::open_path(&chemin, None::<&str>);
+    Ok(Some(chemin))
 }

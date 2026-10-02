@@ -38,13 +38,15 @@ const formatNombre = (value: number, decimales = 2) =>
 // Calculateur de temps de soudage du chiffrage (voir lib/soudage.ts) :
 // pièces à souder d'une barre, type de préparation et cadences. `onHeures`
 // reçoit le temps pour toutes les barres, pauses comprises, ou null tant
-// que le calcul est incomplet.
+// que le calcul est incomplet ; `onLignes` les pièces saisies (export PDF).
 export function CalculateurSoudage({
   nbBarres,
   onHeures,
+  onLignes,
 }: {
   nbBarres: number
   onHeures: (heures: number | null) => void
+  onLignes?: (lignes: LigneSoudure[]) => void
 }) {
   const [lignes, setLignes] = useState<LigneSoudure[]>([ligneVide(0)])
   const [parametres, setParametres] = useState<ParametresSoudure>(lireParametres)
@@ -61,6 +63,11 @@ export function CalculateurSoudage({
 
   // Le calculateur disparaît quand le module "Soudage" est décoché.
   useEffect(() => () => onHeures(null), [onHeures])
+
+  useEffect(() => {
+    onLignes?.(lignes)
+    return () => onLignes?.([])
+  }, [lignes, onLignes])
 
   useEffect(() => {
     try {

@@ -18,6 +18,8 @@ import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
 import { familleProfil, optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
+import { PREPARATIONS, nombrePasses, type LigneSoudure } from "@/lib/soudage"
+import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
 
 // Sentinelle pour "rien de sélectionné" -- un Select ne peut pas prendre
 // une valeur vide comme item.
@@ -339,6 +341,9 @@ export default function Chiffrage() {
   // null tant qu'il est incomplet : elles remplacent celles de la
   // calibration dans l'estimation.
   const [soudageCalcule, setSoudageCalcule] = useState<number | null>(null)
+  // Pièces saisies dans le calculateur, reprises dans le PDF de l'offre.
+  const [lignesSoudure, setLignesSoudure] = useState<LigneSoudure[]>([])
+  const [exportPdf, setExportPdf] = useState(false)
   const soudageActif = postes.has("soudage")
   const resultat = useMemo(() => {
     if (!resultatBrut || !soudageActif || soudageCalcule === null) return resultatBrut
@@ -480,6 +485,91 @@ export default function Chiffrage() {
   const multiplicateurNombre = nombre(multiplicateur)
   const multiplicateurValide =
     multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
+
+  // Tout ce qui est saisi et chiffré sur la page, pour le PDF de l'offre.
+  function donneesOffre(total: number): DonneesOffre {
+    const renseignees = (lignes: LigneInfo[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
+    const avecTotal = (key: Champ) => {
+      const aide = aideTotal(key)
+      return aide ? `${valeurs[key]} (${aide})` : valeurs[key]
+    }
+    const detailsModule = (poste: string) => {
+      const details = (CHAMPS_MODULE[poste] ?? [])
+        .filter((key) => valeurs[key].trim() !== "")
+        .map((key) => `${LIBELLES_CHAMPS[key]} : ${avecTotal(key)}`)
+      if (poste === "presse_cintrage" && contreFleche.trim() !== "") details.push(`CFL : ${contreFleche}`)
+      if (oblongsActifs.has(poste)) {
+        const { nombre: nb, longueur, largeur } = oblongsDuPoste(poste)
+        details.push(`Trous oblongs : ${nb || "—"} par barre, ${longueur || "—"} × ${largeur || "—"} mm`)
+      }
+      return details
+    }
+    return {
+      date: new Date(),
+      client: client.client.trim(),
+      numeroOffre: client.numero_offre.trim(),
+      numeroCommande: client.numero_11.trim(),
+      numeroLaminage: client.numero_19.trim(),
+      poutre: renseignees([
+        { label: "Type d'affaire", valeur: typeNom },
+        { label: "Famille de profil", valeur: famille },
+        { label: "Profil", valeur: profil },
+        ...CHAMPS_POUTRE.map((key) => ({ label: LIBELLES_CHAMPS[key], valeur: avecTotal(key) })),
+      ]),
+      normes: renseignees([
+        ...CHAMPS_NORMES.map(({ key, label }) => ({ label, valeur: normes[key] })),
+        { label: "Exigences particulières", valeur: exigences.join(", ") },
+      ]),
+      operations: modules
+        .filter(({ poste }) => postes.has(poste))
+        .map(({ poste }) => ({
+          libelle: libellePoste(poste),
+          details: detailsModule(poste),
+          heures: resultat?.[poste] ?? 0,
+        })),
+      soudures: lignesSoudure.map((ligne) => ({
+        designation: ligne.designation,
+        nombre: ligne.nombre,
+        longueur: ligne.longueur,
+        preparation: PREPARATIONS.find((p) => p.key === ligne.preparation)?.label ?? ligne.preparation,
+        passes: nombrePasses(ligne)?.toString() ?? "—",
+      })),
+      totalHeures: total,
+      majorations: [
+        ...(dbs ? [{ label: "DBS (×1,20)", heures: total * MAJORATION_DBS }] : []),
+        ...(classeTolerance2
+          ? [{ label: "Tolérance classe 2 (×1,25)", heures: total * MAJORATION_TOLERANCE }]
+          : []),
+      ],
+      sousTotalHeures: sousTotal,
+      tauxHoraire: multiplicateurValide ? multiplicateurNombre : null,
+      montant: multiplicateurValide ? sousTotal * multiplicateurNombre : null,
+    }
+  }
+
+  async function exporterPdf() {
+    if (!resultat) {
+      toast.error("Cliquez sur « Chiffrer » avant d'exporter l'offre")
+      return
+    }
+    const offre = donneesOffre(resultat.total ?? 0)
+    const nom = `Offre ${offre.numeroOffre || offre.client || "chiffrage"}`.replace(/[\\/:*?"<>|]/g, "-")
+    setExportPdf(true)
+    try {
+      // @react-pdf/renderer n'est chargé qu'au premier export.
+      const { genererOffrePdf } = await import("@/components/chiffrage/offre-pdf")
+      const contenu = await genererOffrePdf(offre)
+      const chemin = await invoke<string | null>("enregistrer_pdf", {
+        nom: `${nom}.pdf`,
+        contenu: Array.from(contenu),
+      })
+      if (chemin) toast.success(`Offre enregistrée : ${chemin}`)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setExportPdf(false)
+    }
+  }
 
   return (
     <SidebarProvider
@@ -714,6 +804,7 @@ export default function Chiffrage() {
                       <CalculateurSoudage
                         nbBarres={nbBarres > 0 ? nbBarres : 1}
                         onHeures={setSoudageCalcule}
+                        onLignes={setLignesSoudure}
                       />
                     )}
                   </div>
@@ -807,8 +898,9 @@ export default function Chiffrage() {
                   <Button variant="ghost" onClick={reinitialiser} disabled={calcul}>
                     Réinitialiser
                   </Button>
-                  {/* Export PDF du chiffrage : à brancher. */}
-                  <Button variant="outline">PDF</Button>
+                  <Button variant="outline" onClick={exporterPdf} disabled={calcul || exportPdf || !resultat}>
+                    {exportPdf ? "PDF…" : "PDF"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
