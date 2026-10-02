@@ -16,7 +16,7 @@ import { CalculateurSoudage } from "@/components/chiffrage/calculateur-soudage"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { libellePoste } from "@/lib/postes"
-import { optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
+import { familleProfil, optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 
 // Sentinelle pour "rien de sélectionné" -- un Select ne peut pas prendre
 // une valeur vide comme item.
@@ -88,23 +88,35 @@ type Champ =
 
 const LIBELLES_CHAMPS: Record<Champ, string> = {
   nb_barres: "Nombre de barres",
-  poids_t: "Poids total (t)",
-  metres: "Longueur totale de poutres (m)",
+  poids_t: "Poids par barre (t)",
+  metres: "Longueur par barre (m)",
   nb_barres_cfl: "Barres avec contre-flèche",
-  nb_goujons: "Nombre de goujons",
-  nb_trous_manuel: "Trous perçage manuel",
-  nb_trous_numerique: "Trous perçage numérique",
+  nb_goujons: "Goujons par barre",
+  nb_trous_manuel: "Trous perçage manuel par barre",
+  nb_trous_numerique: "Trous perçage numérique par barre",
   diametre_moyen_numerique: "Diamètre moyen numérique (mm)",
-  longueur_coupe: "Longueur de coupe totale (mm)",
+  longueur_coupe: "Longueur de coupe par barre (mm)",
 }
+
+// Quantités saisies pour UNE barre : multipliées par le nombre de barres
+// avant l'envoi à `chiffrer_manuellement`, qui attend les totaux du projet.
+const CHAMPS_PAR_BARRE = new Set<Champ>([
+  "poids_t",
+  "metres",
+  "nb_goujons",
+  "nb_trous_manuel",
+  "nb_trous_numerique",
+  "longueur_coupe",
+])
 
 const CHAMPS_VIDES = Object.fromEntries(
   Object.keys(LIBELLES_CHAMPS).map((key) => [key, ""])
 ) as Record<Champ, string>
 
 // Grandeurs de taille de la poutre, communes à tous les modules (GRANDEURS
-// dans prevision.rs) : saisies une fois dans la section "Poutre". Poids et
-// mètres laissés vides sont estimés d'après le nombre de barres.
+// dans prevision.rs) : saisies une fois dans la section "Poutre", pour une
+// barre. Poids et longueur laissés vides sont estimés d'après le nombre de
+// barres.
 const CHAMPS_POUTRE: Champ[] = ["nb_barres", "poids_t", "metres"]
 
 // Quantités propres à un poste, saisies dans son module de prédiction. Les
@@ -199,12 +211,14 @@ function Liste({
   valeur,
   options,
   vide = "Non renseigné",
+  desactive = false,
   onChange,
 }: {
   label: string
   valeur: string
   options: { valeur: string; libelle: string }[]
   vide?: string
+  desactive?: boolean
   onChange: (valeur: string) => void
 }) {
   const items = {
@@ -215,6 +229,7 @@ function Liste({
     <ChampSaisie label={label}>
       <Select
         items={items}
+        disabled={desactive}
         value={valeur === "" ? NON_RENSEIGNE : valeur}
         onValueChange={(v) => onChange(!v || v === NON_RENSEIGNE ? "" : v)}
       >
@@ -253,7 +268,21 @@ export default function Chiffrage() {
   const optionsExigences = avecValeur(options.exigences, EXIGENCE_MAJOREE)
 
   const [typeNom, setTypeNom] = useState("")
+  // Le profil se choisit en deux temps : sa famille (HEB, HD, HL…), puis
+  // le profil précis parmi ceux de cette famille.
+  const [famille, setFamille] = useState("")
   const [profil, setProfil] = useState("")
+  const optionsFamilles = useMemo(
+    () => [...options.familles].sort((a, b) => a.libelle.localeCompare(b.libelle)),
+    [options.familles]
+  )
+  const optionsProfils = useMemo(
+    () =>
+      options.profils
+        .filter((o) => familleProfil(o.valeur) === famille)
+        .sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric: true })),
+    [options.profils, famille]
+  )
   const [contreFleche, setContreFleche] = useState("")
   const [valeurs, setValeurs] = useState<Record<Champ, string>>(CHAMPS_VIDES)
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
@@ -301,6 +330,11 @@ export default function Chiffrage() {
     setValeurs((prev) => ({ ...prev, [champ]: valeur }))
   }
 
+  function choisirFamille(valeur: string) {
+    setFamille(valeur)
+    setProfil("")
+  }
+
   function choisirType(nom: string) {
     setTypeNom(nom)
     const choisi = TYPES_PRODUCTION.find((t) => t.nom === nom)
@@ -313,11 +347,24 @@ export default function Chiffrage() {
     setNormes(NORMES_VIDES)
     setExigences([])
     setTypeNom("")
+    setFamille("")
     setProfil("")
     setContreFleche("")
     setValeurs(CHAMPS_VIDES)
     setPostes(new Set())
     setResultat(null)
+  }
+
+  const nbBarres = nombre(valeurs.nb_barres)
+  // Total du projet pour un champ : la valeur par barre × le nombre de barres.
+  const totalProjet = (key: Champ) =>
+    nombre(valeurs[key]) * (CHAMPS_PAR_BARRE.has(key) ? nbBarres : 1)
+  // Rappel du total sous un champ saisi par barre.
+  const aideTotal = (key: Champ) => {
+    const total = totalProjet(key)
+    return CHAMPS_PAR_BARRE.has(key) && nbBarres > 0 && total > 0
+      ? `total : ${formatHeures(total)}`
+      : undefined
   }
 
   function chiffrer() {
@@ -328,11 +375,15 @@ export default function Chiffrage() {
       toast.error(`Valeur invalide pour "${LIBELLES_CHAMPS[champInvalide]}"`)
       return
     }
+    if (!(nbBarres > 0)) {
+      toast.error("Renseignez le nombre de barres : les quantités sont saisies par barre")
+      return
+    }
 
     const variables = Object.fromEntries(
       (Object.keys(LIBELLES_CHAMPS) as Champ[]).map((key) => [
         key,
-        champs.includes(key) ? nombre(valeurs[key]) : 0,
+        champs.includes(key) ? totalProjet(key) : 0,
       ])
     )
     const postesChiffres = Array.from(postes)
@@ -380,8 +431,6 @@ export default function Chiffrage() {
   const multiplicateurNombre = nombre(multiplicateur)
   const multiplicateurValide =
     multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
-
-  const nbBarres = nombre(valeurs.nb_barres)
 
   return (
     <SidebarProvider
@@ -452,14 +501,22 @@ export default function Chiffrage() {
                       onChange={choisirType}
                     />
                     <Liste
+                      label="Famille de profil"
+                      valeur={famille}
+                      options={optionsFamilles}
+                      onChange={choisirFamille}
+                    />
+                    <Liste
                       label="Profil"
+                      vide={famille ? "Non renseigné" : "Choisir une famille…"}
                       valeur={profil}
-                      options={options.profils}
+                      options={optionsProfils}
+                      desactive={!famille}
                       onChange={setProfil}
                     />
                     {type &&
                       CHAMPS_POUTRE.map((key) => (
-                        <ChampSaisie key={key} id={`poutre-${key}`} label={LIBELLES_CHAMPS[key]}>
+                        <ChampSaisie key={key} id={`poutre-${key}`} label={LIBELLES_CHAMPS[key]} aide={aideTotal(key)}>
                           <Input
                             id={`poutre-${key}`}
                             className="text-right tabular-nums"
@@ -511,7 +568,12 @@ export default function Chiffrage() {
                           {champs.length > 0 && (
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                               {champs.map((key) => (
-                                <ChampSaisie key={key} id={`module-${poste}-${key}`} label={LIBELLES_CHAMPS[key]}>
+                                <ChampSaisie
+                                  key={key}
+                                  id={`module-${poste}-${key}`}
+                                  label={LIBELLES_CHAMPS[key]}
+                                  aide={aideTotal(key)}
+                                >
                                   <Input
                                     id={`module-${poste}-${key}`}
                                     className="text-right tabular-nums"
