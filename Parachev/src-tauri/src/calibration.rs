@@ -9,7 +9,15 @@ use std::collections::HashMap;
 /// prévoit le mieux en validation croisée (voir choisir_variable) ; un
 /// candidat à plusieurs variables en tête de liste (forage numérique et
 /// manuel : trous + diamètre) passe avant dès qu'il est calibrable. Le premier candidat
-/// est le modèle par défaut (affiché pour un poste pas encore calibré).
+/// est le modèle par défaut (affiché pour un poste pas encore calibré). Un
+/// candidat à plusieurs variables placé ailleurs (manutention : poids +
+/// mètres) n'est retenu que s'il prévoit mieux que la grandeur simple
+/// choisie (voir calibrer_combinaison).
+///
+/// Manutention, base du 30/09/2026 (159 affaires à poids et mètres connus) :
+/// les mètres n'ajoutent rien au poids (coefficient négatif, erreur en
+/// validation croisée 81 % contre 80 % pour la courbe sur le poids seul) --
+/// la combinaison reste candidate pour le jour où les données la justifient.
 ///
 /// Grandeurs candidates retenues d'après les données de 2025 (erreur en
 /// validation croisée, nombre de barres -> meilleure grandeur) : P3 63 % ->
@@ -36,7 +44,16 @@ pub fn poste_variables() -> HashMap<&'static str, Vec<Vec<String>>> {
     forage_numerique.extend(filtrees("forage_numerique", &["nb_barres", "poids", "metres", "nb_barres_cfl"]));
 
     let mut postes = HashMap::from([
-        ("manutention", vec![une("nb_barres"), une("poids_t"), une("metres"), une("nb_barres_cfl")]),
+        (
+            "manutention",
+            vec![
+                une("nb_barres"),
+                une("poids_t"),
+                une("metres"),
+                une("nb_barres_cfl"),
+                vec!["poids_t".to_string(), "metres".to_string()],
+            ],
+        ),
         ("mise_a_longueur", vec![une("nb_barres"), une("poids_t"), une("metres")]),
         (
             "forage_manuel",
@@ -465,6 +482,88 @@ fn choisir_variable<'a>(
     Ok(meilleure.map(|(nom, _)| nom))
 }
 
+/// Erreur absolue en validation croisée d'un modèle à plusieurs variables
+/// (moindres carrés), en fraction des heures réelles -- même découpage en
+/// blocs que erreur_validation_croisee.
+fn erreur_validation_croisee_lineaire(donnees: &[LigneCalibration], n_variables: usize) -> f64 {
+    let mut erreur = 0.0;
+    for bloc in 0..BLOCS_VALIDATION {
+        let apprentissage: Vec<LigneCalibration> = donnees
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % BLOCS_VALIDATION != bloc)
+            .map(|(_, l)| l.clone())
+            .collect();
+        let (intercept, coefs, _) = regression_lineaire(&apprentissage, n_variables);
+        erreur += donnees
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| i % BLOCS_VALIDATION == bloc)
+            .map(|(_, l)| {
+                let prevu = (intercept + l.valeurs.iter().zip(&coefs).map(|(x, c)| x * c).sum::<f64>()).max(0.0);
+                (prevu - l.heures).abs()
+            })
+            .sum::<f64>();
+    }
+    erreur / donnees.iter().map(|l| l.heures).sum::<f64>()
+}
+
+/// Candidat à plusieurs variables hors tête de liste (voir poste_variables),
+/// calibré par moindres carrés. Contrairement au candidat de tête, il doit
+/// faire ses preuves : il n'est retenu que si, en validation croisée sur les
+/// affaires où ses variables et `variable` (la grandeur simple choisie,
+/// connue sur `n_simple` affaires) sont connues, il prévoit mieux qu'elle
+/// (droite ou courbe). Mêmes conditions que le candidat de tête par
+/// ailleurs : assez d'affaires, couverture, coefficients positifs.
+fn calibrer_combinaison(
+    conn: &Connection,
+    poste: &str,
+    combinaison: &[&str],
+    variable: &str,
+    n_simple: usize,
+    variables_affaires: &HashMap<String, VariablesConnues>,
+) -> Result<Option<PosteCoefficients>, String> {
+    let n_variables = combinaison.len();
+    let noms: Vec<&str> = combinaison.iter().copied().chain([variable]).collect();
+    let communes = charger_donnees_poste(conn, poste, &noms, variables_affaires)?;
+    let seuil_min = MIN_OBS_PAR_VARIABLE * n_variables;
+    if communes.len() < seuil_min || (communes.len() as f64) < COUVERTURE_MIN * n_simple as f64 {
+        println!("[{poste}] {combinaison:?} : {} affaires (minimum {seuil_min}, {n_simple} pour {variable}), écartées", communes.len());
+        return Ok(None);
+    }
+    let lignes = |colonnes: std::ops::Range<usize>| -> Vec<LigneCalibration> {
+        communes
+            .iter()
+            .map(|l| LigneCalibration { heures: l.heures, valeurs: l.valeurs[colonnes.clone()].to_vec() })
+            .collect()
+    };
+    let (donnees, simple) = (lignes(0..n_variables), lignes(n_variables..n_variables + 1));
+
+    let (intercept, coefs, r2) = regression_lineaire(&donnees, n_variables);
+    if coefs.iter().any(|c| *c < 0.0) {
+        println!("[{poste}] régression {combinaison:?} rejetée (coefficient négatif : {coefs:?})");
+        return Ok(None);
+    }
+    let erreur = erreur_validation_croisee_lineaire(&donnees, n_variables);
+    let ajusteurs: [fn(&[LigneCalibration]) -> Option<Forme>; 2] = [ajuster_droite, ajuster_puissance];
+    let erreur_simple = ajusteurs
+        .iter()
+        .filter_map(|ajuster| erreur_validation_croisee(&simple, *ajuster))
+        .fold(f64::INFINITY, f64::min);
+    println!(
+        "[{poste}] {combinaison:?} contre {variable} sur {} affaires communes : erreur validation croisée {:.0} % contre {:.0} %",
+        communes.len(),
+        erreur * 100.0,
+        erreur_simple * 100.0
+    );
+    if erreur >= erreur_simple {
+        return Ok(None);
+    }
+    let coefficients: HashMap<String, f64> = combinaison.iter().map(|v| v.to_string()).zip(coefs).collect();
+    println!("[{poste}] n={}  moindres carrés  R²={r2:.2}  intercept={intercept:.2}  coef={coefficients:?}", communes.len());
+    Ok(Some(PosteCoefficients { intercept, coefficients, exposant: None, presence: None }))
+}
+
 /// Calibre un seul poste. Retourne None si l'échantillon est insuffisant.
 ///
 /// Un candidat à plusieurs variables en tête de `candidats` est calibré par
@@ -472,7 +571,9 @@ fn choisir_variable<'a>(
 /// COUVERTURE_MIN des affaires de la grandeur simple la mieux renseignée, et
 /// des coefficients positifs.
 /// Sinon, grandeur choisie parmi les candidats à une variable (voir
-/// choisir_variable), puis droite ou courbe puissance (voir
+/// choisir_variable) ; un autre candidat à plusieurs variables la remplace
+/// s'il prévoit mieux (voir calibrer_combinaison). À défaut, droite ou
+/// courbe puissance (voir
 /// calibrer_une_variable) si l'échantillon le permet et que la pente est
 /// positive (une pente négative -- plus de barres, moins d'heures -- n'a pas
 /// de sens physique et vient du bruit), sinon ratio médian (voir
@@ -523,6 +624,12 @@ pub fn calibrer_poste(
     };
 
     let donnees = charger_donnees_poste(conn, poste, &[variable], variables_affaires)?;
+    for combinaison in candidats.iter().skip(1).filter(|c| c.len() > 1) {
+        let combinaison: Vec<&str> = combinaison.iter().map(String::as_str).collect();
+        if let Some(coefficients) = calibrer_combinaison(conn, poste, &combinaison, variable, donnees.len(), variables_affaires)? {
+            return Ok(Some(ResultatCalibration { poste: poste.to_string(), coefficients }));
+        }
+    }
     if donnees.len() >= MIN_OBS_PAR_VARIABLE {
         if let Some(coefficients) = calibrer_une_variable(poste, variable, &donnees) {
             return Ok(Some(ResultatCalibration { poste: poste.to_string(), coefficients }));
@@ -778,6 +885,49 @@ mod tests {
         let candidats = poste_variables()["presse_cintrage"].clone();
         let resultat = calibrer_poste(&conn, "presse_cintrage", &candidats, &variables).unwrap().unwrap();
         assert!(resultat.coefficients.coefficients.contains_key("poids_presse"));
+    }
+
+    /// 30 affaires de manutention ; `heures(poids, mètres)` donne les heures.
+    fn affaires_manutention(conn: &Connection, heures: impl Fn(f64, f64) -> f64) {
+        for i in 0..30 {
+            let affaire_i = format!("A{i}");
+            let poids = 5.0 * (i + 1) as f64;
+            let metres = (((i * 7) % 11 + 1) * 40) as f64;
+            affaire(conn, &affaire_i, 4.0, false, 0.0);
+            conn.execute("UPDATE variables_affaires SET poids_t = ?1 WHERE affaire = ?2", rusqlite::params![poids, affaire_i])
+                .unwrap();
+            conn.execute(
+                "INSERT INTO profils_affaires (affaire, profil, longueur, nb_barres) VALUES (?1, 'HEB400', ?2, 4)",
+                rusqlite::params![affaire_i, metres * 250.0],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO heures (affaire, poste, heures) VALUES (?1, 'manutention', ?2)",
+                rusqlite::params![affaire_i, heures(poids, metres)],
+            )
+            .unwrap();
+        }
+    }
+
+    #[test]
+    fn manutention_poids_et_metres_si_meilleurs() {
+        let candidats = poste_variables()["manutention"].clone();
+
+        // Heures qui dépendent du poids et des mètres : la combinaison l'emporte.
+        let conn = base();
+        affaires_manutention(&conn, |poids, metres| 3.0 + 0.1 * poids + 0.05 * metres);
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        assert_eq!(variables["A0"]["metres"], Some(40.0));
+        let coefficients = calibrer_poste(&conn, "manutention", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert!((coefficients.coefficients["poids_t"] - 0.1).abs() < 1e-6, "{coefficients:?}");
+        assert!((coefficients.coefficients["metres"] - 0.05).abs() < 1e-6, "{coefficients:?}");
+
+        // Heures qui ne dépendent que du poids : la courbe sur le poids reste.
+        let conn = base();
+        affaires_manutention(&conn, |poids, _| 3.0 * poids.sqrt());
+        let variables = prevision::charger_variables(&conn, None).unwrap();
+        let coefficients = calibrer_poste(&conn, "manutention", &candidats, &variables).unwrap().unwrap().coefficients;
+        assert_eq!(coefficients.coefficients.keys().collect::<Vec<_>>(), ["poids_t"]);
     }
 
     #[test]
