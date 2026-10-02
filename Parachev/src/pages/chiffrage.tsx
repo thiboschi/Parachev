@@ -337,7 +337,7 @@ export default function Chiffrage() {
   }, [])
 
   const [resultatBrut, setResultat] = useState<Record<string, number> | null>(null)
-  // Heures de soudage du calculateur (affiché avec le module "Soudage"),
+  // Heures de soudage du calculateur (affiché dans le module "Soudage"),
   // null tant qu'il est incomplet : elles remplacent celles de la
   // calibration dans l'estimation.
   const [soudageCalcule, setSoudageCalcule] = useState<number | null>(null)
@@ -685,129 +685,127 @@ export default function Chiffrage() {
                 const oblongsCoches = oblongsActifs.has(poste)
                 const baremeOblongs = heuresOblongsBareme(poste)
                 return (
-                  <div key={poste} className="flex flex-col gap-4">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-sm">
-                          <Checkbox
-                            id={`module-${poste}`}
-                            checked={actif}
-                            onCheckedChange={(coche) =>
-                              setPostes((prev) => basculer(prev, poste, coche === true))
-                            }
-                          />
-                          <Label htmlFor={`module-${poste}`} className="text-sm font-medium">
-                            {libellePoste(poste)}
-                          </Label>
-                          {optionnel && <Badge variant="outline">Optionnel</Badge>}
-                          {actif && heures !== undefined && (
-                            <span className="ml-auto tabular-nums">{formatHeures(heures)} h</span>
-                          )}
-                        </CardTitle>
-                      </CardHeader>
-                      {actif && (
-                        <CardContent className="flex flex-col gap-3 text-sm">
-                          {champs.length > 0 && (
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                              {champs.map((key) => (
-                                <ChampSaisie
-                                  key={key}
+                  <Card key={poste}>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          id={`module-${poste}`}
+                          checked={actif}
+                          onCheckedChange={(coche) =>
+                            setPostes((prev) => basculer(prev, poste, coche === true))
+                          }
+                        />
+                        <Label htmlFor={`module-${poste}`} className="text-sm font-medium">
+                          {libellePoste(poste)}
+                        </Label>
+                        {optionnel && <Badge variant="outline">Optionnel</Badge>}
+                        {actif && heures !== undefined && (
+                          <span className="ml-auto tabular-nums">{formatHeures(heures)} h</span>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    {actif && (
+                      <CardContent className="flex flex-col gap-3 text-sm">
+                        {champs.length > 0 && (
+                          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            {champs.map((key) => (
+                              <ChampSaisie
+                                key={key}
+                                id={`module-${poste}-${key}`}
+                                label={LIBELLES_CHAMPS[key]}
+                                aide={aideTotal(key)}
+                              >
+                                <Input
                                   id={`module-${poste}-${key}`}
-                                  label={LIBELLES_CHAMPS[key]}
-                                  aide={aideTotal(key)}
-                                >
-                                  <Input
-                                    id={`module-${poste}-${key}`}
-                                    className="text-right tabular-nums"
-                                    inputMode="decimal"
-                                    value={valeurs[key]}
-                                    onChange={(e) => modifier(key, e.target.value)}
-                                  />
-                                </ChampSaisie>
-                              ))}
-                              {poste === "presse_cintrage" && (
-                                <ChampSaisie id="module-cfl" label="CFL" aide="pour information">
-                                  <Input
-                                    id="module-cfl"
-                                    className="text-right tabular-nums"
-                                    inputMode="decimal"
-                                    value={contreFleche}
-                                    onChange={(e) => setContreFleche(e.target.value)}
-                                  />
-                                </ChampSaisie>
-                              )}
-                            </div>
-                          )}
-                          <span className="text-xs text-muted-foreground">
-                            {poste === "soudage"
-                              ? "Chiffré par le calculateur ci-dessous ; tant qu'il est incomplet, par la calibration."
-                              : grandeurs.length > 0
-                                ? `Calculé d'après : ${grandeurs
-                                    .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
-                                    .join(", ")
-                                    .toLowerCase()}.`
-                                : champs.length > 0
-                                  ? "Calculé d'après les quantités ci-dessus."
-                                  : "Chiffré au forfait."}
-                          </span>
-                          {baremePercage[poste] && (
-                            <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
-                          )}
-                          {avecOblongs && (
-                            <div className="flex flex-col gap-3 border-t pt-3">
-                              <div className="flex items-center gap-2">
-                                <Checkbox
-                                  id={`oblongs-${poste}`}
-                                  checked={oblongsCoches}
-                                  onCheckedChange={(coche) =>
-                                    setOblongsActifs((prev) => basculer(prev, poste, coche === true))
-                                  }
+                                  className="text-right tabular-nums"
+                                  inputMode="decimal"
+                                  value={valeurs[key]}
+                                  onChange={(e) => modifier(key, e.target.value)}
                                 />
-                                <Label htmlFor={`oblongs-${poste}`} className="text-sm font-normal">
-                                  Trous oblongs
-                                </Label>
-                              </div>
-                              {oblongsCoches && (
-                                <>
-                                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                    {CHAMPS_OBLONGS.map(({ key, label }) => (
-                                      <ChampSaisie key={key} id={`oblongs-${poste}-${key}`} label={label}>
-                                        <Input
-                                          id={`oblongs-${poste}-${key}`}
-                                          className="text-right tabular-nums"
-                                          inputMode="decimal"
-                                          value={oblongsDuPoste(poste)[key]}
-                                          onChange={(e) =>
-                                            setOblongs((prev) => ({
-                                              ...prev,
-                                              [poste]: { ...(prev[poste] ?? OBLONGS_VIDES), [key]: e.target.value },
-                                            }))
-                                          }
-                                        />
-                                      </ChampSaisie>
-                                    ))}
-                                  </div>
-                                  <span className="text-xs text-muted-foreground">
-                                    {baremeOblongs
-                                      ? `Barème atelier (DATA-TEMPS), oxycoupage : ${formatHeures(baremeOblongs.avecPreforage)} h avec préforage au programme, ${formatHeures(baremeOblongs.sansPreforage)} h sans.`
-                                      : "Renseignez le nombre de barres, puis le nombre et les dimensions des oblongs."}{" "}
-                                    Temps indicatif, non ajouté à l'estimation.
-                                  </span>
-                                </>
-                              )}
+                              </ChampSaisie>
+                            ))}
+                            {poste === "presse_cintrage" && (
+                              <ChampSaisie id="module-cfl" label="CFL" aide="pour information">
+                                <Input
+                                  id="module-cfl"
+                                  className="text-right tabular-nums"
+                                  inputMode="decimal"
+                                  value={contreFleche}
+                                  onChange={(e) => setContreFleche(e.target.value)}
+                                />
+                              </ChampSaisie>
+                            )}
+                          </div>
+                        )}
+                        <span className="text-xs text-muted-foreground">
+                          {poste === "soudage"
+                            ? "Chiffré par le calculateur ci-dessous ; tant qu'il est incomplet, par la calibration."
+                            : grandeurs.length > 0
+                              ? `Calculé d'après : ${grandeurs
+                                  .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
+                                  .join(", ")
+                                  .toLowerCase()}.`
+                              : champs.length > 0
+                                ? "Calculé d'après les quantités ci-dessus."
+                                : "Chiffré au forfait."}
+                        </span>
+                        {baremePercage[poste] && (
+                          <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
+                        )}
+                        {avecOblongs && (
+                          <div className="flex flex-col gap-3 border-t pt-3">
+                            <div className="flex items-center gap-2">
+                              <Checkbox
+                                id={`oblongs-${poste}`}
+                                checked={oblongsCoches}
+                                onCheckedChange={(coche) =>
+                                  setOblongsActifs((prev) => basculer(prev, poste, coche === true))
+                                }
+                              />
+                              <Label htmlFor={`oblongs-${poste}`} className="text-sm font-normal">
+                                Trous oblongs
+                              </Label>
                             </div>
-                          )}
-                        </CardContent>
-                      )}
-                    </Card>
-                    {poste === "soudage" && actif && (
-                      <CalculateurSoudage
-                        nbBarres={nbBarres > 0 ? nbBarres : 1}
-                        onHeures={setSoudageCalcule}
-                        onLignes={setLignesSoudure}
-                      />
+                            {oblongsCoches && (
+                              <>
+                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                  {CHAMPS_OBLONGS.map(({ key, label }) => (
+                                    <ChampSaisie key={key} id={`oblongs-${poste}-${key}`} label={label}>
+                                      <Input
+                                        id={`oblongs-${poste}-${key}`}
+                                        className="text-right tabular-nums"
+                                        inputMode="decimal"
+                                        value={oblongsDuPoste(poste)[key]}
+                                        onChange={(e) =>
+                                          setOblongs((prev) => ({
+                                            ...prev,
+                                            [poste]: { ...(prev[poste] ?? OBLONGS_VIDES), [key]: e.target.value },
+                                          }))
+                                        }
+                                      />
+                                    </ChampSaisie>
+                                  ))}
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  {baremeOblongs
+                                    ? `Barème atelier (DATA-TEMPS), oxycoupage : ${formatHeures(baremeOblongs.avecPreforage)} h avec préforage au programme, ${formatHeures(baremeOblongs.sansPreforage)} h sans.`
+                                    : "Renseignez le nombre de barres, puis le nombre et les dimensions des oblongs."}{" "}
+                                  Temps indicatif, non ajouté à l'estimation.
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                        {poste === "soudage" && (
+                          <CalculateurSoudage
+                            nbBarres={nbBarres > 0 ? nbBarres : 1}
+                            onHeures={setSoudageCalcule}
+                            onLignes={setLignesSoudure}
+                          />
+                        )}
+                      </CardContent>
                     )}
-                  </div>
+                  </Card>
                 )
               })}
             </div>
