@@ -34,22 +34,66 @@ function lireParametres(): ParametresSoudure {
 const formatNombre = (value: number, decimales = 2) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: decimales })
 
+/** Cadences de l'atelier, partagées par tous les calculateurs de la page. */
+export function useParametresSoudage() {
+  const [parametres, setParametres] = useState<ParametresSoudure>(lireParametres)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CLE_PARAMETRES, JSON.stringify(parametres))
+    } catch {
+      // stockage indisponible : les cadences ne sont pas conservées
+    }
+  }, [parametres])
+
+  return [parametres, setParametres] as const
+}
+
+export function CadencesSoudage({
+  parametres,
+  onChange,
+}: {
+  parametres: ParametresSoudure
+  onChange: (parametres: ParametresSoudure) => void
+}) {
+  return (
+    <div className="flex flex-col gap-3 border-t pt-3">
+      <span className="text-muted-foreground">Cadences de l'atelier</span>
+      <div className="grid gap-2 lg:grid-cols-2">
+        {PARAMETRES.map(({ key, label }) => (
+          <div key={key} className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">{label}</span>
+            <Input
+              className="h-8 max-w-24 text-right tabular-nums"
+              inputMode="decimal"
+              value={parametres[key]}
+              onChange={(e) => onChange({ ...parametres, [key]: e.target.value })}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Calculateur de temps de soudage du chiffrage (voir lib/soudage.ts), affiché
-// dans le module "Soudage" : pièces à souder d'une barre, type de préparation
-// et cadences. `onHeures` reçoit le temps pour toutes les barres, pauses
-// comprises, ou null tant que le calcul est incomplet ; `onLignes` les pièces
-// saisies (export PDF).
+// dans le module "Soudage", un par groupe de barres : pièces à souder d'une
+// barre et type de préparation, avec les cadences `parametres` (voir
+// CadencesSoudage). `onHeures` reçoit le temps pour toutes les barres du
+// groupe, pauses comprises, ou null tant que le calcul est incomplet ;
+// `onLignes` les pièces saisies (export PDF).
 export function CalculateurSoudage({
   nbBarres,
+  parametres,
   onHeures,
   onLignes,
 }: {
   nbBarres: number
+  parametres: ParametresSoudure
   onHeures: (heures: number | null) => void
   onLignes?: (lignes: LigneSoudure[]) => void
 }) {
   const [lignes, setLignes] = useState<LigneSoudure[]>([ligneVide(0)])
-  const [parametres, setParametres] = useState<ParametresSoudure>(lireParametres)
 
   const temps = useMemo(
     () => calculerSoudage(lignes, parametres, nbBarres),
@@ -61,21 +105,14 @@ export function CalculateurSoudage({
     onHeures(total)
   }, [total, onHeures])
 
-  // Le calculateur disparaît quand le module "Soudage" est décoché.
+  // Le calculateur disparaît quand le module "Soudage" est décoché ou que
+  // son groupe de barres est retiré.
   useEffect(() => () => onHeures(null), [onHeures])
 
   useEffect(() => {
     onLignes?.(lignes)
     return () => onLignes?.([])
   }, [lignes, onLignes])
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(CLE_PARAMETRES, JSON.stringify(parametres))
-    } catch {
-      // stockage indisponible : les cadences ne sont pas conservées
-    }
-  }, [parametres])
 
   function modifierLigne(id: number, champ: ChampSoudure | "designation" | "preparation", valeur: string) {
     setLignes((prev) => prev.map((l) => (l.id === id ? { ...l, [champ]: valeur } : l)))
@@ -149,22 +186,6 @@ export function CalculateurSoudage({
         <Button variant="outline" size="sm" onClick={ajouterLigne}>
           Ajouter une pièce
         </Button>
-      </div>
-
-      <div className="my-1 border-t" />
-      <span className="text-muted-foreground">Cadences de l'atelier</span>
-      <div className="grid gap-2 lg:grid-cols-2">
-        {PARAMETRES.map(({ key, label }) => (
-          <div key={key} className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">{label}</span>
-            <Input
-              className="h-8 max-w-24 text-right tabular-nums"
-              inputMode="decimal"
-              value={parametres[key]}
-              onChange={(e) => setParametres((prev) => ({ ...prev, [key]: e.target.value }))}
-            />
-          </div>
-        ))}
       </div>
 
       <div className="my-1 border-t" />
