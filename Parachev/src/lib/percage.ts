@@ -3,7 +3,7 @@
 // fiches de prévision. Indicatifs : affichés dans le chiffrage à côté des
 // heures de la calibration, sans les remplacer.
 
-import { normaliserProfil } from "@/lib/recherche"
+import { designationProfil } from "@/lib/profils"
 
 // Forage manuel avec avant-trou, minutes par trou selon le diamètre du foret
 // (borne haute de chaque colonne de FMAN), ligne "épaisseur 14 mm" : les
@@ -88,8 +88,9 @@ export function heuresForageNumerique(
   profil: string
 ): { ame: number; aile: number } | null {
   if (!(nbTrous > 0) || !(diametre > 0)) return null
-  const [, famille, hauteur] = normaliserProfil(profil).match(/^([A-Z]+) (\d+)$/) ?? []
-  const base = MINUTES_NUMERIQUE_AME[famille]?.find(([max]) => Number(hauteur) <= max)?.[1]
+  // "HE 600 B" -> barème HEB, hauteur 600.
+  const [, hauteur, serie] = designationProfil(profil)?.match(/^HE (\d+) ([ABM])$/) ?? []
+  const base = MINUTES_NUMERIQUE_AME[`HE${serie}`]?.find(([max]) => Number(hauteur) <= max)?.[1]
   const classe = CLASSES_DIAMETRE_NUMERIQUE.findIndex((max) => diametre <= max)
   if (base === undefined || classe < 0) return null
   const ame = base + classe * SUPPLEMENT_PAR_CLASSE_MIN

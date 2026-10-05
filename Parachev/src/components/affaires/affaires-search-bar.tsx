@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
 import { useEtatSession } from "@/hooks/use-etat-session"
+import { profilCorrespond } from "@/lib/profils"
+import { cn } from "@/lib/utils"
 import {
   CHAMPS_DATE,
   CHAMPS_NORMES,
@@ -47,11 +49,22 @@ const SOURCES_MACHINES: Record<SourceMachines, string> = {
   prevu: "Prévue (fiche)",
 }
 
-function Section({ titre, children }: { titre: string; children: React.ReactNode }) {
+/** `alignerBas` : les champs d'une ligne restent alignés quand un libellé passe sur deux lignes. */
+function Section({
+  titre,
+  alignerBas = false,
+  children,
+}: {
+  titre: string
+  alignerBas?: boolean
+  children: React.ReactNode
+}) {
   return (
     <div className="flex flex-col gap-2">
       <span className="text-xs font-medium text-muted-foreground uppercase">{titre}</span>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">{children}</div>
+      <div className={cn("grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4", alignerBas && "items-end")}>
+        {children}
+      </div>
     </div>
   )
 }
@@ -276,7 +289,7 @@ export function AffaireSearchBar({
               {multi("traitements", "Traitement de surface")}
             </Section>
 
-            <Section titre="Normes et exigences (RDE)">
+            <Section titre="Normes et exigences (RDE)" alignerBas>
               {CHAMPS_NORMES.map(({ key, label }) => (
                 <React.Fragment key={key}>{multi(key, label)}</React.Fragment>
               ))}
@@ -284,7 +297,13 @@ export function AffaireSearchBar({
 
             <Section titre="Matière">
               {multi("familles", "Famille de profil")}
-              {multi("profils", "Profil")}
+              <MultiSelect
+                label="Profil"
+                options={options.profils}
+                valeurs={filtres.profils}
+                onChange={(profils) => onChange({ profils })}
+                recherche={profilCorrespond}
+              />
               {multi("nuances", "Nuance")}
               {multi("usines", "Usine de laminage")}
             </Section>

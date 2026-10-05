@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import type { AffaireRecherche, ResultatTexte } from "@/hooks/use-recherche-affaires"
 import { POSTES_HORS_MACHINES, libellePoste } from "@/lib/postes"
+import { profilsNormalises } from "@/lib/profils"
 import { DEPUIS_RECHERCHE } from "@/lib/recherche"
 
 interface AffaireResultsProps {
@@ -123,10 +124,10 @@ export function AffaireResults({ results, documentsTrouves, loading, error }: Af
                     <span className="text-right tabular-nums">{periode}</span>
                   </div>
                 )}
-                {item.profils.length > 0 && (
+                {profilsNormalises(item.profils).length > 0 && (
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Profils</span>
-                    <span className="truncate text-right">{item.profils.slice(0, 3).join(", ")}</span>
+                    <span className="truncate text-right">{profilsNormalises(item.profils).slice(0, 3).join(", ")}</span>
                   </div>
                 )}
 

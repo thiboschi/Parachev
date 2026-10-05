@@ -5,6 +5,7 @@
 import type { AffaireRecherche } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, affaireCorrespondAuType } from "@/lib/flux-production"
 import { POSTES_HORS_MACHINES, libellePoste } from "@/lib/postes"
+import { famillesProfils, profilsNormalises } from "@/lib/profils"
 
 // Cases "Opérations de fabrication" du RDE (clés de parsing/operations.rs).
 export const OPERATIONS_RDE: Record<string, string> = {
@@ -39,27 +40,6 @@ export const CHAMPS_DATE = {
 } as const
 
 export type ChampDate = keyof typeof CHAMPS_DATE
-
-/**
- * "HE 600 B" (RDE) et "HEB 600" (fiche) désignent le même profil : forme
- * commune "HEB 600". Les autres profils sont seulement mis en majuscules
- * avec des espaces réguliers.
- */
-export function normaliserProfil(profil: string): string {
-  const texte = profil.toUpperCase().replace(/\s+/g, " ").trim()
-  const compact = texte.replace(/\s/g, "")
-  const he = compact.match(/^HE(\d+)(AA|A|B|M)$/)
-  if (he) return `HE${he[2]} ${he[1]}`
-  const simple = compact.match(/^(HEAA|HEA|HEB|HEM|IPEA|IPE|HD|HLA|HLB|HLM|HLZ|HL|UPE|UPN)(\d+)$/)
-  if (simple) return `${simple[1]} ${simple[2]}`
-  return texte
-}
-
-/** Famille d'un profil : lettres de tête de la forme normalisée (HEB, HD, HL…). */
-export function familleProfil(profil: string): string {
-  const n = normaliserProfil(profil)
-  return n.match(/^[A-Z]+/)?.[0] ?? n
-}
 
 /** Postes/machines de l'affaire selon la source choisie. */
 export type SourceMachines = "toutes" | "prevu" | "realise"
@@ -347,8 +327,8 @@ export function optionsFiltres(affaires: AffaireRecherche[], fluxStrict = false)
     classeUs: compter(affaires, (a) => [a.classe_us]),
     exigencesFabrication: compter(affaires, (a) => [a.exigence_fabrication]),
     exigencesAcier: compter(affaires, (a) => a.exigences_acier),
-    familles: compter(affaires, (a) => a.profils.map(familleProfil)),
-    profils: compter(affaires, (a) => a.profils.map(normaliserProfil)),
+    familles: compter(affaires, (a) => famillesProfils(a.profils)),
+    profils: compter(affaires, (a) => profilsNormalises(a.profils)),
     nuances: compter(affaires, (a) => a.nuances),
     usines: compter(affaires, (a) => a.usines),
   }
@@ -484,8 +464,8 @@ export function filtrerAffaires(
     if (!unParmi(f.classeUs, [a.classe_us])) return false
     if (!unParmi(f.exigencesFabrication, [a.exigence_fabrication])) return false
     if (!unParmi(f.exigencesAcier, a.exigences_acier)) return false
-    if (!unParmi(f.familles, a.profils.map(familleProfil))) return false
-    if (!unParmi(f.profils, a.profils.map(normaliserProfil))) return false
+    if (!unParmi(f.familles, famillesProfils(a.profils))) return false
+    if (!unParmi(f.profils, profilsNormalises(a.profils))) return false
     if (!unParmi(f.nuances, a.nuances)) return false
     if (!unParmi(f.usines, a.usines)) return false
 

@@ -14,6 +14,13 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
+import { Combobox,
+  ComboboxContent,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxSelectTrigger,
+  ComboboxValue,
+} from "@/components/ui/combobox"
 import {
   CadencesSoudage,
   CalculateurSoudage,
@@ -26,12 +33,12 @@ import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/
 import { libellePoste } from "@/lib/postes"
 import {
   CHAMPS_NORMES,
-  familleProfil,
   optionsFiltres,
   type ChampNorme,
   type OptionFiltre,
   type OptionsFiltres,
 } from "@/lib/recherche"
+import { PROFILS_CATALOGUE, familleProfil, profilCorrespond } from "@/lib/profils"
 import { PREPARATIONS, nombrePasses, type LigneSoudure, type ParametresSoudure } from "@/lib/soudage"
 import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
 
@@ -275,7 +282,8 @@ function Section({ titre, children }: { titre: string; children: React.ReactNode
   return (
     <div className="flex flex-col gap-3">
       <span className="text-xs font-medium text-muted-foreground uppercase">{titre}</span>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>
+      {/* items-end : les champs restent alignés quand un libellé passe sur deux lignes. */}
+      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">{children}</div>
     </div>
   )
 }
@@ -302,13 +310,18 @@ function ChampSaisie({
   )
 }
 
-/** Liste déroulante à choix unique ; "" = non renseigné. */
+/**
+ * Liste déroulante à choix unique ; "" = non renseigné. `recherche` ajoute
+ * un champ de recherche en tête de la liste (listes longues) : dit si une
+ * valeur correspond au texte saisi.
+ */
 function Liste({
   label,
   valeur,
   options,
   vide = "Non renseigné",
   desactive = false,
+  recherche,
   onChange,
 }: {
   label: string
@@ -316,11 +329,41 @@ function Liste({
   options: { valeur: string; libelle: string }[]
   vide?: string
   desactive?: boolean
+  recherche?: (valeur: string, requete: string) => boolean
   onChange: (valeur: string) => void
 }) {
-  const items = {
+  const items: Record<string, string> = {
     [NON_RENSEIGNE]: vide,
     ...Object.fromEntries(options.map((o) => [o.valeur, o.libelle])),
+  }
+  if (recherche) {
+    return (
+      <ChampSaisie label={label}>
+        <Combobox
+          items={Object.keys(items)}
+          disabled={desactive}
+          value={valeur === "" ? NON_RENSEIGNE : valeur}
+          onValueChange={(v) => onChange(!v || v === NON_RENSEIGNE ? "" : v)}
+          // "Non renseigné" ne reste proposé que tant que rien n'est saisi.
+          filter={(v: string, requete) =>
+            v === NON_RENSEIGNE ? requete.trim() === "" : recherche(v, requete)
+          }
+        >
+          <ComboboxSelectTrigger className="w-full">
+            <ComboboxValue>{(v: string | null) => items[v ?? NON_RENSEIGNE] ?? v}</ComboboxValue>
+          </ComboboxSelectTrigger>
+          <ComboboxContent>
+            <ComboboxList>
+              {(v: string) => (
+                <ComboboxItem key={v} value={v}>
+                  {items[v]}
+                </ComboboxItem>
+              )}
+            </ComboboxList>
+          </ComboboxContent>
+        </Combobox>
+      </ChampSaisie>
+    )
   }
   return (
     <ChampSaisie label={label}>
@@ -408,13 +451,22 @@ export default function Chiffrage() {
   // modules du type choisi.
   const [groupes, setGroupes] = useState<GroupeBarres[]>([groupeVide(0)])
   const plusieursGroupes = groupes.length > 1
-  const optionsFamilles = useMemo(
-    () => [...options.familles].sort((a, b) => a.libelle.localeCompare(b.libelle)),
-    [options.familles]
-  )
+  // Profils du barème atelier, complétés par ceux des affaires en base qui
+  // n'y figurent pas (UB, UC, HL lourds…).
   const optionsProfils = useMemo(
-    () => [...options.profils].sort((a, b) => a.libelle.localeCompare(b.libelle, "fr", { numeric: true })),
+    () =>
+      [...new Set([...PROFILS_CATALOGUE, ...options.profils.map((o) => o.valeur)])]
+        .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+        .map((valeur) => ({ valeur, libelle: valeur })),
     [options.profils]
+  )
+  const optionsFamilles = useMemo(
+    () =>
+      [...new Set(optionsProfils.map((o) => familleProfil(o.valeur)))]
+        .filter((famille) => famille !== null)
+        .sort()
+        .map((valeur) => ({ valeur, libelle: valeur })),
+    [optionsProfils]
   )
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
   const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
@@ -993,6 +1045,7 @@ export default function Chiffrage() {
                           valeur={groupe.profil}
                           options={optionsProfils.filter((o) => familleProfil(o.valeur) === groupe.famille)}
                           desactive={!groupe.famille}
+                          recherche={profilCorrespond}
                           onChange={(profil) => modifierGroupe(groupe.id, () => ({ profil }))}
                         />
                         {type &&
