@@ -2618,6 +2618,7 @@ dependencies = [
  "nalgebra",
  "notify",
  "notify-debouncer-mini",
+ "quick-xml 0.31.0",
  "regex",
  "rusqlite",
  "serde",
@@ -2626,6 +2627,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "zip",
 ]
 
 [[package]]

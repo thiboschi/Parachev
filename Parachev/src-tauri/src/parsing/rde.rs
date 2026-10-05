@@ -15,6 +15,9 @@
 //! Cases à cocher : un "x" dans la ou les cellules qui suivent le libellé
 //! (ex. "Coupe | x | Droite, 90° | x | Biaise | | Ouverture d'âme"). "-"
 //! est la valeur par défaut des listes déroulantes : traité comme vide.
+//!
+//! Depuis fin 2025 le RDE est un document Word : voir `rde_word`, qui
+//! remplit la même structure `InfoRde`.
 
 use super::{cellule_vers_date, cellule_vers_texte, numero_affaire, operations};
 use calamine::{open_workbook, Data, Range, Reader, Xlsx};
@@ -44,6 +47,14 @@ pub struct InfoRde {
     pub cde_laminage: Option<String>,
     /// N° d'affaire 1100... lu dans "No de cde client" (None si absent).
     pub affaire: Option<String>,
+    /// Autres n° d'affaire d'un RDE Word commun à plusieurs commandes
+    /// ("N°s cde client : 1100755660,1100757055").
+    pub autres_affaires: Vec<String>,
+    /// RDE Word : n° de version ("V2") et date de cette version
+    /// ("YYYY-MM-DD HH:MM") -- plusieurs versions du même RDE (même `date`)
+    /// sont souvent rangées dans le dossier.
+    pub version: Option<String>,
+    pub date_version: Option<String>,
     pub laminage: Vec<LigneLaminage>,
     pub type_affaire: Option<String>,
     pub type_poutre: Option<String>,
@@ -89,7 +100,7 @@ fn grille(range: &Range<Data>) -> Vec<Vec<String>> {
         .collect()
 }
 
-fn valeur(s: &str) -> Option<String> {
+pub(super) fn valeur(s: &str) -> Option<String> {
     let t = s.trim();
     (!t.is_empty() && t != "-").then(|| t.to_string())
 }
@@ -127,7 +138,7 @@ fn nombre(s: &str) -> Option<f64> {
 
 /// Variantes de saisie d'une même classe de tolérance ("Class 1",
 /// "tolérance client") ramenées aux valeurs de la liste déroulante.
-fn normaliser_tolerance(t: &str) -> String {
+pub(super) fn normaliser_tolerance(t: &str) -> String {
     let n = operations::normaliser(t);
     if let Some(classe) = n.strip_prefix("CLASSE ").or_else(|| n.strip_prefix("CLASS ")) {
         format!("Classe {classe}")

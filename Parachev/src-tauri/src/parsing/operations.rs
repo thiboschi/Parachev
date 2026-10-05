@@ -2,7 +2,8 @@
 //! sources qui les décrivent chacune à leur façon :
 //! - la fiche PREVI (postes A-D : "PRESSE NR", "SCIE COMBI VOORTMAN"...),
 //! - la feuille SUIVI (une colonne datée par opération : "F.NUM", "GOUJ"...),
-//! - le RDE (cases cochées : "Soudage", "Goujonnage", "Biaise"...).
+//! - le RDE (cases cochées : "Soudage", "Goujonnage", "Biaise"... ; dans le
+//!   RDE Word, liste "Opérations à prévoir" : "Coupe droite", "Perçage"...).
 //!
 //! Les libellés de fiche/SUIVI sont ramenés aux clés de poste ERP (voir
 //! erp::normaliser_poste) pour rester comparables aux heures pointées, plus
@@ -133,20 +134,39 @@ pub fn operation_rde(libelle: &str) -> Option<&'static str> {
         "DROITE, 90°" | "DROITE 90°" | "DROITE" => "coupe_droite",
         "BIAISE" => "coupe_biaise",
         "OUVERTURE D'AME" => "ouverture_ame",
-        "PERCAGE" => "percage",
+        "PERCAGE" | "PERCAGES" => "percage",
         "OBLONG" => "oblong",
         "GRUGEAGE" => "grugeage",
-        "PREPARATION BORD" => "preparation_bord",
+        "PREPARATION BORD" | "PREPARATION DE BORD" => "preparation_bord",
         "CONTRE-FLECHE" | "CONTRE FLECHE" => "contre_fleche",
         "AXE FORT" => "cfl_axe_fort",
         "AXE FAIBLE" => "cfl_axe_faible",
         "DOUBLE REDRESSAGE" => "double_redressage",
+        // RDE Word uniquement (fers-T redressés après refendage).
+        "REDRESSAGE" => "redressage",
         "ASSEMBLAGE" => "assemblage",
         "SOUDAGE" => "soudage",
         "GOUJONNAGE" => "goujonnage",
         "USINAGE DES TETES" => "usinage_tetes",
         _ => return None,
     })
+}
+
+/// Clés d'une ligne "Opérations à prévoir" du RDE Word. Le gabarit Word
+/// fusionne la case et sa sous-case ("Coupe droite", "Contre flèche Axe
+/// fort") là où l'Excel cochait "Coupe" puis "Droite, 90°" : les deux clés
+/// sont rendues pour rester comparable aux RDE Excel. Vide si non reconnu
+/// ("Fers-T" est un type de poutre, voir rde_word).
+pub fn operations_rde_word(libelle: &str) -> Vec<&'static str> {
+    let libelle = libelle.replace('’', "'");
+    let n = normaliser(&libelle).replace('-', " ");
+    match n.as_str() {
+        "COUPE DROITE" => vec!["coupe", "coupe_droite"],
+        "COUPE BIAISE" => vec!["coupe", "coupe_biaise"],
+        "CONTRE FLECHE AXE FORT" => vec!["contre_fleche", "cfl_axe_fort"],
+        "CONTRE FLECHE AXE FAIBLE" => vec!["contre_fleche", "cfl_axe_faible"],
+        _ => operation_rde(&libelle).into_iter().collect(),
+    }
 }
 
 /// Postes (clés ERP) qu'une case cochée du RDE rend nécessaires -- pour
@@ -156,6 +176,7 @@ pub fn operation_rde(libelle: &str) -> Option<&'static str> {
 /// - contre-flèche : presse 98 % vs 44 %, forage numérique 96 % vs 29 %
 ///   (pointeaux de contre-flèche, "FOR.NUM CFL") ;
 /// - double redressage, usinage des têtes : presse 100 % ;
+/// - redressage (RDE Word) : presse sur les 2 affaires concernées ;
 /// - assemblage / soudage : soudage 90 % vs 5 %, assemblage 89 % vs 13 % ;
 /// - goujonnage : goujonnage 100 % vs 2 %, assemblage (traçage) 69 % vs 21 % ;
 /// - grugeage, préparation bord : robot 100 % / 83 % vs 33 %.
@@ -164,7 +185,7 @@ pub fn operation_rde(libelle: &str) -> Option<&'static str> {
 pub fn postes_depuis_operation_rde(operation: &str) -> &'static [&'static str] {
     match operation {
         "contre_fleche" | "cfl_axe_fort" | "cfl_axe_faible" => &["presse_cintrage", "forage_numerique"],
-        "double_redressage" | "usinage_tetes" => &["presse_cintrage"],
+        "double_redressage" | "redressage" | "usinage_tetes" => &["presse_cintrage"],
         "soudage" | "assemblage" => &["soudage", "assemblage_tracage"],
         "goujonnage" => &["goujonnage", "assemblage_tracage"],
         "grugeage" | "preparation_bord" => &["robot"],
@@ -217,5 +238,19 @@ mod tests {
         assert_eq!(operation_rde("Ouverture d'âme"), Some("ouverture_ame"));
         assert_eq!(operation_rde("Usinage des têtes"), Some("usinage_tetes"));
         assert_eq!(operation_rde("Type poutre:"), None);
+    }
+
+    #[test]
+    fn operations_du_rde_word() {
+        // Libellés relevés sur les 104 RDE Word des dossiers 2025-2026.
+        assert_eq!(operations_rde_word("Coupe droite"), vec!["coupe", "coupe_droite"]);
+        assert_eq!(operations_rde_word("Coupe biaise"), vec!["coupe", "coupe_biaise"]);
+        assert_eq!(operations_rde_word("Contre flèche Axe fort"), vec!["contre_fleche", "cfl_axe_fort"]);
+        assert_eq!(operations_rde_word("Perçages"), vec!["percage"]);
+        assert_eq!(operations_rde_word("Préparation de bord"), vec!["preparation_bord"]);
+        assert_eq!(operations_rde_word("Ouverture d'âme"), vec!["ouverture_ame"]);
+        assert_eq!(operations_rde_word("Double redressage"), vec!["double_redressage"]);
+        assert_eq!(operations_rde_word("Redressage"), vec!["redressage"]);
+        assert!(operations_rde_word("Fers-T").is_empty());
     }
 }

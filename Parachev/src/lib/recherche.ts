@@ -20,6 +20,7 @@ export const OPERATIONS_RDE: Record<string, string> = {
   cfl_axe_fort: "Contre-flèche axe fort",
   cfl_axe_faible: "Contre-flèche axe faible",
   double_redressage: "Double redressage",
+  redressage: "Redressage",
   assemblage: "Assemblage",
   soudage: "Soudage",
   goujonnage: "Goujonnage",

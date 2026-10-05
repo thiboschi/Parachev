@@ -6,7 +6,8 @@
 //!    avec les drapeaux utiles : sous-dossier "Ancien", sous-dossier d'une
 //!    autre affaire (référence gardée par le préparateur, typiquement sous
 //!    "Préparation/"), dossier annulé, non-conformité ;
-//! 2. classement (fiche de prévision, RDE, mail, plan, programme CN...) ;
+//! 2. classement (fiche de prévision, RDE Excel ou Word, mail, plan,
+//!    programme CN...) ;
 //! 3. extraction selon le type, en ne retenant qu'UNE fiche et UN RDE par
 //!    affaire : le fichier à la racine du dossier d'abord, puis le plus
 //!    récent (date saisie dans le fichier, puis date de modification) ;
@@ -25,7 +26,7 @@
 //! les programmes Vacam, dans un dossier à part des commandes.
 
 use crate::erp::traiter_fichier_erp;
-use crate::parsing::{self, operations, rde, LigneOperation};
+use crate::parsing::{self, operations, rde, rde_word, LigneOperation};
 use calamine::{open_workbook, Reader, Xlsx};
 use regex::Regex;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -36,7 +37,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "7";
+const VERSION_INDEXEUR: &str = "8";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;
@@ -355,6 +356,10 @@ fn type_excel(chemin: &Path) -> &'static str {
     }
 }
 
+fn est_docx(chemin: &str) -> bool {
+    Path::new(chemin).extension().is_some_and(|e| e.eq_ignore_ascii_case("docx"))
+}
+
 // ---------------------------------------------------------------------------
 // Traitement d'un fichier
 // ---------------------------------------------------------------------------
@@ -481,6 +486,8 @@ pub fn traiter_fichier(conn: &mut Connection, racine: &Path, chemin: &Path) -> R
     let mut type_doc = type_par_extension(&ext);
     if type_doc == "excel" {
         type_doc = type_excel(chemin);
+    } else if est_docx(&chemin_str) && rde_word::est_un_rde(chemin) {
+        type_doc = "rde";
     }
 
     let extraction = match type_doc {
@@ -806,10 +813,15 @@ fn traiter_fiche(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64
 // ---------------------------------------------------------------------------
 
 fn traiter_rde(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64) -> Result<Extraction, String> {
-    let info = rde::extraire_rde(chemin)?.ok_or("Classeur sans feuilles cde/parachèvement")?;
+    let info = if est_docx(chemin) {
+        rde_word::extraire_rde(chemin)?.ok_or("Document Word sans \"Revue des exigences techniques\"")?
+    } else {
+        rde::extraire_rde(chemin)?.ok_or("Classeur sans feuilles cde/parachèvement")?
+    };
+    let version = info.version.as_deref().map(|v| format!(" ({v})")).unwrap_or_default();
     let mut extraction = Extraction {
         affaire: info.affaire.clone(),
-        titre: format!("RDE {}", info.projet.as_deref().unwrap_or("")),
+        titre: format!("RDE {}{version}", info.projet.as_deref().unwrap_or("")),
         contenu: [
             &info.projet, &info.client, &info.donneur_ordre, &info.offre, &info.cde_laminage,
             &info.remarques, &info.type_affaire, &info.exigence_fabrication, &info.exc, &info.en10163,
@@ -825,7 +837,7 @@ fn traiter_rde(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64) 
     };
 
     if let (Some(affaire), Some(numero)) = (&ctx.affaire, &info.affaire) {
-        if affaire != numero {
+        if affaire != numero && !info.autres_affaires.contains(affaire) {
             ajouter_reference(conn, affaire, numero, chemin)?;
             extraction.affaire = Some(affaire.clone());
             return Ok(extraction);
@@ -838,7 +850,20 @@ fn traiter_rde(conn: &mut Connection, ctx: &Contexte, chemin: &str, mtime: i64) 
         return Ok(extraction);
     };
 
-    let rang = rang(ctx.a_la_racine || ctx.affaire.is_none(), info.date.as_deref(), mtime);
+    // RDE Word : les versions successives (V1, V2...) gardent la date du
+    // RDE ; c'est la date et l'heure de version qui les départagent.
+    let instant_version = info
+        .date_version
+        .as_deref()
+        .and_then(|d| chrono::NaiveDateTime::parse_from_str(d, "%Y-%m-%d %H:%M").ok());
+    let rang = match instant_version {
+        Some(instant) => rang(
+            ctx.a_la_racine || ctx.affaire.is_none(),
+            Some(&instant.format("%Y-%m-%d").to_string()),
+            instant.and_utc().timestamp(),
+        ),
+        None => rang(ctx.a_la_racine || ctx.affaire.is_none(), info.date.as_deref(), mtime),
+    };
     if est_prioritaire(conn, "rde_affaires", "chemin", "rang", &affaire, chemin, &rang)? {
         enregistrer_rde(conn, &affaire, &info, chemin, &rang)?;
         extraction.principal = true;
@@ -958,7 +983,7 @@ fn traiter_pieces_jointes(conn: &mut Connection, msg: &crate::msg::ParsedMsg, ch
         .iter()
         .filter(|a| {
             let n = a.filename.to_lowercase();
-            n.ends_with(".xlsx") || n.ends_with(".txt") || n.ends_with(".msg")
+            n.ends_with(".xlsx") || n.ends_with(".docx") || n.ends_with(".txt") || n.ends_with(".msg")
         })
         .collect();
     if utiles.is_empty() {
@@ -989,6 +1014,7 @@ fn traiter_pieces_jointes(conn: &mut Connection, msg: &crate::msg::ParsedMsg, ch
                 "rde" => traiter_rde(conn, &ctx, &cible_str, 0).map(|_| ()),
                 _ => Ok(()),
             },
+            "bureautique" if rde_word::est_un_rde(&cible) => traiter_rde(conn, &ctx, &cible_str, 0).map(|_| ()),
             "mail" => traiter_mail(conn, &ctx, &cible).map(|_| ()),
             "texte" => traiter_fichier_erp(&cible, conn).map(|_| ()),
             _ => Ok(()),

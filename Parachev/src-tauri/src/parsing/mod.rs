@@ -14,6 +14,7 @@ mod presse;
 mod previ;
 pub mod quantites_mail;
 pub mod rde;
+pub mod rde_word;
 pub mod suivi;
 mod variables_parcing;
 
