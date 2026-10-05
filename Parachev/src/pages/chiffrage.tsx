@@ -14,30 +14,14 @@ import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { MultiSelect } from "@/components/affaires/multi-select"
-import { Combobox,
-  ComboboxContent,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxSelectTrigger,
-  ComboboxValue,
-} from "@/components/ui/combobox"
-import {
-  CadencesSoudage,
-  CalculateurSoudage,
-  useParametresSoudage,
-} from "@/components/chiffrage/calculateur-soudage"
+import { Combobox, ComboboxContent, ComboboxItem, ComboboxList, ComboboxSelectTrigger, ComboboxValue } from "@/components/ui/combobox"
+import { CadencesSoudage, CalculateurSoudage, useParametresSoudage } from "@/components/chiffrage/calculateur-soudage"
 import { LIBELLES_ZONE_GOUJONS, type ZoneGoujons } from "@/hooks/use-affaire-db"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
-import {
-  CHAMPS_NORMES,
-  optionsFiltres,
-  type ChampNorme,
-  type OptionFiltre,
-  type OptionsFiltres,
-} from "@/lib/recherche"
+import { CHAMPS_NORMES, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 import { PROFILS_CATALOGUE, familleProfil, profilCorrespond } from "@/lib/profils"
 import { PREPARATIONS, nombrePasses, type LigneSoudure, type ParametresSoudure } from "@/lib/soudage"
 import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
@@ -282,8 +266,7 @@ function Section({ titre, children }: { titre: string; children: React.ReactNode
   return (
     <div className="flex flex-col gap-3">
       <span className="text-xs font-medium text-muted-foreground uppercase">{titre}</span>
-      {/* items-end : les champs restent alignés quand un libellé passe sur deux lignes. */}
-      <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2">{children}</div>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{children}</div>
     </div>
   )
 }
