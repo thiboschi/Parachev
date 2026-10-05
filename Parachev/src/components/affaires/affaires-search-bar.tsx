@@ -11,6 +11,7 @@ import { MultiSelect } from "@/components/affaires/multi-select"
 import { useEtatSession } from "@/hooks/use-etat-session"
 import {
   CHAMPS_DATE,
+  CHAMPS_NORMES,
   INTERVALLE_VIDE,
   QUANTITES,
   TRIS,
@@ -276,13 +277,9 @@ export function AffaireSearchBar({
             </Section>
 
             <Section titre="Normes et exigences (RDE)">
-              {multi("exc", "Classe d'exécution (EN 1090)")}
-              {multi("en10163", "Réparation (EN 10163-3)")}
-              {multi("tolerance", "Tolérance géométrique")}
-              {multi("en10204", "Document de contrôle (EN 10204)")}
-              {multi("prep", "Préparation (EN 8501-3)")}
-              {multi("classeUs", "Contrôle US")}
-              {multi("exigences", "Exigences particulières")}
+              {CHAMPS_NORMES.map(({ key, label }) => (
+                <React.Fragment key={key}>{multi(key, label)}</React.Fragment>
+              ))}
             </Section>
 
             <Section titre="Matière">

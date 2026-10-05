@@ -74,9 +74,69 @@ function machinesAffaire(a: AffaireRecherche, source: SourceMachines): Set<strin
   return new Set(postes.filter((p) => !POSTES_HORS_MACHINES.has(p)))
 }
 
-function exigencesAffaire(a: AffaireRecherche): string[] {
-  return [...(a.exigence_fabrication ? [a.exigence_fabrication] : []), ...a.exigences_acier]
-}
+// Champs "Normes et exigences" du RDE, dans l'ordre d'affichage, avec les
+// valeurs de leur liste déroulante (feuille "liste" du gabarit Excel) : la
+// recherche ne propose que celles portées par une affaire, le chiffrage les
+// propose toutes (voir chiffrage.tsx).
+export const CHAMPS_NORMES = [
+  {
+    key: "exigencesFabrication",
+    label: "Exigences particulières de fabrication",
+    valeurs: ["DBS", "Pologne", "F66", "UK", "SNCF", "Roumanie", "ZTV-ING"],
+  },
+  {
+    key: "exigencesAcier",
+    label: "Exigences particulières acier",
+    valeurs: ["AUBI", "Acier NF", "DBS", "autres"],
+  },
+  {
+    key: "en10163",
+    label: "Exigences de réparation",
+    valeurs: [
+      "EN10163-3: 2004, Cl. C,S-Cl. 1",
+      "EN10163-3: 2004, Cl. C,S-Cl. 2",
+      "EN10163-3: 2004, Cl. C,S-Cl. 3",
+      "EN10163-3: 2004, Cl. D,S-Cl. 1",
+      "EN10163-3: 2004, Cl. D,S-Cl. 2",
+      "EN10163-3: 2004, Cl. D,S-Cl. 3",
+      "Surface svt. ASTM/A6",
+    ],
+  },
+  {
+    key: "tolerance",
+    label: "Classe de tolérance géométrique selon EN 1090",
+    valeurs: ["Classe 1", "Classe 2", "tolérances client"],
+  },
+  {
+    key: "exc",
+    label: "Classe d'exécution selon EN 1090",
+    valeurs: ["EXC1", "EXC2", "EXC3", "EXC4"],
+  },
+  {
+    key: "prep",
+    label: "Degré de préparation selon EN 8501-3",
+    valeurs: ["P1", "P2", "P3", "P3 aile inferieure", "Sans ébavurage"],
+  },
+  {
+    key: "classeUs",
+    label: "Classe US",
+    valeurs: [
+      "US contr. EN 10306:2002 cl.2.1",
+      "US contr. EN 10306:2002 cl.2.2",
+      "US contr. EN 10306:2002 cl.2.3",
+      "US contr. EN 10306:2002 cl.2.4",
+      "US contr. EN 10306:2002 cl.1.1",
+      "US contr. EN 10306:2002 cl.1.2",
+    ],
+  },
+  {
+    key: "en10204",
+    label: "Document de contrôle (EN 10204)",
+    valeurs: ["EN 10204 - 2.1", "EN 10204 - 2.2", "EN 10204 - 3.1", "EN 10204 - 3.2", "ASTM A6"],
+  },
+] as const
+
+export type ChampNorme = (typeof CHAMPS_NORMES)[number]["key"]
 
 // États de navigation (location.state) entre la recherche et une affaire :
 // une affaire ouverte depuis la recherche propose un retour qui restaure les
@@ -163,7 +223,8 @@ export interface Filtres {
   en10204: string[]
   prep: string[]
   classeUs: string[]
-  exigences: string[]
+  exigencesFabrication: string[]
+  exigencesAcier: string[]
   familles: string[]
   profils: string[]
   nuances: string[]
@@ -195,7 +256,8 @@ export const FILTRES_VIDES: Filtres = {
   en10204: [],
   prep: [],
   classeUs: [],
-  exigences: [],
+  exigencesFabrication: [],
+  exigencesAcier: [],
   familles: [],
   profils: [],
   nuances: [],
@@ -254,7 +316,8 @@ export interface OptionsFiltres {
   en10204: OptionFiltre[]
   prep: OptionFiltre[]
   classeUs: OptionFiltre[]
-  exigences: OptionFiltre[]
+  exigencesFabrication: OptionFiltre[]
+  exigencesAcier: OptionFiltre[]
   familles: OptionFiltre[]
   profils: OptionFiltre[]
   nuances: OptionFiltre[]
@@ -282,7 +345,8 @@ export function optionsFiltres(affaires: AffaireRecherche[], fluxStrict = false)
     en10204: compter(affaires, (a) => [a.en10204]),
     prep: compter(affaires, (a) => [a.prep_en8501]),
     classeUs: compter(affaires, (a) => [a.classe_us]),
-    exigences: compter(affaires, exigencesAffaire),
+    exigencesFabrication: compter(affaires, (a) => [a.exigence_fabrication]),
+    exigencesAcier: compter(affaires, (a) => a.exigences_acier),
     familles: compter(affaires, (a) => a.profils.map(familleProfil)),
     profils: compter(affaires, (a) => a.profils.map(normaliserProfil)),
     nuances: compter(affaires, (a) => a.nuances),
@@ -418,7 +482,8 @@ export function filtrerAffaires(
     if (!unParmi(f.en10204, [a.en10204])) return false
     if (!unParmi(f.prep, [a.prep_en8501])) return false
     if (!unParmi(f.classeUs, [a.classe_us])) return false
-    if (!unParmi(f.exigences, exigencesAffaire(a))) return false
+    if (!unParmi(f.exigencesFabrication, [a.exigence_fabrication])) return false
+    if (!unParmi(f.exigencesAcier, a.exigences_acier)) return false
     if (!unParmi(f.familles, a.profils.map(familleProfil))) return false
     if (!unParmi(f.profils, a.profils.map(normaliserProfil))) return false
     if (!unParmi(f.nuances, a.nuances)) return false

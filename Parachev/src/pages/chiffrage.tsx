@@ -24,7 +24,14 @@ import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
-import { familleProfil, optionsFiltres, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
+import {
+  CHAMPS_NORMES,
+  familleProfil,
+  optionsFiltres,
+  type ChampNorme,
+  type OptionFiltre,
+  type OptionsFiltres,
+} from "@/lib/recherche"
 import { PREPARATIONS, nombrePasses, type LigneSoudure, type ParametresSoudure } from "@/lib/soudage"
 import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
 
@@ -52,30 +59,31 @@ const CLIENT_VIDE: Record<ChampClient, string> = {
 }
 
 // Mêmes champs que la section "Normes et exigences (RDE)" des filtres de la
-// recherche (voir affaires-search-bar.tsx), avec les valeurs relevées dans
-// les RDE déjà en base. Une seule valeur par champ, sauf les exigences
-// particulières (voir `exigences`).
-type ChampNorme = "exc" | "en10163" | "tolerance" | "en10204" | "prep" | "classeUs"
+// recherche (CHAMPS_NORMES), avec les valeurs de la liste déroulante du RDE
+// et celles relevées dans les RDE déjà en base. Une seule valeur par champ,
+// sauf les exigences particulières (voir `exigences`).
+type ChampExigence = "exigencesFabrication" | "exigencesAcier"
+type ChampNormeUnique = Exclude<ChampNorme, ChampExigence>
 
-const CHAMPS_NORMES: { key: ChampNorme; label: string }[] = [
-  { key: "exc", label: "Classe d'exécution (EN 1090)" },
-  { key: "en10163", label: "Réparation (EN 10163-3)" },
-  { key: "tolerance", label: "Tolérance géométrique" },
-  { key: "en10204", label: "Document de contrôle (EN 10204)" },
-  { key: "prep", label: "Préparation (EN 8501-3)" },
-  { key: "classeUs", label: "Contrôle US" },
-]
+const estExigence = (key: ChampNorme): key is ChampExigence =>
+  key === "exigencesFabrication" || key === "exigencesAcier"
 
-const NORMES_VIDES: Record<ChampNorme, string> = {
-  exc: "",
+const NORMES_VIDES: Record<ChampNormeUnique, string> = {
   en10163: "",
   tolerance: "",
-  en10204: "",
+  exc: "",
   prep: "",
   classeUs: "",
+  en10204: "",
+}
+
+const EXIGENCES_VIDES: Record<ChampExigence, string[]> = {
+  exigencesFabrication: [],
+  exigencesAcier: [],
 }
 
 // Majorations du temps total déduites des normes choisies (cumulatives).
+// DBS compte qu'il soit demandé en fabrication ou sur l'acier.
 const TOLERANCE_MAJOREE = "Classe 2"
 const EXIGENCE_MAJOREE = "DBS"
 const MAJORATION_TOLERANCE = 1.25
@@ -374,14 +382,26 @@ export default function Chiffrage() {
   const options: OptionsFiltres = useMemo(() => optionsFiltres(affaires), [affaires])
 
   const [client, setClient] = useState<Record<ChampClient, string>>(CLIENT_VIDE)
-  const [normes, setNormes] = useState<Record<ChampNorme, string>>(NORMES_VIDES)
-  const [exigences, setExigences] = useState<string[]>([])
+  const [normes, setNormes] = useState<Record<ChampNormeUnique, string>>(NORMES_VIDES)
+  const [exigences, setExigences] = useState<Record<ChampExigence, string[]>>(EXIGENCES_VIDES)
 
-  // La valeur majorée reste proposée même sans affaire en base qui la porte.
-  const avecValeur = (liste: OptionFiltre[], valeur: string): OptionFiltre[] =>
-    liste.some((o) => o.valeur === valeur) ? liste : [...liste, { valeur, libelle: valeur, nombre: 0 }]
-  const optionsTolerance = avecValeur(options.tolerance, TOLERANCE_MAJOREE)
-  const optionsExigences = avecValeur(options.exigences, EXIGENCE_MAJOREE)
+  // Les valeurs du RDE restent proposées même sans affaire en base qui les
+  // porte, à la suite de celles relevées dans les affaires.
+  const optionsNormes = useMemo(
+    () =>
+      Object.fromEntries(
+        CHAMPS_NORMES.map(({ key, valeurs }) => [
+          key,
+          [
+            ...options[key],
+            ...valeurs
+              .filter((valeur) => !options[key].some((o) => o.valeur === valeur))
+              .map((valeur) => ({ valeur, libelle: valeur, nombre: 0 })),
+          ],
+        ])
+      ) as Record<ChampNorme, OptionFiltre[]>,
+    [options]
+  )
 
   const [typeNom, setTypeNom] = useState("")
   // Un projet = un ou plusieurs groupes de barres, qui passent tous par les
@@ -478,7 +498,7 @@ export default function Chiffrage() {
   function reinitialiser() {
     setClient(CLIENT_VIDE)
     setNormes(NORMES_VIDES)
-    setExigences([])
+    setExigences(EXIGENCES_VIDES)
     setTypeNom("")
     setGroupes([groupeVide(0)])
     setPostes(new Set())
@@ -608,7 +628,7 @@ export default function Chiffrage() {
         .map(({ poste }) => [poste, resultat[poste]] as const)
     : []
 
-  const dbs = exigences.includes(EXIGENCE_MAJOREE)
+  const dbs = Object.values(exigences).some((valeurs) => valeurs.includes(EXIGENCE_MAJOREE))
   const classeTolerance2 = normes.tolerance === TOLERANCE_MAJOREE
 
   // Sous-total = total après application des majorations DBS / tolérance
@@ -669,10 +689,12 @@ export default function Chiffrage() {
           })),
         ]),
       ]),
-      normes: renseignees([
-        ...CHAMPS_NORMES.map(({ key, label }) => ({ label, valeur: normes[key] })),
-        { label: "Exigences particulières", valeur: exigences.join(", ") },
-      ]),
+      normes: renseignees(
+        CHAMPS_NORMES.map(({ key, label }) => ({
+          label,
+          valeur: estExigence(key) ? exigences[key].join(", ") : normes[key],
+        }))
+      ),
       operations: modules
         .filter(({ poste }) => postes.has(poste))
         .map(({ poste }) => ({
@@ -910,22 +932,26 @@ export default function Chiffrage() {
 
                   <div className="border-t" />
                   <Section titre="Normes et Exigences">
-                    {CHAMPS_NORMES.map(({ key, label }) => (
-                      <Liste
-                        key={key}
-                        label={label}
-                        valeur={normes[key]}
-                        options={key === "tolerance" ? optionsTolerance : options[key]}
-                        onChange={(valeur) => setNormes((prev) => ({ ...prev, [key]: valeur }))}
-                      />
-                    ))}
-                    <MultiSelect
-                      label="Exigences particulières"
-                      vide="Aucune"
-                      options={optionsExigences}
-                      valeurs={exigences}
-                      onChange={setExigences}
-                    />
+                    {CHAMPS_NORMES.map(({ key, label }) =>
+                      estExigence(key) ? (
+                        <MultiSelect
+                          key={key}
+                          label={label}
+                          vide="Aucune"
+                          options={optionsNormes[key]}
+                          valeurs={exigences[key]}
+                          onChange={(valeurs) => setExigences((prev) => ({ ...prev, [key]: valeurs }))}
+                        />
+                      ) : (
+                        <Liste
+                          key={key}
+                          label={label}
+                          valeur={normes[key]}
+                          options={optionsNormes[key]}
+                          onChange={(valeur) => setNormes((prev) => ({ ...prev, [key]: valeur }))}
+                        />
+                      )
+                    )}
                   </Section>
 
                   <div className="border-t" />

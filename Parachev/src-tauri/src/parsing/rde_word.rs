@@ -25,7 +25,7 @@
 //! (EN 10204), tolérances spéciales, classe US (seulement "US : Yes/No" par
 //! ligne de laminage).
 
-use super::rde::{normaliser_tolerance, valeur, InfoRde, LigneLaminage};
+use super::rde::{normaliser_exc, normaliser_tolerance, valeur, InfoRde, LigneLaminage};
 use super::{numero_affaire, operations, texte_vers_date};
 use quick_xml::events::Event;
 use quick_xml::Reader;
@@ -291,7 +291,7 @@ fn exigences(info: &mut InfoRde, tableau: &[Vec<String>], remarques: &mut Vec<St
         if n.starts_with("EXIGENCES DE REPARATION") {
             info.en10163 = v;
         } else if n.starts_with("CLASSE D'EXECUTION") {
-            info.exc = v;
+            info.exc = v.map(|e| normaliser_exc(&e));
         } else if n.starts_with("CLASSE DE TOLERANCE") {
             info.tolerance = v.map(|t| normaliser_tolerance(&t));
         } else if n.starts_with("TYPE DE TRACABILITE") {

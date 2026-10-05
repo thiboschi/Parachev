@@ -228,7 +228,7 @@ pub fn extraire_rde(chemin_fichier: &str) -> Result<Option<InfoRde>, String> {
     info.en10163 = exigence("Exigeances de réparation");
     info.tolerance = exigence("Classe de tolérance").map(|t| normaliser_tolerance(&t));
     info.tolerance_speciale = exigence("si tolérances spéciales");
-    info.exc = exigence("Classe d’exécution").or_else(|| exigence("Classe d'exécution"));
+    info.exc = exigence("Classe d’exécution").or_else(|| exigence("Classe d'exécution")).map(|e| normaliser_exc(&e));
     info.tracabilite = exigence("Type de traçabilité");
     info.en10204 = exigence("Type de document de contr");
     info.prep_en8501 = exigence("Degré de préparation");
@@ -247,9 +247,21 @@ pub fn extraire_rde(chemin_fichier: &str) -> Result<Option<InfoRde>, String> {
     Ok(Some(info))
 }
 
+/// "EXC4*" de la liste déroulante (l'astérisque renvoie à une note du
+/// gabarit) ramené à "EXC4".
+pub(super) fn normaliser_exc(e: &str) -> String {
+    e.trim_end_matches('*').trim_end().to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exc_sans_asterisque() {
+        assert_eq!(normaliser_exc("EXC4*"), "EXC4");
+        assert_eq!(normaliser_exc("EXC3"), "EXC3");
+    }
 
     #[test]
     fn tolerances_normalisees() {
