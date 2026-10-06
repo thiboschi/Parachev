@@ -272,7 +272,7 @@ export function DossierAffaire({ affaire, heuresParPoste }: DossierAffaireProps)
           {Array.from(documentsParType, ([type, docs]) => (
             <Collapsible key={type} className="flex flex-col gap-1">
               <CollapsibleTrigger className="group flex items-center gap-1 text-left">
-                <IconChevronRight className="size-4 transition-transform group-data-[panel-open]:rotate-90" />
+                <IconChevronRight className="size-4 transition-transform group-data-panel-open:rotate-90" />
                 <span>{TYPES_DOCUMENT[type] ?? type}</span>
                 <span className="text-muted-foreground">({docs.length})</span>
               </CollapsibleTrigger>
