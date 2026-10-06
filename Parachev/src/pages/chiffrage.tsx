@@ -21,8 +21,10 @@ import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
-import { CHAMPS_NORMES, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
+import { heuresContreFleche } from "@/lib/presse"
+import { CHAMPS_NORMES, libelleOperationRde, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 import { PROFILS_CATALOGUE, familleProfil, profilCorrespond } from "@/lib/profils"
+import { heuresSciage } from "@/lib/sciage"
 import { PREPARATIONS, nombrePasses, type LigneSoudure, type ParametresSoudure } from "@/lib/soudage"
 import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
 
@@ -170,6 +172,25 @@ const CHAMPS_OBLONGS: { key: ChampOblong; label: string }[] = [
 
 const OBLONGS_VIDES: Record<ChampOblong, string> = { nombre: "", longueur: "", largeur: "" }
 
+// Coupes d'une barre à la mise à longueur, par case du RDE (clés de
+// OPERATIONS_RDE) : "Coupe" est cochée dès qu'une coupe droite ou biaise est
+// saisie. Leur nombre chiffre le poste au barème de sciage (voir
+// heuresSciage), à la place de la calibration.
+const POSTE_COUPES = "mise_a_longueur"
+const COUPE_RDE = "coupe"
+const TYPES_COUPE = ["coupe_droite", "coupe_biaise"] as const
+type TypeCoupe = (typeof TYPES_COUPE)[number]
+
+const COUPES_VIDES: Record<TypeCoupe, string> = { coupe_droite: "", coupe_biaise: "" }
+
+const libelleCoupe = (type: TypeCoupe) => `${libelleOperationRde(type)} par barre`
+
+// Poste dont la contre-flèche saisie (`contreFleche` du groupe) donne les
+// heures au barème de la presse (voir heuresContreFleche), à la place de la
+// calibration.
+const POSTE_CONTRE_FLECHE = "presse_cintrage"
+const LIBELLE_CONTRE_FLECHE = "CFL (mm)"
+
 /** Barres identiques d'un projet : même profil, mêmes dimensions et mêmes
  *  opérations sur chaque barre. Un projet en compte un ou plusieurs. */
 interface GroupeBarres {
@@ -178,6 +199,7 @@ interface GroupeBarres {
   // le profil précis parmi ceux de cette famille.
   famille: string
   profil: string
+  // Contre-flèche de chaque barre qui en a une, en mm.
   contreFleche: string
   valeurs: Record<Champ, string>
   zonesGoujons: Set<ZoneGoujons>
@@ -185,6 +207,7 @@ interface GroupeBarres {
   // ou non, et ses dimensions (propres au poste).
   oblongsActifs: Set<string>
   oblongs: Record<string, Record<ChampOblong, string>>
+  coupes: Record<TypeCoupe, string>
 }
 
 const groupeVide = (id: number): GroupeBarres => ({
@@ -196,6 +219,7 @@ const groupeVide = (id: number): GroupeBarres => ({
   zonesGoujons: new Set(),
   oblongsActifs: new Set(),
   oblongs: {},
+  coupes: COUPES_VIDES,
 })
 
 const barresGroupe = (groupe: GroupeBarres) => nombre(groupe.valeurs.nb_barres)
@@ -208,10 +232,39 @@ const retournementsParBarre = (groupe: GroupeBarres) => Math.max(groupe.zonesGou
 
 const oblongsDuPoste = (groupe: GroupeBarres, poste: string) => groupe.oblongs[poste] ?? OBLONGS_VIDES
 
+const coupesParBarre = (groupe: GroupeBarres) => somme(TYPES_COUPE.map((type) => nombre(groupe.coupes[type])))
+
+// Heures barème de sciage du groupe d'après ses coupes ; null hors barème.
+const heuresSciageGroupe = (groupe: GroupeBarres) =>
+  heuresSciage({
+    profil: groupe.profil,
+    nbBarres: barresGroupe(groupe),
+    longueur: nombre(groupe.valeurs.metres),
+    coupesDroites: nombre(groupe.coupes.coupe_droite),
+    coupesBiaises: nombre(groupe.coupes.coupe_biaise),
+  })
+
+// Barres du groupe mises en contre-flèche : celles du champ "Barres avec
+// contre-flèche", ou toutes s'il est laissé vide.
+const barresContreFleche = (groupe: GroupeBarres) => {
+  const saisies = nombre(groupe.valeurs.nb_barres_cfl)
+  return saisies > 0 ? saisies : barresGroupe(groupe)
+}
+
+// Heures barème de contre-flèche du groupe ; null hors barème.
+const heuresContreFlecheGroupe = (groupe: GroupeBarres) =>
+  heuresContreFleche({
+    profil: groupe.profil,
+    nbBarres: barresContreFleche(groupe),
+    longueur: nombre(groupe.valeurs.metres),
+    contreFleche: nombre(groupe.contreFleche),
+  })
+
 // Le module a-t-il une saisie propre à chaque groupe de barres ?
 const aSaisieParGroupe = (poste: string) =>
   (CHAMPS_MODULE[poste] ?? []).length > 0 ||
   POSTES_AVEC_OBLONGS.includes(poste) ||
+  poste === POSTE_COUPES ||
   poste === "goujonnage" ||
   poste === "soudage"
 
@@ -500,11 +553,44 @@ export default function Chiffrage() {
   )
   const [exportPdf, setExportPdf] = useState(false)
   const soudageActif = postes.has("soudage")
+  // Heures de mise à longueur au barème de sciage, d'après les coupes saisies
+  // dans le volet du poste de chaque groupe : la somme des groupes au barème,
+  // null si aucun ne l'est. Comme celles du soudage, elles remplacent celles
+  // de la calibration dans l'estimation.
+  const groupesAvecCoupes = groupes.filter((g) => coupesParBarre(g) > 0)
+  const heuresSciageGroupes = groupesAvecCoupes.map(heuresSciageGroupe).filter((h) => h !== null)
+  const sciageCalcule = heuresSciageGroupes.length > 0 ? somme(heuresSciageGroupes) : null
+  const sciageActif = postes.has(POSTE_COUPES)
+  // De même pour la presse, au barème de contre-flèche d'après la
+  // contre-flèche saisie dans le volet du poste de chaque groupe.
+  const groupesAvecContreFleche = groupes.filter((g) => nombre(g.contreFleche) > 0)
+  const heuresContreFlecheGroupes = groupesAvecContreFleche
+    .map(heuresContreFlecheGroupe)
+    .filter((h) => h !== null)
+  const contreFlecheCalculee =
+    heuresContreFlecheGroupes.length > 0 ? somme(heuresContreFlecheGroupes) : null
+  const presseActive = postes.has(POSTE_CONTRE_FLECHE)
   const resultat = useMemo(() => {
-    if (!resultatBrut || !soudageActif || soudageCalcule === null) return resultatBrut
-    const total = (resultatBrut.total ?? 0) - (resultatBrut.soudage ?? 0) + soudageCalcule
-    return { ...resultatBrut, soudage: soudageCalcule, total }
-  }, [resultatBrut, soudageActif, soudageCalcule])
+    if (!resultatBrut) return resultatBrut
+    const calculees: [poste: string, heures: number | null][] = [
+      ["soudage", soudageActif ? soudageCalcule : null],
+      [POSTE_COUPES, sciageActif ? sciageCalcule : null],
+      [POSTE_CONTRE_FLECHE, presseActive ? contreFlecheCalculee : null],
+    ]
+    const suivant = { ...resultatBrut }
+    for (const [poste, heures] of calculees) {
+      if (heures === null) continue
+      suivant.total = (suivant.total ?? 0) - (suivant[poste] ?? 0) + heures
+      suivant[poste] = heures
+    }
+    return suivant
+  }, [resultatBrut, soudageActif, soudageCalcule, sciageActif, sciageCalcule, presseActive, contreFlecheCalculee])
+  // Heures au barème atelier des postes chiffrés ainsi, et celles que la
+  // calibration leur donnait : rappelées dans la carte du module.
+  const heuresBareme: Record<string, number | null> = {
+    [POSTE_COUPES]: sciageCalcule,
+    [POSTE_CONTRE_FLECHE]: contreFlecheCalculee,
+  }
   const [calcul, setCalcul] = useState(false)
   const [multiplicateur, setMultiplicateur] = useState("")
 
@@ -553,6 +639,11 @@ export default function Chiffrage() {
     const saisis = groupes.map((g) => nombre(g.valeurs[key])).filter((diametre) => diametre > 0)
     return saisis.length > 0 ? somme(saisis) / saisis.length : 0
   }
+  // Rappel du total du groupe sous un nombre de coupes par barre.
+  const aideCoupes = (groupe: GroupeBarres, type: TypeCoupe) => {
+    const total = nombre(groupe.coupes[type]) * barresGroupe(groupe)
+    return total > 0 ? `total : ${formatHeures(total)}` : undefined
+  }
   // Rappel du total du groupe sous un champ saisi par barre.
   const aideTotal = (groupe: GroupeBarres, key: Champ) => {
     const total = totalGroupe(groupe, key)
@@ -576,6 +667,16 @@ export default function Chiffrage() {
         )
         return
       }
+      // Négatif ou illisible.
+      const coupeInvalide = sciageActif && TYPES_COUPE.find((type) => !(nombre(groupe.coupes[type]) >= 0))
+      if (coupeInvalide) {
+        toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${libelleCoupe(coupeInvalide)}"`)
+        return
+      }
+      if (presseActive && !(nombre(groupe.contreFleche) >= 0)) {
+        toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLE_CONTRE_FLECHE}"`)
+        return
+      }
     }
 
     const variables = Object.fromEntries(
@@ -590,12 +691,16 @@ export default function Chiffrage() {
       )
     }
     const postesChiffres = Array.from(postes)
+    // Cases "Coupe" du RDE que les coupes saisies reviennent à cocher.
+    const coupesRde = TYPES_COUPE.filter(
+      (type) => sciageActif && groupes.some((g) => nombre(g.coupes[type]) > 0)
+    )
 
     setCalcul(true)
     invoke<Record<string, number>>("chiffrer_manuellement", {
       variables,
       postes: postesChiffres,
-      operationsRde: [],
+      operationsRde: coupesRde.length > 0 ? [COUPE_RDE, ...coupesRde] : [],
     })
       .then((heures) => {
         // Ne garde que les modules cochés : sans présence calibrée, un poste
@@ -689,8 +794,16 @@ export default function Chiffrage() {
       const details = (CHAMPS_MODULE[poste] ?? [])
         .filter((key) => groupe.valeurs[key].trim() !== "")
         .map((key) => `${LIBELLES_CHAMPS[key]} : ${avecTotal(groupe, key)}`)
-      if (poste === "presse_cintrage" && groupe.contreFleche.trim() !== "") {
-        details.push(`CFL : ${groupe.contreFleche}`)
+      if (poste === POSTE_CONTRE_FLECHE && groupe.contreFleche.trim() !== "") {
+        details.push(`${LIBELLE_CONTRE_FLECHE} : ${groupe.contreFleche}`)
+      }
+      if (poste === POSTE_COUPES) {
+        details.push(
+          ...TYPES_COUPE.filter((type) => nombre(groupe.coupes[type]) > 0).map((type) => {
+            const aide = aideCoupes(groupe, type)
+            return `${libelleCoupe(type)} : ${groupe.coupes[type]}${aide ? ` (${aide})` : ""}`
+          })
+        )
       }
       if (poste === "goujonnage" && groupe.zonesGoujons.size > 0) {
         const zones = ZONES_GOUJONS.filter((zone) => groupe.zonesGoujons.has(zone)).map((zone) => LIBELLES_ZONE_GOUJONS[zone])
@@ -792,6 +905,9 @@ export default function Chiffrage() {
     const retournements = retournementsParBarre(groupe)
     const oblongsCoches = groupe.oblongsActifs.has(poste)
     const baremeOblongs = heuresOblongsBareme(groupe, poste)
+    const coupes = coupesParBarre(groupe)
+    const baremeSciage = heuresSciageGroupe(groupe)
+    const baremeContreFleche = heuresContreFlecheGroupe(groupe)
     const id = `module-${poste}-${groupe.id}`
     return (
       <>
@@ -813,8 +929,8 @@ export default function Chiffrage() {
                 />
               </ChampSaisie>
             ))}
-            {poste === "presse_cintrage" && (
-              <ChampSaisie id={`${id}-cfl`} label="CFL">
+            {poste === POSTE_CONTRE_FLECHE && (
+              <ChampSaisie id={`${id}-cfl`} label={LIBELLE_CONTRE_FLECHE}>
                 <Input
                   id={`${id}-cfl`}
                   className="text-right tabular-nums"
@@ -826,6 +942,53 @@ export default function Chiffrage() {
                 />
               </ChampSaisie>
             )}
+          </div>
+        )}
+        {poste === POSTE_CONTRE_FLECHE && (
+          <span className="text-xs text-muted-foreground">
+            {!(nombre(groupe.contreFleche) > 0)
+              ? contreFlecheCalculee !== null
+                ? "Sans contre-flèche saisie, ce groupe n'est pas compté à la presse."
+                : "Sans contre-flèche saisie, le poste est chiffré par la calibration."
+              : baremeContreFleche !== null
+                ? `Barème atelier (PRESSE), contre-flèche : ${formatHeures(baremeContreFleche)} h pour ${formatHeures(barresContreFleche(groupe))} barre${barresContreFleche(groupe) > 1 ? "s" : ""}, redressage non compris.`
+                : "Hors barème : renseignez le nombre de barres, la longueur par barre et le profil (jusqu'à 1100 mm de haut, contre-flèche de 900 mm au plus)."}
+          </span>
+        )}
+        {poste === POSTE_COUPES && (
+          <div className="flex flex-col gap-2">
+            <span className="text-muted-foreground">{libelleOperationRde(COUPE_RDE)} (RDE)</span>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {TYPES_COUPE.map((type) => (
+                <ChampSaisie
+                  key={type}
+                  id={`${id}-${type}`}
+                  label={libelleCoupe(type)}
+                  aide={aideCoupes(groupe, type)}
+                >
+                  <Input
+                    id={`${id}-${type}`}
+                    className="text-right tabular-nums"
+                    inputMode="decimal"
+                    value={groupe.coupes[type]}
+                    onChange={(e) =>
+                      modifierGroupe(groupe.id, (g) => ({
+                        coupes: { ...g.coupes, [type]: e.target.value },
+                      }))
+                    }
+                  />
+                </ChampSaisie>
+              ))}
+            </div>
+            <span className="text-xs text-muted-foreground">
+              {!(coupes > 0)
+                ? sciageCalcule !== null
+                  ? "Sans coupe saisie, ce groupe n'est pas compté dans la mise à longueur."
+                  : "Sans coupe saisie, le poste est chiffré par la calibration."
+                : baremeSciage !== null
+                  ? `Barème atelier (DATA-TEMPS), sciage : ${formatHeures(baremeSciage)} h pour ${formatHeures(coupes)} coupe${coupes > 1 ? "s" : ""} par barre.`
+                  : "Hors barème : renseignez le nombre de barres et un profil du barème atelier (coupe biaise au robot sur les HL 1000, HL 1100 et HD 400 x 1086)."}
+            </span>
           </div>
         )}
         {poste === "goujonnage" && (
@@ -1113,15 +1276,24 @@ export default function Chiffrage() {
                             ? plusieursGroupes
                               ? "Chiffré par les calculateurs du volet « Soudage » de chaque groupe : seuls les groupes dont le calculateur est complet sont comptés ; si aucun ne l'est, par la calibration."
                               : "Chiffré par le calculateur du volet « Soudage » du groupe ; tant qu'il est incomplet, par la calibration."
-                            : grandeurs.length > 0
-                              ? `Calculé d'après : ${grandeurs
-                                  .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
-                                  .join(", ")
-                                  .toLowerCase()}.`
-                              : champs.length > 0
-                                ? "Calculé d'après les quantités saisies dans le volet du poste de chaque groupe."
-                                : "Chiffré au forfait."}
+                            : poste === POSTE_COUPES && sciageCalcule !== null
+                              ? `Chiffré au barème atelier de sciage, d'après les coupes saisies dans le volet « ${libellePoste(poste)} » de chaque groupe${couverture(heuresSciageGroupes.length, groupesAvecCoupes.length)}.`
+                              : poste === POSTE_CONTRE_FLECHE && contreFlecheCalculee !== null
+                                ? `Chiffré au barème atelier de contre-flèche, d'après la contre-flèche saisie dans le volet « ${libellePoste(poste)} » de chaque groupe${couverture(heuresContreFlecheGroupes.length, groupesAvecContreFleche.length)} : le redressage n'y est pas compté.`
+                                : grandeurs.length > 0
+                                  ? `Calculé d'après : ${grandeurs
+                                      .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
+                                      .join(", ")
+                                      .toLowerCase()}.`
+                                  : champs.length > 0
+                                    ? "Calculé d'après les quantités saisies dans le volet du poste de chaque groupe."
+                                    : "Chiffré au forfait."}
                         </span>
+                        {heuresBareme[poste] != null && resultatBrut && (
+                          <span className="text-xs text-muted-foreground">
+                            Par la calibration : {formatHeures(resultatBrut[poste] ?? 0)} h.
+                          </span>
+                        )}
                         {baremePercage[poste] && (
                           <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
                         )}
@@ -1162,6 +1334,7 @@ export default function Chiffrage() {
                     <span className="text-muted-foreground">
                       {libellePoste(poste)}
                       {poste === "soudage" && soudageCalcule !== null && " (calculateur)"}
+                      {heuresBareme[poste] != null && " (barème)"}
                     </span>
                     <span className="tabular-nums">{formatHeures(heures)} h</span>
                   </div>
