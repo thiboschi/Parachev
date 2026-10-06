@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { toast } from "sonner"
 import { IconChevronDown } from "@tabler/icons-react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -136,7 +135,7 @@ const CHAMPS_VIDES = Object.fromEntries(
 // d'après le nombre de barres.
 const CHAMPS_POUTRE: Champ[] = ["nb_barres", "poids_t", "metres"]
 
-// Quantités propres à un poste, saisies dans son module de prédiction. Les
+// Quantités propres à un poste, saisies dans son volet de chaque groupe. Les
 // postes absents n'ont que les grandeurs de la poutre (ou un forfait).
 // Diamètre moyen -> nombre de trous qui le pondère dans la moyenne du projet.
 const TROUS_DU_DIAMETRE: Partial<Record<Champ, Champ>> = {
@@ -152,12 +151,17 @@ const CHAMPS_MODULE: Record<string, Champ[]> = {
   oxycoupage: ["longueur_coupe"],
 }
 
-// Zones d'une barre qui reçoivent des goujons, cochées dans le module
+// Champ -> poste dont il est une quantité.
+const POSTE_DU_CHAMP = Object.fromEntries(
+  Object.entries(CHAMPS_MODULE).flatMap(([poste, champs]) => champs.map((champ) => [champ, poste]))
+) as Partial<Record<Champ, string>>
+
+// Zones d'une barre qui reçoivent des goujons, cochées dans le volet
 // "Goujonnage" (mêmes zones que FC-GOUJ) : chaque zone au-delà de la
 // première impose un retournement de la barre (nb_retournements_goujons).
 const ZONES_GOUJONS = Object.keys(LIBELLES_ZONE_GOUJONS) as ZoneGoujons[]
 
-// Trous oblongs d'une barre, en option des modules qui peuvent les réaliser :
+// Trous oblongs d'une barre, en option des postes qui peuvent les réaliser :
 // aucun poste ne les chiffre d'après leur nombre, ils ne servent qu'au temps
 // barème (voir heuresOblongs).
 const POSTES_AVEC_OBLONGS = ["forage_manuel", "oxycoupage"]
@@ -203,11 +207,13 @@ interface GroupeBarres {
   contreFleche: string
   valeurs: Record<Champ, string>
   zonesGoujons: Set<ZoneGoujons>
-  // Option "Trous oblongs" de chaque module de POSTES_AVEC_OBLONGS : cochée
+  // Option "Trous oblongs" de chaque poste de POSTES_AVEC_OBLONGS : cochée
   // ou non, et ses dimensions (propres au poste).
   oblongsActifs: Set<string>
   oblongs: Record<string, Record<ChampOblong, string>>
   coupes: Record<TypeCoupe, string>
+  // Postes optionnels de la gamme (voir ModulePoste) cochés pour ce groupe.
+  postesOptionnels: Set<string>
 }
 
 const groupeVide = (id: number): GroupeBarres => ({
@@ -220,6 +226,7 @@ const groupeVide = (id: number): GroupeBarres => ({
   oblongsActifs: new Set(),
   oblongs: {},
   coupes: COUPES_VIDES,
+  postesOptionnels: new Set(),
 })
 
 const barresGroupe = (groupe: GroupeBarres) => nombre(groupe.valeurs.nb_barres)
@@ -260,7 +267,7 @@ const heuresContreFlecheGroupe = (groupe: GroupeBarres) =>
     contreFleche: nombre(groupe.contreFleche),
   })
 
-// Le module a-t-il une saisie propre à chaque groupe de barres ?
+// Le poste a-t-il une saisie propre à chaque groupe de barres ?
 const aSaisieParGroupe = (poste: string) =>
   (CHAMPS_MODULE[poste] ?? []).length > 0 ||
   POSTES_AVEC_OBLONGS.includes(poste) ||
@@ -297,9 +304,6 @@ function modulesDuType(type: TypeProduction): ModulePoste[] {
   }
   return modules
 }
-
-const postesParDefaut = (modules: ModulePoste[]) =>
-  new Set(modules.filter((m) => !m.optionnel).map((m) => m.poste))
 
 // Ajoute ou retire `cle` d'un ensemble de cases cochées.
 function basculer<T extends string>(ensemble: Set<T>, cle: T, coche: boolean): Set<T> {
@@ -483,8 +487,8 @@ export default function Chiffrage() {
   )
 
   const [typeNom, setTypeNom] = useState("")
-  // Un projet = un ou plusieurs groupes de barres, qui passent tous par les
-  // modules du type choisi.
+  // Un projet = un ou plusieurs groupes de barres, qui passent par les postes
+  // de la gamme du type choisi.
   const [groupes, setGroupes] = useState<GroupeBarres[]>([groupeVide(0)])
   const plusieursGroupes = groupes.length > 1
   // Profils du barème atelier, complétés par ceux des affaires en base qui
@@ -506,33 +510,17 @@ export default function Chiffrage() {
   )
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
   const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
-  // Modules cochés : un poste non coché est chiffré à 0 h.
-  const [postes, setPostes] = useState<Set<string>>(new Set())
-
-  // Poste -> grandeurs dont il dépend avec la calibration actuelle (voir
-  // lister_grandeurs_utilisees) : chaque poste calibre sa propre grandeur
-  // (poids, mètres, barres...), une grandeur utilisée laissée vide chiffre
-  // son poste à 0 h -- sauf poids et mètres, estimés d'après le nombre de barres.
-  const [grandeursParPoste, setGrandeursParPoste] = useState<Record<string, string[]>>({})
-
-  useEffect(() => {
-    const charger = () =>
-      invoke<Record<string, string[]>>("lister_grandeurs_utilisees")
-        .then((parGrandeur) => {
-          const parPoste: Record<string, string[]> = {}
-          for (const [grandeur, postesGrandeur] of Object.entries(parGrandeur)) {
-            for (const poste of postesGrandeur) (parPoste[poste] ??= []).push(grandeur)
-          }
-          setGrandeursParPoste(parPoste)
-        })
-        .catch(() => setGrandeursParPoste({}))
-    charger()
-    window.addEventListener("coefficients-updated", charger)
-    return () => window.removeEventListener("coefficients-updated", charger)
-  }, [])
+  const postesOptionnels = modules.filter((m) => m.optionnel).map((m) => m.poste)
+  // Postes par lesquels passe un groupe, dans l'ordre de la gamme : un poste
+  // optionnel seulement s'il y est coché.
+  const postesDuGroupe = (groupe: GroupeBarres) =>
+    modules.filter((m) => !m.optionnel || groupe.postesOptionnels.has(m.poste)).map((m) => m.poste)
+  const passePar = (groupe: GroupeBarres, poste: string) => postesDuGroupe(groupe).includes(poste)
+  // Postes chiffrés : ceux d'au moins un groupe, les autres le sont à 0 h.
+  const postes = new Set(groupes.flatMap(postesDuGroupe))
 
   const [resultatBrut, setResultat] = useState<Record<string, number> | null>(null)
-  // Heures de soudage des calculateurs du module "Soudage" (un par groupe de
+  // Heures de soudage des calculateurs du volet "Soudage" (un par groupe de
   // barres) : la somme des groupes dont le calculateur est complet, null si
   // aucun ne l'est. Elles remplacent celles de la calibration dans l'estimation.
   const [parametresSoudage, setParametresSoudage] = useParametresSoudage()
@@ -557,13 +545,15 @@ export default function Chiffrage() {
   // dans le volet du poste de chaque groupe : la somme des groupes au barème,
   // null si aucun ne l'est. Comme celles du soudage, elles remplacent celles
   // de la calibration dans l'estimation.
-  const groupesAvecCoupes = groupes.filter((g) => coupesParBarre(g) > 0)
+  const groupesAvecCoupes = groupes.filter((g) => passePar(g, POSTE_COUPES) && coupesParBarre(g) > 0)
   const heuresSciageGroupes = groupesAvecCoupes.map(heuresSciageGroupe).filter((h) => h !== null)
   const sciageCalcule = heuresSciageGroupes.length > 0 ? somme(heuresSciageGroupes) : null
   const sciageActif = postes.has(POSTE_COUPES)
   // De même pour la presse, au barème de contre-flèche d'après la
   // contre-flèche saisie dans le volet du poste de chaque groupe.
-  const groupesAvecContreFleche = groupes.filter((g) => nombre(g.contreFleche) > 0)
+  const groupesAvecContreFleche = groupes.filter(
+    (g) => passePar(g, POSTE_CONTRE_FLECHE) && nombre(g.contreFleche) > 0
+  )
   const heuresContreFlecheGroupes = groupesAvecContreFleche
     .map(heuresContreFlecheGroupe)
     .filter((h) => h !== null)
@@ -585,8 +575,7 @@ export default function Chiffrage() {
     }
     return suivant
   }, [resultatBrut, soudageActif, soudageCalcule, sciageActif, sciageCalcule, presseActive, contreFlecheCalculee])
-  // Heures au barème atelier des postes chiffrés ainsi, et celles que la
-  // calibration leur donnait : rappelées dans la carte du module.
+  // Heures au barème atelier des postes chiffrés ainsi.
   const heuresBareme: Record<string, number | null> = {
     [POSTE_COUPES]: sciageCalcule,
     [POSTE_CONTRE_FLECHE]: contreFlecheCalculee,
@@ -611,8 +600,8 @@ export default function Chiffrage() {
 
   function choisirType(nom: string) {
     setTypeNom(nom)
-    const choisi = TYPES_PRODUCTION.find((t) => t.nom === nom)
-    setPostes(choisi ? postesParDefaut(modulesDuType(choisi)) : new Set())
+    // Les postes optionnels sont ceux de la gamme du type : à recocher.
+    setGroupes((prev) => prev.map((g) => ({ ...g, postesOptionnels: new Set() })))
     setResultat(null)
   }
 
@@ -622,21 +611,23 @@ export default function Chiffrage() {
     setExigences(EXIGENCES_VIDES)
     setTypeNom("")
     setGroupes([groupeVide(0)])
-    setPostes(new Set())
     setResultat(null)
   }
 
   // Total du projet pour un champ : la somme de ses groupes, ou pour un
   // diamètre moyen la moyenne des groupes pondérée par leurs trous (moyenne
-  // simple des diamètres saisis tant qu'aucun trou ne l'est).
+  // simple des diamètres saisis tant qu'aucun trou ne l'est). La quantité
+  // d'un poste ne compte que pour les groupes qui y passent.
   function totalProjet(key: Champ) {
+    const poste = POSTE_DU_CHAMP[key]
+    const concernes = poste ? groupes.filter((g) => passePar(g, poste)) : groupes
     const trous = TROUS_DU_DIAMETRE[key]
-    if (!trous) return somme(groupes.map((g) => totalGroupe(g, key)))
-    const nbTrous = somme(groupes.map((g) => totalGroupe(g, trous)))
+    if (!trous) return somme(concernes.map((g) => totalGroupe(g, key)))
+    const nbTrous = somme(concernes.map((g) => totalGroupe(g, trous)))
     if (nbTrous > 0) {
-      return somme(groupes.map((g) => nombre(g.valeurs[key]) * totalGroupe(g, trous))) / nbTrous
+      return somme(concernes.map((g) => nombre(g.valeurs[key]) * totalGroupe(g, trous))) / nbTrous
     }
-    const saisis = groupes.map((g) => nombre(g.valeurs[key])).filter((diametre) => diametre > 0)
+    const saisis = concernes.map((g) => nombre(g.valeurs[key])).filter((diametre) => diametre > 0)
     return saisis.length > 0 ? somme(saisis) / saisis.length : 0
   }
   // Rappel du total du groupe sous un nombre de coupes par barre.
@@ -653,10 +644,16 @@ export default function Chiffrage() {
   }
 
   function chiffrer() {
-    // Seules les quantités de la poutre et des modules cochés comptent.
-    const champs = [...CHAMPS_POUTRE, ...[...postes].flatMap((poste) => CHAMPS_MODULE[poste] ?? [])]
+    // Seules les quantités de la poutre et des postes du groupe comptent.
+    const champsDes = (postesRetenus: string[]) => [
+      ...CHAMPS_POUTRE,
+      ...postesRetenus.flatMap((poste) => CHAMPS_MODULE[poste] ?? []),
+    ]
+    const champs = champsDes([...postes])
     for (const [index, groupe] of groupes.entries()) {
-      const champInvalide = champs.find((key) => Number.isNaN(nombre(groupe.valeurs[key])))
+      const champInvalide = champsDes(postesDuGroupe(groupe)).find((key) =>
+        Number.isNaN(nombre(groupe.valeurs[key]))
+      )
       if (champInvalide) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLES_CHAMPS[champInvalide]}"`)
         return
@@ -668,12 +665,13 @@ export default function Chiffrage() {
         return
       }
       // Négatif ou illisible.
-      const coupeInvalide = sciageActif && TYPES_COUPE.find((type) => !(nombre(groupe.coupes[type]) >= 0))
+      const coupeInvalide =
+        passePar(groupe, POSTE_COUPES) && TYPES_COUPE.find((type) => !(nombre(groupe.coupes[type]) >= 0))
       if (coupeInvalide) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${libelleCoupe(coupeInvalide)}"`)
         return
       }
-      if (presseActive && !(nombre(groupe.contreFleche) >= 0)) {
+      if (passePar(groupe, POSTE_CONTRE_FLECHE) && !(nombre(groupe.contreFleche) >= 0)) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLE_CONTRE_FLECHE}"`)
         return
       }
@@ -687,13 +685,15 @@ export default function Chiffrage() {
     )
     if (postes.has("goujonnage")) {
       variables.nb_retournements_goujons = somme(
-        groupes.map((g) => retournementsParBarre(g) * barresGroupe(g))
+        groupes
+          .filter((g) => passePar(g, "goujonnage"))
+          .map((g) => retournementsParBarre(g) * barresGroupe(g))
       )
     }
     const postesChiffres = Array.from(postes)
     // Cases "Coupe" du RDE que les coupes saisies reviennent à cocher.
-    const coupesRde = TYPES_COUPE.filter(
-      (type) => sciageActif && groupes.some((g) => nombre(g.coupes[type]) > 0)
+    const coupesRde = TYPES_COUPE.filter((type) =>
+      groupes.some((g) => passePar(g, POSTE_COUPES) && nombre(g.coupes[type]) > 0)
     )
 
     setCalcul(true)
@@ -703,7 +703,7 @@ export default function Chiffrage() {
       operationsRde: coupesRde.length > 0 ? [COUPE_RDE, ...coupesRde] : [],
     })
       .then((heures) => {
-        // Ne garde que les modules cochés : sans présence calibrée, un poste
+        // Ne garde que les postes des groupes : sans présence calibrée, un poste
         // hors gamme peut recevoir des heures d'après la seule taille de la poutre.
         const retenues = Object.fromEntries(
           postesChiffres.filter((poste) => (heures[poste] ?? 0) > 0).map((poste) => [poste, heures[poste]])
@@ -716,40 +716,6 @@ export default function Chiffrage() {
         toast.error(e instanceof Error ? e.message : String(e))
       })
       .finally(() => setCalcul(false))
-  }
-
-  // Temps barème des modules de perçage (voir lib/percage.ts), sommé sur les
-  // groupes qui ont des trous et affiché pour comparaison : l'estimation
-  // reste celle de la calibration.
-  const groupesAvec = (key: Champ) => groupes.filter((g) => totalGroupe(g, key) > 0)
-  // Signale un barème qui ne couvre qu'une partie des groupes concernés.
-  const couverture = (couverts: number, concernes: number) =>
-    couverts < concernes ? ` (${couverts} groupe${couverts > 1 ? "s" : ""} sur ${concernes} au barème)` : ""
-  const baremePercage: Record<string, string | undefined> = {
-    forage_manuel: (() => {
-      const concernes = groupesAvec("nb_trous_manuel")
-      const heures = concernes
-        .map((g) => heuresForageManuel(totalGroupe(g, "nb_trous_manuel"), nombre(g.valeurs.diametre_moyen_manuel)))
-        .filter((h) => h !== null)
-      return heures.length === 0
-        ? undefined
-        : `Barème atelier (FMAN) : ${formatHeures(somme(heures))} h${couverture(heures.length, concernes.length)}.`
-    })(),
-    forage_numerique: (() => {
-      const concernes = groupesAvec("nb_trous_numerique")
-      const heures = concernes
-        .map((g) =>
-          heuresForageNumerique(
-            totalGroupe(g, "nb_trous_numerique"),
-            nombre(g.valeurs.diametre_moyen_numerique),
-            g.profil
-          )
-        )
-        .filter((h) => h !== null)
-      return heures.length === 0
-        ? undefined
-        : `Barème atelier (FWAG) : ${formatHeures(somme(heures.map((h) => h.ame)))} h dans l'âme, ${formatHeures(somme(heures.map((h) => h.aile)))} h dans les ailes${couverture(heures.length, concernes.length)}.`
-    })(),
   }
 
   const heuresOblongsBareme = (groupe: GroupeBarres, poste: string) => {
@@ -818,7 +784,9 @@ export default function Chiffrage() {
     }
     const detailsModule = (poste: string) =>
       groupes.flatMap((groupe, index) =>
-        detailsGroupe(groupe, poste).map((detail) => `${prefixeGroupe(index)}${detail}`)
+        (passePar(groupe, poste) ? detailsGroupe(groupe, poste) : []).map(
+          (detail) => `${prefixeGroupe(index)}${detail}`
+        )
       )
     return {
       date: new Date(),
@@ -908,6 +876,20 @@ export default function Chiffrage() {
     const coupes = coupesParBarre(groupe)
     const baremeSciage = heuresSciageGroupe(groupe)
     const baremeContreFleche = heuresContreFlecheGroupe(groupe)
+    // Temps barème de perçage (voir lib/percage.ts), affiché pour
+    // comparaison : l'estimation reste celle de la calibration.
+    const baremeManuel =
+      poste === "forage_manuel"
+        ? heuresForageManuel(totalGroupe(groupe, "nb_trous_manuel"), nombre(groupe.valeurs.diametre_moyen_manuel))
+        : null
+    const baremeNumerique =
+      poste === "forage_numerique"
+        ? heuresForageNumerique(
+            totalGroupe(groupe, "nb_trous_numerique"),
+            nombre(groupe.valeurs.diametre_moyen_numerique),
+            groupe.profil
+          )
+        : null
     const id = `module-${poste}-${groupe.id}`
     return (
       <>
@@ -943,6 +925,17 @@ export default function Chiffrage() {
               </ChampSaisie>
             )}
           </div>
+        )}
+        {baremeManuel !== null && (
+          <span className="text-xs text-muted-foreground">
+            Barème atelier (FMAN) : {formatHeures(baremeManuel)} h.
+          </span>
+        )}
+        {baremeNumerique !== null && (
+          <span className="text-xs text-muted-foreground">
+            Barème atelier (FWAG) : {formatHeures(baremeNumerique.ame)} h dans l'âme,{" "}
+            {formatHeures(baremeNumerique.aile)} h dans les ailes.
+          </span>
         )}
         {poste === POSTE_CONTRE_FLECHE && (
           <span className="text-xs text-muted-foreground">
@@ -983,7 +976,7 @@ export default function Chiffrage() {
             <span className="text-xs text-muted-foreground">
               {!(coupes > 0)
                 ? sciageCalcule !== null
-                  ? "Sans coupe saisie, ce groupe n'est pas compté dans la mise à longueur."
+                  ? "Sans coupe saisie, ce groupe n'est pas compté dans la scie."
                   : "Sans coupe saisie, le poste est chiffré par la calibration."
                 : baremeSciage !== null
                   ? `Barème atelier (DATA-TEMPS), sciage : ${formatHeures(baremeSciage)} h pour ${formatHeures(coupes)} coupe${coupes > 1 ? "s" : ""} par barre.`
@@ -1071,23 +1064,20 @@ export default function Chiffrage() {
           </div>
         )}
         {poste === "soudage" && (
-          <SoudageGroupe
-            id={groupe.id}
-            nbBarres={nbBarres > 0 ? nbBarres : 1}
-            parametres={parametresSoudage}
-            onHeures={noterSoudage}
-            onLignes={noterLignesSoudure}
-          />
+          <>
+            <SoudageGroupe
+              id={groupe.id}
+              nbBarres={nbBarres > 0 ? nbBarres : 1}
+              parametres={parametresSoudage}
+              onHeures={noterSoudage}
+              onLignes={noterLignesSoudure}
+            />
+            <CadencesSoudage parametres={parametresSoudage} onChange={setParametresSoudage} />
+          </>
         )}
       </>
     )
   }
-
-  // Modules cochés qui ont une saisie propre à chaque groupe de barres, dans
-  // l'ordre de la gamme.
-  const postesParGroupe = modules
-    .map(({ poste }) => poste)
-    .filter((poste) => postes.has(poste) && aSaisieParGroupe(poste))
 
   return (
     <SidebarProvider
@@ -1212,7 +1202,30 @@ export default function Chiffrage() {
                             </ChampSaisie>
                           ))}
                       </div>
-                      {postesParGroupe.map((poste) => (
+                      {postesOptionnels.length > 0 && (
+                        <div className="flex flex-col gap-2 text-sm">
+                          <span className="text-muted-foreground">Postes optionnels</span>
+                          <div className="flex flex-wrap gap-x-4 gap-y-2">
+                            {postesOptionnels.map((poste) => (
+                              <div key={poste} className="flex items-center gap-2">
+                                <Checkbox
+                                  id={`optionnel-${groupe.id}-${poste}`}
+                                  checked={groupe.postesOptionnels.has(poste)}
+                                  onCheckedChange={(coche) =>
+                                    modifierGroupe(groupe.id, (g) => ({
+                                      postesOptionnels: basculer(g.postesOptionnels, poste, coche === true),
+                                    }))
+                                  }
+                                />
+                                <Label htmlFor={`optionnel-${groupe.id}-${poste}`} className="text-sm font-normal">
+                                  {libellePoste(poste)}
+                                </Label>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {postesDuGroupe(groupe).filter(aSaisieParGroupe).map((poste) => (
                         // Volet déroulant du poste. Replié, son contenu reste monté : le
                         // calculateur de soudage garde ses pièces et ses heures.
                         <Collapsible key={poste} className="rounded-md border">
@@ -1236,75 +1249,11 @@ export default function Chiffrage() {
                   </div>
                   {!type && (
                     <span className="text-sm text-muted-foreground">
-                      Choisissez un type d'affaire pour ouvrir ses modules de prédiction.
+                      Choisissez un type d'affaire pour ouvrir les postes de sa gamme.
                     </span>
                   )}
                 </CardContent>
               </Card>
-
-              {modules.map(({ poste, optionnel }) => {
-                const actif = postes.has(poste)
-                const champs = CHAMPS_MODULE[poste] ?? []
-                const grandeurs = (grandeursParPoste[poste] ?? []).filter(
-                  (g) => !champs.includes(g as Champ)
-                )
-                const heures = resultat?.[poste]
-                return (
-                  <Card key={poste}>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-sm">
-                        <Checkbox
-                          id={`module-${poste}`}
-                          checked={actif}
-                          onCheckedChange={(coche) =>
-                            setPostes((prev) => basculer(prev, poste, coche === true))
-                          }
-                        />
-                        <Label htmlFor={`module-${poste}`} className="text-sm font-medium">
-                          {libellePoste(poste)}
-                        </Label>
-                        {optionnel && <Badge variant="outline">Optionnel</Badge>}
-                        {actif && heures !== undefined && (
-                          <span className="ml-auto tabular-nums">{formatHeures(heures)} h</span>
-                        )}
-                      </CardTitle>
-                    </CardHeader>
-                    {actif && (
-                      <CardContent className="flex flex-col gap-3 text-sm">
-                        <span className="text-xs text-muted-foreground">
-                          {poste === "soudage"
-                            ? plusieursGroupes
-                              ? "Chiffré par les calculateurs du volet « Soudage » de chaque groupe : seuls les groupes dont le calculateur est complet sont comptés ; si aucun ne l'est, par la calibration."
-                              : "Chiffré par le calculateur du volet « Soudage » du groupe ; tant qu'il est incomplet, par la calibration."
-                            : poste === POSTE_COUPES && sciageCalcule !== null
-                              ? `Chiffré au barème atelier de sciage, d'après les coupes saisies dans le volet « ${libellePoste(poste)} » de chaque groupe${couverture(heuresSciageGroupes.length, groupesAvecCoupes.length)}.`
-                              : poste === POSTE_CONTRE_FLECHE && contreFlecheCalculee !== null
-                                ? `Chiffré au barème atelier de contre-flèche, d'après la contre-flèche saisie dans le volet « ${libellePoste(poste)} » de chaque groupe${couverture(heuresContreFlecheGroupes.length, groupesAvecContreFleche.length)} : le redressage n'y est pas compté.`
-                                : grandeurs.length > 0
-                                  ? `Calculé d'après : ${grandeurs
-                                      .map((g) => LIBELLES_CHAMPS[g as Champ] ?? g)
-                                      .join(", ")
-                                      .toLowerCase()}.`
-                                  : champs.length > 0
-                                    ? "Calculé d'après les quantités saisies dans le volet du poste de chaque groupe."
-                                    : "Chiffré au forfait."}
-                        </span>
-                        {heuresBareme[poste] != null && resultatBrut && (
-                          <span className="text-xs text-muted-foreground">
-                            Par la calibration : {formatHeures(resultatBrut[poste] ?? 0)} h.
-                          </span>
-                        )}
-                        {baremePercage[poste] && (
-                          <span className="text-xs text-muted-foreground">{baremePercage[poste]}</span>
-                        )}
-                        {poste === "soudage" && (
-                          <CadencesSoudage parametres={parametresSoudage} onChange={setParametresSoudage} />
-                        )}
-                      </CardContent>
-                    )}
-                  </Card>
-                )
-              })}
             </div>
 
             <Card className="lg:sticky lg:top-4">
@@ -1320,7 +1269,7 @@ export default function Chiffrage() {
                 {!resultat && (
                   <span className="text-muted-foreground">
                     {type
-                      ? "Renseignez la poutre et les modules puis cliquez sur « Chiffrer »."
+                      ? "Renseignez les groupes de barres puis cliquez sur « Chiffrer »."
                       : "Choisissez un type d'affaire dans la section « Poutre »."}
                   </span>
                 )}

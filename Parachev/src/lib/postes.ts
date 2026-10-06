@@ -8,7 +8,7 @@ const POSTE_LABELS: Record<string, string> = {
   forage_numerique: "Forage numérique",
   goujonnage: "Goujonnage",
   oxycoupage: "Oxycoupage",
-  mise_a_longueur: "Mise à longueur",
+  mise_a_longueur: "Scie",
   p3: "P3",
   robot: "Robot",
   presse_cintrage: "Presse / Cintrage",
