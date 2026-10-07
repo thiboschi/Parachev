@@ -338,14 +338,14 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
         )}
 
         <Text style={styles.pied} fixed>
-          Parachev · Offre {offre.numeroOffre !== "" ? `n° ${offre.numeroOffre} ` : ""}du {date}
+          ArcelorMittal · Offre {offre.numeroOffre !== "" ? `n° ${offre.numeroOffre} ` : ""}du {date}
         </Text>
       </Page>
     </Document>
   )
 }
 
-/** Contenu du fichier PDF de l'offre. */
+/** Contenu du fichier PDF de l'offre. */ 
 export async function genererOffrePdf(offre: DonneesOffre): Promise<Uint8Array> {
   const blob = await pdf(<OffrePdf offre={offre} />).toBlob()
   return new Uint8Array(await blob.arrayBuffer())
