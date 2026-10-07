@@ -12,7 +12,7 @@ Elle fonctionne entièrement en local : aucune donnée ne quitte le poste.
 | **Search** | Recherche d'affaires par critères (client, profil, postes, quantités…) et en plein texte dans les mails et les documents. |
 | **Prévision** (depuis une affaire) | Heures pointées par poste, variables lues dans le dossier (modifiables à la main) et documents de l'affaire. |
 | **Coefficients** | Modèle calibré de chaque poste ; chaque coefficient peut être corrigé à la main. |
-| **Chiffrage** | Chiffrage manuel d'une nouvelle affaire, poste par poste, avec les temps barème de l'atelier, un calculateur de soudage et l'export de l'offre en PDF. |
+| **Chiffrage** | Chiffrage manuel d'une nouvelle affaire, poste par poste, avec export de l'offre en PDF. Deux modes sur la même saisie : « Manuel » (temps barème de l'atelier, calculateur de soudage, heures saisies à la main pour les autres postes) et « Auto » (heures du modèle calibré). |
 
 ## Installation
 
@@ -67,14 +67,17 @@ Les modèles candidats de chaque poste sont déclarés dans `poste_variables()` 
 
 ### Temps barème du chiffrage
 
-La page Chiffrage utilise aussi les temps barème de l'atelier. Ils sont recopiés des feuilles de calcul des fiches de prévision et ne se mettent pas à jour tout seuls :
+Les deux modes de la page Chiffrage utilisent les temps barème de l'atelier. Ils sont recopiés des feuilles de calcul des fiches de prévision et ne se mettent pas à jour tout seuls :
 
-| Fichier | Poste | Origine | Rôle dans le chiffrage |
-| --- | --- | --- | --- |
-| [sciage.ts](src/lib/sciage.ts) | Mise à longueur | Feuilles `DATA-TEMPS` et `SCIE` | Remplace la calibration dès que des coupes sont saisies. |
-| [presse.ts](src/lib/presse.ts) | Contre-flèche | Feuille `PRESSE` | Remplace la calibration dès qu'une contre-flèche est saisie. Le redressage n'a pas de barème. |
-| [percage.ts](src/lib/percage.ts) | Forage manuel et numérique, trous oblongs | Feuilles `FMAN`, `FWAG` et `DATA-TEMPS` | Indicatif, affiché à côté des heures calibrées. |
-| [soudage.ts](src/lib/soudage.ts) | Soudage | Classeur « 00 Calcul des temps de soudage » | Calculateur ; les cadences sont des paramètres modifiables. |
+| Fichier | Poste | Origine | Mode « Manuel » | Mode « Auto » |
+| --- | --- | --- | --- | --- |
+| [sciage.ts](src/lib/sciage.ts) | Mise à longueur | Feuilles `DATA-TEMPS` et `SCIE` | Chiffre le poste dès que des coupes sont saisies. | Remplace la calibration dès que des coupes sont saisies. |
+| [presse.ts](src/lib/presse.ts) | Contre-flèche | Feuille `PRESSE` | Chiffre le poste dès qu'une contre-flèche est saisie. Le redressage n'a pas de barème. | Remplace la calibration dès qu'une contre-flèche est saisie. |
+| [percage.ts](src/lib/percage.ts) | Forage manuel | Feuille `FMAN` | Chiffre le poste dès que les trous et leur diamètre sont saisis. | Indicatif, affiché à côté des heures calibrées. |
+| [percage.ts](src/lib/percage.ts) | Forage numérique, trous oblongs | Feuilles `FWAG` et `DATA-TEMPS` | Indicatif. | Indicatif. |
+| [soudage.ts](src/lib/soudage.ts) | Soudage | Classeur « 00 Calcul des temps de soudage » | Calculateur ; les cadences sont des paramètres modifiables. | Remplace la calibration dès que le calculateur est rempli. |
+
+En mode « Manuel », les heures d'un poste se saisissent aussi à la main dans l'estimation : elles priment sur le barème, et un poste sans barème ni saisie est compté 0 h.
 
 ## Où sont stockées les données
 

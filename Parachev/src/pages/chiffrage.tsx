@@ -6,12 +6,13 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/dashboard/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MultiSelect } from "@/components/affaires/multi-select"
 import { Combobox, ComboboxContent, ComboboxItem, ComboboxList, ComboboxSelectTrigger, ComboboxValue } from "@/components/ui/combobox"
 import { CadencesSoudage, CalculateurSoudage, useParametresSoudage } from "@/components/chiffrage/calculateur-soudage"
@@ -273,6 +274,14 @@ const heuresContreFlecheGroupe = (groupe: GroupeBarres) =>
     contreFleche: nombre(groupe.contreFleche),
   })
 
+// Heures barème de forage manuel du groupe ; null hors barème.
+const POSTE_FORAGE_MANUEL = "forage_manuel"
+const heuresForageManuelGroupe = (groupe: GroupeBarres) =>
+  heuresForageManuel(
+    totalGroupe(groupe, "nb_trous_manuel"),
+    nombre(groupe.valeurs.diametre_moyen_manuel)
+  )
+
 // Le poste a-t-il une saisie propre à chaque groupe de barres ?
 const aSaisieParGroupe = (poste: string) =>
   (CHAMPS_MODULE[poste] ?? []).length > 0 ||
@@ -464,7 +473,19 @@ function SoudageGroupe({
   )
 }
 
+// Les deux façons de chiffrer, au choix dans la carte "Estimation" : la
+// saisie du projet est commune, seule l'origine des heures change.
+const MODES = { manuel: "Manuel", auto: "Auto" }
+type Mode = keyof typeof MODES
+
 export default function Chiffrage() {
+  // En manuel, les heures de chaque poste viennent des barèmes atelier et du
+  // calculateur de soudage, ou sont saisies à la main dans l'estimation. En
+  // auto (prédiction), elles viennent de la calibration
+  // (`chiffrer_manuellement`), que le calculateur et les barèmes de sciage et
+  // de contre-flèche remplacent dès que leurs quantités sont saisies.
+  const [mode, setMode] = useState<Mode>("manuel")
+  const prediction = mode === "auto"
   // Valeurs proposées dans les listes : celles des affaires déjà en base,
   // comme les filtres de la page Search.
   const { affaires } = useRechercheAffaires()
@@ -566,7 +587,15 @@ export default function Chiffrage() {
   const contreFlecheCalculee =
     heuresContreFlecheGroupes.length > 0 ? somme(heuresContreFlecheGroupes) : null
   const presseActive = postes.has(POSTE_CONTRE_FLECHE)
-  const resultat = useMemo(() => {
+  // Sans prédiction, le forage manuel est lui aussi chiffré au barème (FMAN),
+  // d'après les trous saisis dans le volet du poste de chaque groupe.
+  const heuresForageManuelGroupes = groupes
+    .filter((g) => passePar(g, POSTE_FORAGE_MANUEL))
+    .map(heuresForageManuelGroupe)
+    .filter((h) => h !== null)
+  const forageManuelCalcule =
+    heuresForageManuelGroupes.length > 0 ? somme(heuresForageManuelGroupes) : null
+  const resultatPredit = useMemo(() => {
     if (!resultatBrut) return resultatBrut
     const calculees: [poste: string, heures: number | null][] = [
       ["soudage", soudageActif ? soudageCalcule : null],
@@ -585,7 +614,38 @@ export default function Chiffrage() {
   const heuresBareme: Record<string, number | null> = {
     [POSTE_COUPES]: sciageCalcule,
     [POSTE_CONTRE_FLECHE]: contreFlecheCalculee,
+    ...(prediction ? {} : { [POSTE_FORAGE_MANUEL]: forageManuelCalcule }),
   }
+  // Heures calculées sur la page pour un poste : calculateur ou barème.
+  const heuresCalculeesPoste = (poste: string) =>
+    poste === "soudage" ? soudageCalcule : (heuresBareme[poste] ?? null)
+  // Sans prédiction : heures saisies à la main dans l'estimation, par poste.
+  // Elles priment sur les heures calculées ; un poste sans les unes ni les
+  // autres est compté 0 h.
+  const [heuresSaisies, setHeuresSaisies] = useState<Record<string, string>>({})
+  // Null si le champ est vide, NaN s'il est illisible ou négatif.
+  const heuresSaisiesPoste = (poste: string) => {
+    const brut = heuresSaisies[poste] ?? ""
+    if (brut.trim() === "") return null
+    const heures = nombre(brut)
+    return heures >= 0 ? heures : NaN
+  }
+  const heuresRetenuesPoste = (poste: string) => {
+    const saisies = heuresSaisiesPoste(poste)
+    return saisies !== null && !Number.isNaN(saisies) ? saisies : (heuresCalculeesPoste(poste) ?? 0)
+  }
+  // Postes chiffrés, dans l'ordre de la gamme.
+  const postesGamme = modules.filter(({ poste }) => postes.has(poste)).map(({ poste }) => poste)
+  const postesSansHeures = postesGamme.filter(
+    (poste) => heuresSaisiesPoste(poste) === null && heuresCalculeesPoste(poste) === null
+  )
+  const resultatSaisi: Record<string, number> | null = type
+    ? {
+        ...Object.fromEntries(postesGamme.map((poste) => [poste, heuresRetenuesPoste(poste)])),
+        total: somme(postesGamme.map(heuresRetenuesPoste)),
+      }
+    : null
+  const resultat = prediction ? resultatPredit : resultatSaisi
   const [calcul, setCalcul] = useState(false)
   const [multiplicateur, setMultiplicateur] = useState("")
 
@@ -608,6 +668,7 @@ export default function Chiffrage() {
     setTypeNom(nom)
     // Les postes optionnels sont ceux de la gamme du type : à recocher.
     setGroupes((prev) => prev.map((g) => ({ ...g, postesOptionnels: new Set() })))
+    setHeuresSaisies({})
     setResultat(null)
   }
 
@@ -617,6 +678,7 @@ export default function Chiffrage() {
     setExigences(EXIGENCES_VIDES)
     setTypeNom("")
     setGroupes([groupeVide(0)])
+    setHeuresSaisies({})
     setResultat(null)
   }
 
@@ -649,39 +711,46 @@ export default function Chiffrage() {
       : undefined
   }
 
-  function chiffrer() {
-    // Seules les quantités de la poutre et des postes du groupe comptent.
-    const champsDes = (postesRetenus: string[]) => [
-      ...CHAMPS_POUTRE,
-      ...postesRetenus.flatMap((poste) => CHAMPS_MODULE[poste] ?? []),
-    ]
-    const champs = champsDes([...postes])
+  // Seules les quantités de la poutre et des postes du groupe comptent.
+  const champsDes = (postesRetenus: string[]) => [
+    ...CHAMPS_POUTRE,
+    ...postesRetenus.flatMap((poste) => CHAMPS_MODULE[poste] ?? []),
+  ]
+
+  // Vérifie la saisie des groupes de barres et signale la première erreur.
+  function saisieValide() {
     for (const [index, groupe] of groupes.entries()) {
       const champInvalide = champsDes(postesDuGroupe(groupe)).find((key) =>
         Number.isNaN(nombre(groupe.valeurs[key]))
       )
       if (champInvalide) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLES_CHAMPS[champInvalide]}"`)
-        return
+        return false
       }
       if (!(barresGroupe(groupe) > 0)) {
         toast.error(
           `${prefixeGroupe(index)}Renseignez le nombre de barres : les quantités sont saisies par barre`
         )
-        return
+        return false
       }
       // Négatif ou illisible.
       const coupeInvalide =
         passePar(groupe, POSTE_COUPES) && TYPES_COUPE.find((type) => !(nombre(groupe.coupes[type]) >= 0))
       if (coupeInvalide) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${libelleCoupe(coupeInvalide)}"`)
-        return
+        return false
       }
       if (passePar(groupe, POSTE_CONTRE_FLECHE) && !(nombre(groupe.contreFleche) >= 0)) {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLE_CONTRE_FLECHE}"`)
-        return
+        return false
       }
     }
+    return true
+  }
+
+  function chiffrer() {
+    if (!saisieValide()) return
+    const champs = champsDes([...postes])
 
     const variables = Object.fromEntries(
       (Object.keys(LIBELLES_CHAMPS) as Champ[]).map((key) => [
@@ -845,8 +914,21 @@ export default function Chiffrage() {
 
   async function exporterPdf() {
     if (!resultat) {
-      toast.error("Cliquez sur « Chiffrer » avant d'exporter l'offre")
+      toast.error(
+        prediction
+          ? "Cliquez sur « Chiffrer » avant d'exporter l'offre"
+          : "Choisissez un type d'affaire avant d'exporter l'offre"
+      )
       return
+    }
+    // Avec la prédiction, la saisie est vérifiée par « Chiffrer ».
+    if (!prediction) {
+      if (!saisieValide()) return
+      const posteInvalide = postesGamme.find((poste) => Number.isNaN(heuresSaisiesPoste(poste)))
+      if (posteInvalide) {
+        toast.error(`Heures invalides pour "${libellePoste(posteInvalide)}"`)
+        return
+      }
     }
     const offre = donneesOffre(resultat.total ?? 0)
     const nom = `Offre ${offre.numeroOffre || offre.client || "chiffrage"}`.replace(/[\\/:*?"<>|]/g, "-")
@@ -879,12 +961,10 @@ export default function Chiffrage() {
     const coupes = coupesParBarre(groupe)
     const baremeSciage = heuresSciageGroupe(groupe)
     const baremeContreFleche = heuresContreFlecheGroupe(groupe)
-    // Temps barème de perçage (voir lib/percage.ts), affiché pour
-    // comparaison : l'estimation reste celle de la calibration.
-    const baremeManuel =
-      poste === "forage_manuel"
-        ? heuresForageManuel(totalGroupe(groupe, "nb_trous_manuel"), nombre(groupe.valeurs.diametre_moyen_manuel))
-        : null
+    // Temps barème de perçage (voir lib/percage.ts). Avec la prédiction, ils
+    // sont affichés pour comparaison : l'estimation reste celle de la
+    // calibration. Sans, celui du forage manuel chiffre le poste.
+    const baremeManuel = poste === POSTE_FORAGE_MANUEL ? heuresForageManuelGroupe(groupe) : null
     const baremeNumerique =
       poste === "forage_numerique"
         ? heuresForageNumerique(
@@ -893,6 +973,10 @@ export default function Chiffrage() {
             groupe.profil
           )
         : null
+    // Ce que devient un poste au barème tant que ses quantités manquent.
+    const sansBareme = prediction
+      ? "le poste est chiffré par la calibration."
+      : "les heures du poste sont à saisir dans l'estimation."
     const id = `module-${poste}-${groupe.id}`
     return (
       <>
@@ -938,6 +1022,7 @@ export default function Chiffrage() {
           <span className="text-xs text-muted-foreground">
             Barème atelier (FWAG) : {formatHeures(baremeNumerique.ame)} h dans l'âme,{" "}
             {formatHeures(baremeNumerique.aile)} h dans les ailes.
+            {!prediction && " Temps indicatif : les heures du poste sont à saisir dans l'estimation."}
           </span>
         )}
         {poste === POSTE_CONTRE_FLECHE && (
@@ -945,7 +1030,7 @@ export default function Chiffrage() {
             {!(nombre(groupe.contreFleche) > 0)
               ? contreFlecheCalculee !== null
                 ? "Sans contre-flèche saisie, ce groupe n'est pas compté à la presse."
-                : "Sans contre-flèche saisie, le poste est chiffré par la calibration."
+                : `Sans contre-flèche saisie, ${sansBareme}`
               : baremeContreFleche !== null
                 ? `Barème atelier (PRESSE), contre-flèche : ${formatHeures(baremeContreFleche)} h pour ${formatHeures(barresContreFleche(groupe))} barre${barresContreFleche(groupe) > 1 ? "s" : ""}, redressage non compris.`
                 : "Hors barème : renseignez le nombre de barres, la longueur par barre et le profil (jusqu'à 1100 mm de haut, contre-flèche de 900 mm au plus)."}
@@ -980,7 +1065,7 @@ export default function Chiffrage() {
               {!(coupes > 0)
                 ? sciageCalcule !== null
                   ? "Sans coupe saisie, ce groupe n'est pas compté dans la scie."
-                  : "Sans coupe saisie, le poste est chiffré par la calibration."
+                  : `Sans coupe saisie, ${sansBareme}`
                 : baremeSciage !== null
                   ? `Barème atelier (DATA-TEMPS), sciage : ${formatHeures(baremeSciage)} h pour ${formatHeures(coupes)} coupe${coupes > 1 ? "s" : ""} par barre.`
                   : "Hors barème : renseignez le nombre de barres et un profil du barème atelier (coupe biaise au robot sur les HL 1000, HL 1100 et HD 400 x 1086)."}
@@ -1098,9 +1183,11 @@ export default function Chiffrage() {
           <div className="flex flex-col gap-1">
             <h1 className="text-xl font-semibold">Chiffrage</h1>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Estime le temps de fabrication d'un projet qui n'est pas (encore)
-              dans le dossier surveillé, à partir des coefficients calibrés --
-              rien n'est enregistré en base, c'est une simulation.
+              Chiffre le temps de fabrication d'un projet qui n'est pas (encore)
+              dans le dossier surveillé, poste par poste : aux temps barème de
+              l'atelier, complétés par des heures saisies à la main, ou par
+              prédiction à partir des coefficients calibrés -- rien n'est
+              enregistré en base, c'est une simulation.
             </p>
           </div>
 
@@ -1262,6 +1349,17 @@ export default function Chiffrage() {
             <Card className="lg:sticky lg:top-4">
               <CardHeader>
                 <CardTitle className="text-sm text-muted-foreground">Estimation</CardTitle>
+                <CardAction>
+                  <Tabs value={mode} onValueChange={(valeur) => setMode(valeur as Mode)}>
+                    <TabsList>
+                      {Object.entries(MODES).map(([valeur, libelle]) => (
+                        <TabsTrigger key={valeur} value={valeur} className="px-3">
+                          {libelle}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </CardAction>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-1.5 text-sm">
                 {(client.client || client.numero_11 || client.numero_offre) && (
@@ -1276,12 +1374,49 @@ export default function Chiffrage() {
                       : "Choisissez un type d'affaire dans la section « Poutre »."}
                   </span>
                 )}
-                {resultat && heuresParPoste.length === 0 && (
+                {!prediction &&
+                  postesGamme.map((poste) => {
+                    const calculees = heuresCalculeesPoste(poste)
+                    const saisies = heuresSaisiesPoste(poste)
+                    const source = poste === "soudage" ? "calculateur" : "barème"
+                    return (
+                      <div key={poste} className="flex items-center justify-between gap-2">
+                        <Label htmlFor={`heures-${poste}`} className="text-sm font-normal text-muted-foreground">
+                          {libellePoste(poste)}
+                          {calculees !== null &&
+                            (saisies === null
+                              ? ` (${source})`
+                              : ` (${source} : ${formatHeures(calculees)} h)`)}
+                        </Label>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <Input
+                            id={`heures-${poste}`}
+                            className="h-8 w-24 text-right tabular-nums"
+                            inputMode="decimal"
+                            placeholder={calculees !== null ? formatHeures(calculees) : undefined}
+                            aria-invalid={Number.isNaN(saisies)}
+                            value={heuresSaisies[poste] ?? ""}
+                            onChange={(e) =>
+                              setHeuresSaisies((prev) => ({ ...prev, [poste]: e.target.value }))
+                            }
+                          />
+                          <span>h</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                {!prediction && postesSansHeures.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    Sans barème ni heures saisies, comptés 0 h :{" "}
+                    {postesSansHeures.map(libellePoste).join(", ")}.
+                  </span>
+                )}
+                {prediction && resultat && heuresParPoste.length === 0 && (
                   <span className="text-muted-foreground">
                     Aucune heure estimée avec ces variables.
                   </span>
                 )}
-                {heuresParPoste.map(([poste, heures]) => (
+                {prediction && heuresParPoste.map(([poste, heures]) => (
                   <div key={poste} className="flex items-center justify-between">
                     <span className="text-muted-foreground">
                       {libellePoste(poste)}
@@ -1340,13 +1475,19 @@ export default function Chiffrage() {
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">
-                  <Button onClick={chiffrer} disabled={calcul || !type}>
-                    {calcul ? "Calcul…" : "Chiffrer"}
-                  </Button>
+                  {prediction && (
+                    <Button onClick={chiffrer} disabled={calcul || !type}>
+                      {calcul ? "Calcul…" : "Chiffrer"}
+                    </Button>
+                  )}
                   <Button variant="ghost" onClick={reinitialiser} disabled={calcul}>
                     Réinitialiser
                   </Button>
-                  <Button variant="outline" onClick={exporterPdf} disabled={calcul || exportPdf || !resultat}>
+                  <Button
+                    variant={prediction ? "outline" : "default"}
+                    onClick={exporterPdf}
+                    disabled={calcul || exportPdf || !resultat}
+                  >
                     {exportPdf ? "PDF…" : "PDF"}
                   </Button>
                 </div>

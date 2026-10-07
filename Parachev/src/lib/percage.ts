@@ -1,7 +1,9 @@
 // Temps barème de perçage et de trous oblongs, repris des feuilles "FMAN"
 // (forage manuel), "FWAG" (forage numérique) et "DATA-TEMPS" (oblongs) des
-// fiches de prévision. Indicatifs : affichés dans le chiffrage à côté des
-// heures de la calibration, sans les remplacer.
+// fiches de prévision. Dans le chiffrage en mode manuel, le forage manuel
+// chiffre le poste ; le forage numérique et les oblongs sont indicatifs.
+// En mode auto (prédiction), tous sont indicatifs : affichés à côté
+// des heures de la calibration, sans les remplacer.
 
 import { designationProfil } from "@/lib/profils"
 
