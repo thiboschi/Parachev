@@ -37,7 +37,7 @@ use std::sync::OnceLock;
 
 /// À incrémenter quand l'extraction change : force la relecture de tous
 /// les fichiers au prochain scan (sinon l'incrémental les sauterait).
-const VERSION_INDEXEUR: &str = "8";
+const VERSION_INDEXEUR: &str = "9";
 const CLE_VERSION_INDEXEUR: &str = "indexeur_version";
 /// Taille maximale du texte d'un mail indexé en plein texte.
 const MAX_CARACTERES_CONTENU: usize = 20_000;

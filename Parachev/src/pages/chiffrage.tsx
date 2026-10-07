@@ -343,17 +343,7 @@ function Section({ titre, children }: { titre: string; children: React.ReactNode
   )
 }
 
-function ChampSaisie({
-  id,
-  label,
-  aide,
-  children,
-}: {
-  id?: string
-  label: string
-  aide?: string
-  children: React.ReactNode
-}) {
+function ChampSaisie({ id, label, aide, children }: { id?: string, label: string, aide?: string, children: React.ReactNode }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
@@ -370,15 +360,7 @@ function ChampSaisie({
  * un champ de recherche en tête de la liste (listes longues) : dit si une
  * valeur correspond au texte saisi.
  */
-function Liste({
-  label,
-  valeur,
-  options,
-  vide = "Non renseigné",
-  desactive = false,
-  recherche,
-  onChange,
-}: {
+function Liste({ label, valeur, options, vide = "Non renseigné", desactive = false, recherche, onChange }: {
   label: string
   valeur: string
   options: { valeur: string; libelle: string }[]
