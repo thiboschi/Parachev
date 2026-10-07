@@ -101,7 +101,7 @@ type Champ =
 const LIBELLES_CHAMPS: Record<Champ, string> = {
   nb_barres: "Nombre de barres",
   poids_t: "Poids par barre (t)",
-  metres: "Longueur par barre (m)",
+  metres: "Longueur par barre (mm)",
   nb_barres_cfl: "Barres avec contre-flèche",
   nb_goujons: "Goujons par barre",
   nb_retournements_goujons: "Retournements par barre",
@@ -231,9 +231,15 @@ const groupeVide = (id: number): GroupeBarres => ({
 
 const barresGroupe = (groupe: GroupeBarres) => nombre(groupe.valeurs.nb_barres)
 
-// Total d'un groupe pour un champ : la valeur par barre × son nombre de barres.
+// Longueur d'une barre en m : saisie en mm, mais `chiffrer_manuellement` et
+// les barèmes atelier l'attendent en m.
+const longueurGroupe = (groupe: GroupeBarres) => nombre(groupe.valeurs.metres) / 1000
+
+// Total d'un groupe pour un champ : la valeur par barre × son nombre de barres
+// (en m pour la longueur).
 const totalGroupe = (groupe: GroupeBarres, key: Champ) =>
-  nombre(groupe.valeurs[key]) * (CHAMPS_PAR_BARRE.has(key) ? barresGroupe(groupe) : 1)
+  (key === "metres" ? longueurGroupe(groupe) : nombre(groupe.valeurs[key])) *
+  (CHAMPS_PAR_BARRE.has(key) ? barresGroupe(groupe) : 1)
 
 const retournementsParBarre = (groupe: GroupeBarres) => Math.max(groupe.zonesGoujons.size - 1, 0)
 
@@ -246,7 +252,7 @@ const heuresSciageGroupe = (groupe: GroupeBarres) =>
   heuresSciage({
     profil: groupe.profil,
     nbBarres: barresGroupe(groupe),
-    longueur: nombre(groupe.valeurs.metres),
+    longueur: longueurGroupe(groupe),
     coupesDroites: nombre(groupe.coupes.coupe_droite),
     coupesBiaises: nombre(groupe.coupes.coupe_biaise),
   })
@@ -263,7 +269,7 @@ const heuresContreFlecheGroupe = (groupe: GroupeBarres) =>
   heuresContreFleche({
     profil: groupe.profil,
     nbBarres: barresContreFleche(groupe),
-    longueur: nombre(groupe.valeurs.metres),
+    longueur: longueurGroupe(groupe),
     contreFleche: nombre(groupe.contreFleche),
   })
 
@@ -639,7 +645,7 @@ export default function Chiffrage() {
   const aideTotal = (groupe: GroupeBarres, key: Champ) => {
     const total = totalGroupe(groupe, key)
     return CHAMPS_PAR_BARRE.has(key) && barresGroupe(groupe) > 0 && total > 0
-      ? `total : ${formatHeures(total)}`
+      ? `total : ${formatHeures(total)}${key === "metres" ? " m" : ""}`
       : undefined
   }
 
@@ -794,17 +800,14 @@ export default function Chiffrage() {
       numeroOffre: client.numero_offre.trim(),
       numeroCommande: client.numero_11.trim(),
       numeroLaminage: client.numero_19.trim(),
-      poutre: renseignees([
-        { label: "Type d'affaire", valeur: typeNom },
-        ...groupes.flatMap((groupe, index) => [
-          { label: `${prefixeGroupe(index)}Famille de profil`, valeur: groupe.famille },
-          { label: `${prefixeGroupe(index)}Profil`, valeur: groupe.profil },
-          ...CHAMPS_POUTRE.map((key) => ({
-            label: `${prefixeGroupe(index)}${LIBELLES_CHAMPS[key]}`,
-            valeur: avecTotal(groupe, key),
-          })),
-        ]),
-      ]),
+      typeAffaire: typeNom,
+      barres: groupes.map((groupe) => ({
+        nombre: groupe.valeurs.nb_barres.trim(),
+        profil: groupe.profil.trim(),
+        longueur: nombre(groupe.valeurs.metres) > 0 ? nombre(groupe.valeurs.metres) : null,
+        poids: groupe.valeurs.poids_t.trim(),
+        operations: postesDuGroupe(groupe).flatMap((poste) => detailsGroupe(groupe, poste)),
+      })),
       normes: renseignees(
         CHAMPS_NORMES.map(({ key, label }) => ({
           label,

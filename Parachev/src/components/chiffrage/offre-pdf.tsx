@@ -16,6 +16,19 @@ export interface OperationOffre {
   heures: number
 }
 
+/** Un groupe de barres identiques : une ligne du tableau "Objet de l'offre". */
+export interface BarresOffre {
+  nombre: string
+  profil: string
+  /** Par barre, en mm ; null si non renseignée. */
+  longueur: number | null
+  /** Par barre, en t. */
+  poids: string
+  /** Quantités saisies pour ce groupe dans les modules de ses postes, dans
+   *  l'ordre de la gamme. */
+  operations: string[]
+}
+
 export interface SoudureOffre {
   designation: string
   nombre: string
@@ -30,7 +43,8 @@ export interface DonneesOffre {
   numeroOffre: string
   numeroCommande: string
   numeroLaminage: string
-  poutre: LigneInfo[]
+  typeAffaire: string
+  barres: BarresOffre[]
   normes: LigneInfo[]
   operations: OperationOffre[]
   /** Pièces à souder sur une barre (calculateur de soudage). */
@@ -158,6 +172,9 @@ function Infos({ lignes }: { lignes: LigneInfo[] }) {
   )
 }
 
+// Largeurs des colonnes du tableau des groupes de barres.
+const COLONNES_BARRES = ["10%", "15%", "17%", "14%", "44%"]
+
 // Largeurs des colonnes du tableau des pièces à souder.
 const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
 
@@ -199,17 +216,50 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
         </View>
 
-        {offre.poutre.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.titreSection}>Objet de l'offre</Text>
-            <Infos lignes={offre.poutre} />
-          </View>
-        )}
-
         {offre.normes.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.titreSection}>Normes et exigences</Text>
             <Infos lignes={offre.normes} />
+          </View>
+        )}
+
+        {offre.barres.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.titreSection}>Objet de l'offre</Text>
+            {offre.typeAffaire !== "" && (
+              <Text style={{ marginBottom: 6 }}>
+                Type d'affaire : <Text style={styles.gras}>{offre.typeAffaire}</Text>
+              </Text>
+            )}
+            <View style={[styles.ligneTableau, styles.enteteTableau]} fixed>
+              {["Nb barres", "Profil", "Longueur / barre (mm)", "Poids / barre (t)", "Opérations"].map((colonne, i) => (
+                <Text
+                  key={colonne}
+                  style={[
+                    styles.celluleEntete,
+                    { width: COLONNES_BARRES[i] },
+                    i === 4 ? { paddingLeft: 12 } : {},
+                    i === 2 || i === 3 ? styles.droite : {},
+                  ]}
+                >
+                  {colonne}
+                </Text>
+              ))}
+            </View>
+            {offre.barres.map((barres, i) => (
+              <View key={i} style={styles.ligneTableau} wrap={false}>
+                <Text style={{ width: COLONNES_BARRES[0] }}>{barres.nombre || "—"}</Text>
+                <Text style={[styles.gras, { width: COLONNES_BARRES[1] }]}>{barres.profil || "—"}</Text>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[2] }]}>{barres.longueur !== null ? format(barres.longueur, 1) : "—"}</Text>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[3] }]}>{barres.poids || "—"}</Text>
+                <View style={{ width: COLONNES_BARRES[4], paddingLeft: 12 }}>
+                  {barres.operations.length === 0 && <Text>—</Text>}
+                  {barres.operations.map((detail, j) => (
+                    <Text key={j}>{detail}</Text>
+                  ))}
+                </View>
+              </View>
+            ))}
           </View>
         )}
 
