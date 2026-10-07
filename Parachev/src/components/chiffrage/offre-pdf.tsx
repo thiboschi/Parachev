@@ -1,4 +1,7 @@
-import { Document, Page, Rect, StyleSheet, Svg, Text, View, pdf } from "@react-pdf/renderer"
+import { Document, Image, Page, StyleSheet, Text, View, pdf } from "@react-pdf/renderer"
+
+// Embarqué dans le module (data URI) : le rendu du PDF n'a rien à télécharger.
+import logoArcelorMittal from "@/assets/logo_arcelormittal.png?inline"
 
 // Offre de prix générée depuis la page "Chiffrage" : tout ce qui y est saisi
 // et chiffré, mis en page pour être envoyé au client. Ce module embarque
@@ -91,8 +94,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 2,
     borderBottomColor: MARINE,
   },
-  marque: { flexDirection: "row", alignItems: "center", gap: 8 },
-  nomMarque: { fontFamily: "Helvetica-Bold", fontSize: 18, color: MARINE, letterSpacing: 1 },
+  // Mêmes proportions que l'image (309 × 138 px).
+  logo: { width: 103, height: 46 },
   titre: { fontFamily: "Helvetica-Bold", fontSize: 16, lineHeight: 1.2, color: MARINE, textAlign: "right" },
   sousTitre: { color: GRIS, textAlign: "right", marginTop: 2 },
   blocs: { flexDirection: "row", gap: 12, marginTop: 16 },
@@ -117,9 +120,10 @@ const styles = StyleSheet.create({
     borderBottomColor: TRAIT,
   },
   grille: { flexDirection: "row", flexWrap: "wrap" },
-  info: { width: "50%", flexDirection: "row", paddingVertical: 2, paddingRight: 10 },
-  infoLabel: { width: "55%", color: GRIS },
-  infoValeur: { width: "45%", fontFamily: "Helvetica-Bold" },
+  info: { width: "50%", paddingRight: 12, marginTop: 4, marginBottom: 4 },
+  infoContenu: { borderLeftWidth: 2, borderLeftColor: TRAIT, paddingLeft: 8 },
+  infoLabel: { color: GRIS, fontSize: 8 },
+  infoValeur: { fontFamily: "Helvetica-Bold" },
   ligneTableau: {
     flexDirection: "row",
     paddingVertical: 5,
@@ -147,25 +151,15 @@ const styles = StyleSheet.create({
   pied: { position: "absolute", bottom: 26, left: 40, fontSize: 8, color: GRIS },
 })
 
-// Même dessin que assets/logo_parachev_icone.svg.
-function Logo() {
-  return (
-    <Svg width={30} height={30} viewBox="30 30 140 140">
-      <Rect x={30} y={30} width={140} height={140} rx={28} fill={MARINE} />
-      <Rect x={75} y={55} width={50} height={14} rx={2} fill={FOND} />
-      <Rect x={58} y={131} width={84} height={14} rx={2} fill={FOND} />
-      <Rect x={93} y={69} width={14} height={62} fill={FOND} />
-    </Svg>
-  )
-}
-
 function Infos({ lignes }: { lignes: LigneInfo[] }) {
   return (
     <View style={styles.grille}>
       {lignes.map(({ label, valeur }) => (
-        <View key={label} style={styles.info}>
-          <Text style={styles.infoLabel}>{label}</Text>
-          <Text style={styles.infoValeur}>{valeur}</Text>
+        <View key={label} style={styles.info} wrap={false}>
+          <View style={styles.infoContenu}>
+            <Text style={styles.infoLabel}>{label}</Text>
+            <Text style={styles.infoValeur}>{valeur}</Text>
+          </View>
         </View>
       ))}
     </View>
@@ -189,10 +183,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
     <Document title={`Offre ${offre.numeroOffre}`.trim()} author="Parachev">
       <Page size="A4" style={styles.page}>
         <View style={styles.entete} fixed>
-          <View style={styles.marque}>
-            <Logo />
-            <Text style={styles.nomMarque}>PARACHEV</Text>
-          </View>
+          <Image src={logoArcelorMittal} style={styles.logo} />
           <View>
             <Text style={styles.titre}>OFFRE DE PRIX</Text>
             {offre.numeroOffre !== "" && <Text style={styles.sousTitre}>N° {offre.numeroOffre}</Text>}
