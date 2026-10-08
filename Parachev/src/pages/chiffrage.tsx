@@ -910,13 +910,18 @@ export default function Chiffrage() {
     setExportPdf(true)
     try {
       // @react-pdf/renderer n'est chargé qu'au premier export.
-      const { genererOffrePdf } = await import("@/components/chiffrage/offre-pdf")
-      const contenu = await genererOffrePdf(offre)
+      const [{ genererOffrePdf }, { genererOffreBisPdf }] = await Promise.all([
+        import("@/components/chiffrage/offre-pdf"),
+        import("@/components/chiffrage/offre-pdf-bis"),
+      ])
+      const [contenu, contenuBis] = await Promise.all([genererOffrePdf(offre), genererOffreBisPdf(offre)])
+      // La seconde version est enregistrée à côté de la première (« … - bis.pdf »).
       const chemin = await invoke<string | null>("enregistrer_pdf", {
         nom: `${nom}.pdf`,
         contenu: Array.from(contenu),
+        contenuBis: Array.from(contenuBis),
       })
-      if (chemin) toast.success(`Offre enregistrée : ${chemin}`)
+      if (chemin) toast.success(`Offres enregistrées : ${chemin} et sa version « bis »`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
