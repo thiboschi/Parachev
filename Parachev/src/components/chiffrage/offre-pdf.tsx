@@ -14,8 +14,6 @@ export interface LigneInfo {
 
 export interface OperationOffre {
   libelle: string
-  /** Quantités saisies dans le module du poste. */
-  details: string[]
   heures: number
 }
 
@@ -257,20 +255,12 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
         <View style={styles.section}>
           <Text style={styles.titreSection}>Détail des opérations</Text>
           <View style={[styles.ligneTableau, styles.enteteTableau]} fixed>
-            <Text style={[styles.celluleEntete, { width: "32%" }]}>Opération</Text>
-            <Text style={[styles.celluleEntete, { width: "50%" }]}>Détail</Text>
+            <Text style={[styles.celluleEntete, { width: "82%" }]}>Opération</Text>
             <Text style={[styles.celluleEntete, styles.droite, { width: "18%" }]}>Temps</Text>
           </View>
-          {offre.operations.map(({ libelle, details, heures: temps }) => (
+          {offre.operations.map(({ libelle, heures: temps }) => (
             <View key={libelle} style={styles.ligneTableau} wrap={false}>
-              <Text style={[styles.gras, { width: "32%" }]}>{libelle}</Text>
-              <View style={{ width: "50%" }}>
-                {details.map((detail) => (
-                  <Text key={detail} style={styles.detail}>
-                    {detail}
-                  </Text>
-                ))}
-              </View>
+              <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
               <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? heures(temps) : "—"}</Text>
             </View>
           ))}

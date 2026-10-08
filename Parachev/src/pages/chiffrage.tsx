@@ -839,12 +839,6 @@ export default function Chiffrage() {
       }
       return details
     }
-    const detailsModule = (poste: string) =>
-      groupes.flatMap((groupe, index) =>
-        (passePar(groupe, poste) ? detailsGroupe(groupe, poste) : []).map(
-          (detail) => `${prefixeGroupe(index)}${detail}`
-        )
-      )
     return {
       date: new Date(),
       client: client.client.trim(),
@@ -869,7 +863,6 @@ export default function Chiffrage() {
         .filter(({ poste }) => postes.has(poste))
         .map(({ poste }) => ({
           libelle: libellePoste(poste),
-          details: detailsModule(poste),
           heures: resultat?.[poste] ?? 0,
         })),
       soudures: groupes.flatMap((groupe, index) =>
