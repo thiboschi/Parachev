@@ -72,7 +72,7 @@ const AUTEUR = "Damien Schils"
 
 // Phrase d'introduction de la première page, au-dessus du trait de l'en-tête.
 const ACCROCHE =
-  "Nous vous remercions pour votre demande et l'intérêt porté à nos services. Sur la base des éléments transmis, nous avons le plaisir de vous présenter notre proposition"
+  "Nous vous remercions pour votre demande et l'intérêt porté à nos services.\nSur la base des éléments transmis, nous avons le plaisir de vous présenter notre proposition"
 
 // Textes de l'annexe, les mêmes pour toutes les offres.
 const A_VOTRE_CHARGE = [
@@ -257,7 +257,7 @@ function Annexe() {
         ))}
       </View>
 
-      <Text style={styles.titreAnnexe}>3 - Détails</Text>
+      <Text style={styles.titreAnnexe}>3 - Informations</Text>
       {CONDITIONS.map(({ label, valeur }) => (
         <Text key={label} style={styles.paragraphe} wrap={false}>
           <Text style={styles.gras}>{label} : </Text>
