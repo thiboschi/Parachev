@@ -866,6 +866,53 @@ export default function Chiffrage() {
       }
       return details
     }
+    // Quantités totales du projet pour un poste : celles de ses groupes,
+    // multipliées par leur nombre de barres.
+    const recapPoste = (poste: string): LigneInfo[] => {
+      const concernes = groupes.filter((g) => passePar(g, poste))
+      const lignes: LigneInfo[] = []
+      const ajouter = (label: string, total: number, precision = "") => {
+        if (total > 0) lignes.push({ label, valeur: `${formatHeures(total)}${precision}` })
+      }
+      const diametre = (key: Champ) => (totalProjet(key) > 0 ? ` (Ø moyen ${formatHeures(totalProjet(key))} mm)` : "")
+      if (poste === POSTE_COUPES) {
+        for (const type of TYPES_COUPE) {
+          ajouter(libelleOperationRde(type), somme(concernes.map((g) => nombre(g.coupes[type]) * barresGroupe(g))))
+        }
+      }
+      if (poste === POSTE_CONTRE_FLECHE) {
+        const cintres = concernes.filter((g) => nombre(g.contreFleche) > 0 || nombre(g.valeurs.nb_barres_cfl) > 0)
+        const fleches = Array.from(new Set(cintres.map((g) => g.contreFleche.trim()).filter((f) => f !== "")))
+        ajouter(
+          LIBELLES_CHAMPS.nb_barres_cfl,
+          somme(cintres.map(barresContreFleche)),
+          fleches.length > 0 ? ` (${fleches.join(" / ")} mm)` : ""
+        )
+      }
+      if (poste === "forage_numerique") {
+        ajouter("Trous perçage numérique", totalProjet("nb_trous_numerique"), diametre("diametre_moyen_numerique"))
+      }
+      if (poste === POSTE_FORAGE_MANUEL) {
+        ajouter("Trous perçage manuel", totalProjet("nb_trous_manuel"), diametre("diametre_moyen_manuel"))
+      }
+      if (poste === "goujonnage") ajouter("Goujons", totalProjet("nb_goujons"))
+      if (poste === "oxycoupage") ajouter("Longueur de coupe", totalProjet("longueur_coupe") / 1000, " m")
+      if (poste === "soudage") {
+        ajouter(
+          "Pièces à souder",
+          somme(concernes.map((g) => somme((lignesSoudure[g.id] ?? []).map((l) => nombre(l.nombre))) * barresGroupe(g)))
+        )
+      }
+      ajouter(
+        `Trous oblongs (${libellePoste(poste)})`,
+        somme(
+          concernes
+            .filter((g) => g.oblongsActifs.has(poste))
+            .map((g) => nombre(oblongsDuPoste(g, poste).nombre) * barresGroupe(g))
+        )
+      )
+      return lignes
+    }
     // Heures des postes décochés : reportées sur le poste affiché qui en compte
     // le plus, pour que les lignes de l'offre s'additionnent jusqu'au total.
     const heuresOffre = postesGamme.map((poste) => ({ poste, heures: (resultat?.[poste] ?? 0) * coefReserve }))
@@ -884,10 +931,10 @@ export default function Chiffrage() {
       numeroLaminage: client.numero_19.trim(),
       typeAffaire: typeNom,
       barres: groupes.map((groupe) => ({
-        nombre: groupe.valeurs.nb_barres.trim(),
+        nombre: barresGroupe(groupe),
         profil: groupe.profil.trim(),
         longueur: nombre(groupe.valeurs.metres) > 0 ? nombre(groupe.valeurs.metres) : null,
-        poids: groupe.valeurs.poids_t.trim(),
+        poids: nombre(groupe.valeurs.poids_t) > 0 ? nombre(groupe.valeurs.poids_t) : null,
         operations: postesDuGroupe(groupe).flatMap((poste) => detailsGroupe(groupe, poste)),
       })),
       normes: renseignees(
@@ -896,6 +943,7 @@ export default function Chiffrage() {
           valeur: estExigence(key) ? exigences[key].join(", ") : normes[key],
         }))
       ),
+      recapitulatif: postesGamme.flatMap(recapPoste),
       operations: affiches.map(({ poste, heures }) => ({
         libelle: libellePoste(poste),
         heures: heures + (poste === receveur ? heuresMasquees : 0),
@@ -910,15 +958,15 @@ export default function Chiffrage() {
         }))
       ),
       // La réserve n'a pas de ligne dans l'offre : elle est répartie sur
-      // toutes ses heures (opérations, total, majorations, sous-total).
+      // toutes ses heures (opérations, total, majorations).
       totalHeures: total * coefReserve,
+      // Sans les coefficients : l'offre est lue par le client.
       majorations: [
-        ...(dbs ? [{ label: "DBS (×1,20)", heures: supplementDbs * coefReserve }] : []),
+        ...(dbs ? [{ label: "Majoration DBS", heures: supplementDbs * coefReserve }] : []),
         ...(classeTolerance2
-          ? [{ label: "Tolérance classe 2 (×1,25)", heures: supplementTolerance * coefReserve }]
+          ? [{ label: "Majoration tolérance classe 2", heures: supplementTolerance * coefReserve }]
           : []),
       ],
-      sousTotalHeures: heuresAvecReserve,
       tauxHoraire: tauxHoraireValide ? tauxHoraireNombre : null,
       montant,
       prixTonne,

@@ -19,12 +19,12 @@ export interface OperationOffre {
 
 /** Un groupe de barres identiques : une ligne du tableau "Objet de l'offre". */
 export interface BarresOffre {
-  nombre: string
+  nombre: number
   profil: string
   /** Par barre, en mm ; null si non renseignée. */
   longueur: number | null
-  /** Par barre, en t. */
-  poids: string
+  /** Par barre, en t ; null si non renseigné. */
+  poids: number | null
   /** Quantités saisies pour ce groupe dans les modules de ses postes, dans
    *  l'ordre de la gamme. */
   operations: string[]
@@ -48,6 +48,8 @@ export interface DonneesOffre {
   typeAffaire: string
   barres: BarresOffre[]
   normes: LigneInfo[]
+  /** Quantités totales du projet par opération, dans l'ordre de la gamme. */
+  recapitulatif: LigneInfo[]
   operations: OperationOffre[]
   /** Pièces à souder sur une barre (calculateur de soudage). */
   soudures: SoudureOffre[]
@@ -55,7 +57,6 @@ export interface DonneesOffre {
   /** Suppléments d'heures des majorations appliquées au total (DBS,
    *  tolérance classe 2). */
   majorations: { label: string; heures: number }[]
-  sousTotalHeures: number
   /** Taux horaire (€/h) et montant, null si non renseigné. */
   tauxHoraire: number | null
   montant: number | null
@@ -66,6 +67,18 @@ export interface DonneesOffre {
 
 // Signataire de l'offre, affiché dans l'en-tête.
 const AUTEUR = "Damien Schils"
+
+// Conditions commerciales, les mêmes pour toutes les offres.
+const CONDITIONS: LigneInfo[] = [
+  { label: "Prix", valeur: "Tous nos prix sont H.T." },
+  { label: "Validité de l'offre", valeur: "Le prix main-d'œuvre est valable 3 mois." },
+  { label: "Conditions de paiement", valeur: "Paiement à 30 jours fin de mois." },
+  {
+    label: "Modifications",
+    valeur:
+      "Toute modification ou ajout par rapport aux clauses de notre offre fera l'objet d'un recalcul de notre prix et notre offre sera révisée en conséquence.",
+  },
+]
 
 const MARINE = "#1e3a5f"
 const GRIS = "#64748b"
@@ -80,6 +93,10 @@ const format = (value: number, decimales: number, minimum = 0) =>
     .replace(/[  ]/g, " ")
 
 const euros = (value: number) => `${format(value, 2, 2)} €`
+
+// Poids d'une barre au kg près, tonnage d'une position à 10 kg près.
+const poidsBarre = (tonnes: number) => format(tonnes, 3, 3)
+const tonnage = (tonnes: number) => format(tonnes, 2, 2)
 
 const styles = StyleSheet.create({
   page: {
@@ -137,6 +154,7 @@ const styles = StyleSheet.create({
     borderBottomColor: TRAIT,
   },
   enteteTableau: { backgroundColor: MARINE, borderBottomWidth: 0, borderRadius: 2 },
+  totalTableau: { backgroundColor: FOND, borderBottomWidth: 0 },
   celluleEntete: { fontFamily: "Helvetica-Bold", fontSize: 8, color: "#ffffff" },
   droite: { textAlign: "right" },
   detail: { color: GRIS, fontSize: 8.5 },
@@ -172,7 +190,7 @@ function Infos({ lignes }: { lignes: LigneInfo[] }) {
 }
 
 // Largeurs des colonnes du tableau des groupes de barres.
-const COLONNES_BARRES = ["10%", "15%", "17%", "14%", "44%"]
+const COLONNES_BARRES = ["6%", "13%", "9%", "13%", "12%", "11%", "36%"]
 
 // Largeurs des colonnes du tableau des pièces à souder.
 const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
@@ -186,6 +204,10 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
   ].filter(({ valeur }) => valeur !== "")
   // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
   const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
+  // Tonnage de chaque position, null sans poids renseigné.
+  const tonnages = offre.barres.map(({ nombre, poids }) => (poids !== null && nombre > 0 ? nombre * poids : null))
+  const totalBarres = offre.barres.reduce((total, { nombre }) => total + (nombre > 0 ? nombre : 0), 0)
+  const tonnageTotal = tonnages.reduce<number>((total, t) => total + (t ?? 0), 0)
 
   return (
     <Document title={`Offre ${offre.numeroOffre}`.trim()} author="Parachev">
@@ -236,14 +258,14 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
               </Text>
             )}
             <View style={[styles.ligneTableau, styles.enteteTableau]} fixed>
-              {["Nb barres", "Profil", "Longueur / barre (mm)", "Poids / barre (t)", "Opérations"].map((colonne, i) => (
+              {["Pos.", "Profil", "Quantité", "Longueur (mm)", "Poids unit. (t)", "Tonnage (t)", "Opérations"].map((colonne, i) => (
                 <Text
                   key={colonne}
                   style={[
                     styles.celluleEntete,
                     { width: COLONNES_BARRES[i] },
-                    i === 4 ? { paddingLeft: 12 } : {},
-                    i === 2 || i === 3 ? styles.droite : {},
+                    i === 6 ? { paddingLeft: 12 } : {},
+                    i >= 2 && i <= 5 ? styles.droite : {},
                   ]}
                 >
                   {colonne}
@@ -252,11 +274,13 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
             </View>
             {offre.barres.map((barres, i) => (
               <View key={i} style={styles.ligneTableau} wrap={false}>
-                <Text style={{ width: COLONNES_BARRES[0] }}>{barres.nombre || "—"}</Text>
+                <Text style={{ width: COLONNES_BARRES[0] }}>{i + 1}</Text>
                 <Text style={[styles.gras, { width: COLONNES_BARRES[1] }]}>{barres.profil || "—"}</Text>
-                <Text style={[styles.droite, { width: COLONNES_BARRES[2] }]}>{barres.longueur !== null ? format(barres.longueur, 1) : "—"}</Text>
-                <Text style={[styles.droite, { width: COLONNES_BARRES[3] }]}>{barres.poids || "—"}</Text>
-                <View style={{ width: COLONNES_BARRES[4], paddingLeft: 12 }}>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[2] }]}>{barres.nombre > 0 ? format(barres.nombre, 0) : "—"}</Text>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[3] }]}>{barres.longueur !== null ? format(barres.longueur, 1) : "—"}</Text>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[4] }]}>{barres.poids !== null ? poidsBarre(barres.poids) : "—"}</Text>
+                <Text style={[styles.droite, { width: COLONNES_BARRES[5] }]}>{tonnages[i] !== null ? tonnage(tonnages[i]) : "—"}</Text>
+                <View style={{ width: COLONNES_BARRES[6], paddingLeft: 12 }}>
                   {barres.operations.length === 0 && <Text>—</Text>}
                   {barres.operations.map((detail, j) => (
                     <Text key={j}>{detail}</Text>
@@ -264,6 +288,18 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
                 </View>
               </View>
             ))}
+            <View style={[styles.ligneTableau, styles.totalTableau]} wrap={false}>
+              <Text style={[styles.gras, { width: "19%" }]}>Total</Text>
+              <Text style={[styles.gras, styles.droite, { width: COLONNES_BARRES[2] }]}>{format(totalBarres, 0)}</Text>
+              <Text style={[styles.gras, styles.droite, { width: "36%" }]}>{tonnageTotal > 0 ? tonnage(tonnageTotal) : "—"}</Text>
+            </View>
+          </View>
+        )}
+
+        {offre.recapitulatif.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.titreSection}>Récapitulatif du parachèvement</Text>
+            <Infos lignes={offre.recapitulatif} />
           </View>
         )}
 
@@ -279,37 +315,34 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
               <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? prix(temps) : "—"}</Text>
             </View>
           ))}
+        </View>
 
-          <View style={styles.totaux} wrap={false}>
+        {/* Hors de la section : son en-tête de tableau ne se répète pas au-dessus des totaux seuls. */}
+        <View style={styles.totaux} wrap={false}>
+          {offre.majorations.length > 0 && (
             <View style={styles.ligneTotal}>
-              <Text style={styles.gras}>Total</Text>
+              <Text style={styles.gras}>Sous-total</Text>
               <Text style={styles.gras}>{prix(offre.totalHeures)}</Text>
             </View>
-            {offre.majorations.map(({ label, heures: temps }) => (
-              <View key={label} style={styles.ligneTotal}>
-                <Text style={styles.detail}>{label}</Text>
-                <Text style={styles.detail}>+ {prix(temps)}</Text>
-              </View>
-            ))}
-            {offre.majorations.length > 0 && (
-              <View style={[styles.ligneTotal, { borderTopWidth: 1, borderTopColor: TRAIT }]}>
-                <Text style={styles.gras}>Sous-total</Text>
-                <Text style={styles.gras}>{prix(offre.sousTotalHeures)}</Text>
-              </View>
-            )}
-            {offre.prixTonne !== null && (
-              <View style={styles.ligneTotal}>
-                <Text style={styles.detail}>Prix à la tonne</Text>
-                <Text style={styles.detail}>{euros(offre.prixTonne)} / t</Text>
-              </View>
-            )}
-            {offre.montant !== null && (
-              <View style={styles.montant}>
-                <Text style={styles.texteMontant}>Montant HT</Text>
-                <Text style={styles.texteMontant}>{euros(offre.montant)}</Text>
-              </View>
-            )}
-          </View>
+          )}
+          {offre.majorations.map(({ label, heures: temps }) => (
+            <View key={label} style={styles.ligneTotal}>
+              <Text style={styles.detail}>{label}</Text>
+              <Text style={styles.detail}>+ {prix(temps)}</Text>
+            </View>
+          ))}
+          {offre.montant !== null && (
+            <View style={styles.montant}>
+              <Text style={styles.texteMontant}>Montant HT</Text>
+              <Text style={styles.texteMontant}>{euros(offre.montant)}</Text>
+            </View>
+          )}
+          {offre.prixTonne !== null && (
+            <View style={[styles.ligneTotal, { marginTop: 3 }]}>
+              <Text style={styles.detail}>Prix à la tonne</Text>
+              <Text style={styles.detail}>{euros(offre.prixTonne)} / t</Text>
+            </View>
+          )}
         </View>
 
         {offre.soudures.length > 0 && (
@@ -341,6 +374,16 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
             ))}
           </View>
         )}
+
+        <View style={styles.section} wrap={false}>
+          <Text style={styles.titreSection}>Conditions</Text>
+          {CONDITIONS.map(({ label, valeur }) => (
+            <Text key={label} style={{ marginBottom: 3 }}>
+              <Text style={styles.gras}>{label} : </Text>
+              {valeur}
+            </Text>
+          ))}
+        </View>
 
         <Text style={styles.pied} fixed>
           ArcelorMittal · Offre {offre.numeroOffre !== "" ? `n° ${offre.numeroOffre} ` : ""}du {date}
