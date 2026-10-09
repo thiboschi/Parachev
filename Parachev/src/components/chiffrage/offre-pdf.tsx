@@ -15,6 +15,8 @@ export interface LigneInfo {
 export interface OperationOffre {
   libelle: string
   heures: number
+  /** Quantités totales du projet pour cette opération. */
+  quantites: LigneInfo[]
 }
 
 /** Un groupe de barres identiques : une ligne du tableau "Objet de l'offre". */
@@ -45,11 +47,11 @@ export interface DonneesOffre {
   numeroOffre: string
   numeroCommande: string
   numeroLaminage: string
+  /** Résumé de la prestation, ex. "Parachèvement de poutrelles HD – EXC3". */
+  objet: string
   typeAffaire: string
   barres: BarresOffre[]
   normes: LigneInfo[]
-  /** Quantités totales du projet par opération, dans l'ordre de la gamme. */
-  recapitulatif: LigneInfo[]
   operations: OperationOffre[]
   /** Pièces à souder sur une barre (calculateur de soudage). */
   soudures: SoudureOffre[]
@@ -68,16 +70,41 @@ export interface DonneesOffre {
 // Signataire de l'offre, affiché dans l'en-tête.
 const AUTEUR = "Damien Schils"
 
-// Conditions commerciales, les mêmes pour toutes les offres.
+// Textes de l'annexe, les mêmes pour toutes les offres.
+const A_VOTRE_CHARGE = [
+  "Fourniture des profils avec sur-longueur suffisante",
+  "Entre-stockage et amenée des profils en notre atelier au fur et à mesure de l'avancement de l'affaire sur notre demande",
+  "Fourniture des plans d'exécution BPE et en format DWG (traçage des plans d'assemblage et traçage des plans de débit) et fichiers DSTV",
+  "Fourniture des nomenclatures associées (expédition, assemblage et débit)",
+  "Traitements de surface",
+  "Transports",
+]
+
+const NON_COMPRIS = [
+  "La fourniture de la boulonnerie",
+  "La fourniture des tôles de calage",
+  "La fourniture des platines d'ancrage",
+  "Tout autre travail non précisé",
+]
+
 const CONDITIONS: LigneInfo[] = [
-  { label: "Prix", valeur: "Tous nos prix sont H.T." },
-  { label: "Validité de l'offre", valeur: "Le prix main-d'œuvre est valable 3 mois." },
-  { label: "Conditions de paiement", valeur: "Paiement à 30 jours fin de mois." },
   {
-    label: "Modifications",
+    label: "Délai",
     valeur:
-      "Toute modification ou ajout par rapport aux clauses de notre offre fera l'objet d'un recalcul de notre prix et notre offre sera révisée en conséquence.",
+      "Les délais de fabrication pourront vous être communiqués par Victor / Mario, selon vos besoins et le planning de production en cours.",
   },
+  {
+    label: "Validité de l'offre",
+    valeur:
+      "Le prix matière des tôles ne peut être garanti (il y a trop de fluctuation du prix d'achat). Toute augmentation du prix d'achat sera répercutée à date de réception de la commande. Le prix main-d'œuvre est valable 3 mois.",
+  },
+  { label: "Prix", valeur: "Tous nos prix sont H.T." },
+  {
+    label: "Notas",
+    valeur:
+      "Toute modification ou ajout par rapport aux clauses de notre devis fera l'objet d'un recalcul de notre prix et notre offre sera révisée en conséquence. Si, pour des raisons d'esthétisme, les poutres nécessitent une finition ou un soin particulier, prière de nous consulter, nous reverrons notre prix en conséquence.",
+  },
+  { label: "Conditions de paiement", valeur: "Paiement à 30 jours fin de mois." },
 ]
 
 const MARINE = "#1e3a5f"
@@ -86,17 +113,21 @@ const TRAIT = "#e2e8f0"
 const FOND = "#f4f6f8"
 
 // Les polices standard du PDF n'ont pas l'espace fine insécable que
-// toLocaleString utilise comme séparateur de milliers.
+// toLocaleString utilise comme séparateur de milliers : elle y sort en "/".
+// Vaut aussi pour les textes composés sur la page "Chiffrage".
+const sansEspaceFine = (texte: string) => texte.replace(/[\u202f\u00a0]/g, " ")
+
 const format = (value: number, decimales: number, minimum = 0) =>
-  value
-    .toLocaleString("fr-BE", { minimumFractionDigits: minimum, maximumFractionDigits: decimales })
-    .replace(/[  ]/g, " ")
+  sansEspaceFine(value.toLocaleString("fr-BE", { minimumFractionDigits: minimum, maximumFractionDigits: decimales }))
 
 const euros = (value: number) => `${format(value, 2, 2)} €`
 
 // Poids d'une barre au kg près, tonnage d'une position à 10 kg près.
 const poidsBarre = (tonnes: number) => format(tonnes, 3, 3)
 const tonnage = (tonnes: number) => format(tonnes, 2, 2)
+
+// Tonnage d'une position, null sans poids renseigné.
+const tonnagePosition = ({ nombre, poids }: BarresOffre) => (poids !== null && nombre > 0 ? nombre * poids : null)
 
 const styles = StyleSheet.create({
   page: {
@@ -113,6 +144,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
     paddingBottom: 14,
+    marginBottom: 16,
     borderBottomWidth: 2,
     borderBottomColor: MARINE,
   },
@@ -120,6 +152,7 @@ const styles = StyleSheet.create({
   logo: { width: 103, height: 46 },
   titre: { fontFamily: "Helvetica-Bold", fontSize: 16, lineHeight: 1.2, color: MARINE, textAlign: "right" },
   sousTitre: { color: GRIS, textAlign: "right", marginTop: 2 },
+  objet: { fontSize: 11 },
   blocs: { flexDirection: "row", gap: 12, marginTop: 16 },
   bloc: { flex: 1, backgroundColor: FOND, borderRadius: 4, padding: 10 },
   etiquette: {
@@ -171,6 +204,17 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   texteMontant: { fontFamily: "Helvetica-Bold", fontSize: 12, color: "#ffffff" },
+  // Plus serrée que le reste de l'offre, pour tenir sur une page.
+  annexe: { fontSize: 9, lineHeight: 1.25 },
+  titreAnnexe: {
+    fontFamily: "Helvetica-Bold",
+    color: MARINE,
+    textTransform: "uppercase",
+    marginTop: 9,
+    marginBottom: 2,
+  },
+  paragraphe: { marginBottom: 2 },
+  puce: { paddingLeft: 8 },
   pied: { position: "absolute", bottom: 26, left: 40, fontSize: 8, color: GRIS },
 })
 
@@ -189,8 +233,56 @@ function Infos({ lignes }: { lignes: LigneInfo[] }) {
   )
 }
 
+// Fin de l'offre sous forme de lettre, sur une nouvelle page : ce qui reste à
+// la charge du client, ce qui n'est pas compris, puis les conditions de prix
+// des devis envoyés aux clients.
+function Annexe() {
+  return (
+    <View style={styles.annexe} break>
+      <Text style={[styles.titreSection, { marginBottom: 8 }]}>Annexe — Détail de l'offre</Text>
+
+      <View wrap={false}>
+        <Text style={styles.titreAnnexe}>1 - À votre charge</Text>
+        {A_VOTRE_CHARGE.map((ligne) => (
+          <Text key={ligne} style={styles.puce}>
+            - {ligne}
+          </Text>
+        ))}
+      </View>
+
+      <View wrap={false}>
+        <Text style={styles.titreAnnexe}>2 - Non compris dans notre offre</Text>
+        {NON_COMPRIS.map((ligne) => (
+          <Text key={ligne} style={styles.puce}>
+            - {ligne}
+          </Text>
+        ))}
+      </View>
+
+      <Text style={styles.titreAnnexe}>3 - Détails</Text>
+      {CONDITIONS.map(({ label, valeur }) => (
+        <Text key={label} style={styles.paragraphe} wrap={false}>
+          <Text style={styles.gras}>{label} : </Text>
+          {valeur}
+        </Text>
+      ))}
+
+      <View style={{ marginTop: 10 }} wrap={false}>
+        <Text style={styles.paragraphe}>
+          Dans l'attente, veuillez agréer, Madame, Monsieur, l'expression de nos sentiments les meilleurs.
+        </Text>
+        <Text style={styles.paragraphe}>Sincères salutations,</Text>
+        <Text style={styles.gras}>{AUTEUR}</Text>
+      </View>
+    </View>
+  )
+}
+
 // Largeurs des colonnes du tableau des groupes de barres.
 const COLONNES_BARRES = ["6%", "13%", "9%", "13%", "12%", "11%", "36%"]
+
+// Largeurs des colonnes du tableau des opérations.
+const COLONNES_OPERATIONS = ["30%", "52%", "18%"]
 
 // Largeurs des colonnes du tableau des pièces à souder.
 const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
@@ -204,8 +296,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
   ].filter(({ valeur }) => valeur !== "")
   // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
   const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
-  // Tonnage de chaque position, null sans poids renseigné.
-  const tonnages = offre.barres.map(({ nombre, poids }) => (poids !== null && nombre > 0 ? nombre * poids : null))
+  const tonnages = offre.barres.map(tonnagePosition)
   const totalBarres = offre.barres.reduce((total, { nombre }) => total + (nombre > 0 ? nombre : 0), 0)
   const tonnageTotal = tonnages.reduce<number>((total, t) => total + (t ?? 0), 0)
 
@@ -214,12 +305,16 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
       <Page size="A4" style={styles.page}>
         <View style={styles.entete} fixed>
           <Image src={logoArcelorMittal} style={styles.logo} />
-          <View>
-            <Text style={styles.titre}>OFFRE DE PRIX</Text>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={styles.titre}>OFFRE TECHNIQUE & COMMERCIALE</Text>
             <Text style={styles.sousTitre}>{date}</Text>
             <Text style={styles.sousTitre}>{AUTEUR}</Text>
           </View>
         </View>
+
+        <Text style={styles.objet}>
+          Objet : <Text style={styles.gras}>{offre.objet}</Text>
+        </Text>
 
         <View style={styles.blocs}>
           <View style={styles.bloc}>
@@ -252,6 +347,9 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
         {offre.barres.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.titreSection}>Objet de l'offre</Text>
+            <Text style={[styles.paragraphe, { marginBottom: 6 }]}>
+              Nous vous prions de bien vouloir trouver ci-dessous nos meilleures conditions de prix
+            </Text>
             {offre.typeAffaire !== "" && (
               <Text style={{ marginBottom: 6 }}>
                 Type d'affaire : <Text style={styles.gras}>{offre.typeAffaire}</Text>
@@ -283,7 +381,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
                 <View style={{ width: COLONNES_BARRES[6], paddingLeft: 12 }}>
                   {barres.operations.length === 0 && <Text>—</Text>}
                   {barres.operations.map((detail, j) => (
-                    <Text key={j}>{detail}</Text>
+                    <Text key={j}>{sansEspaceFine(detail)}</Text>
                   ))}
                 </View>
               </View>
@@ -296,23 +394,25 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
         )}
 
-        {offre.recapitulatif.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.titreSection}>Récapitulatif du parachèvement</Text>
-            <Infos lignes={offre.recapitulatif} />
-          </View>
-        )}
-
         <View style={styles.section}>
           <Text style={styles.titreSection}>Détail des opérations</Text>
           <View style={[styles.ligneTableau, styles.enteteTableau]} fixed>
-            <Text style={[styles.celluleEntete, { width: "82%" }]}>Opération</Text>
-            <Text style={[styles.celluleEntete, styles.droite, { width: "18%" }]}>Prix</Text>
+            <Text style={[styles.celluleEntete, { width: COLONNES_OPERATIONS[0] }]}>Opération</Text>
+            <Text style={[styles.celluleEntete, { width: COLONNES_OPERATIONS[1] }]}>Quantités</Text>
+            <Text style={[styles.celluleEntete, styles.droite, { width: COLONNES_OPERATIONS[2] }]}>Prix</Text>
           </View>
-          {offre.operations.map(({ libelle, heures: temps }) => (
+          {offre.operations.map(({ libelle, heures: temps, quantites }) => (
             <View key={libelle} style={styles.ligneTableau} wrap={false}>
-              <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
-              <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? prix(temps) : "—"}</Text>
+              <Text style={[styles.gras, { width: COLONNES_OPERATIONS[0] }]}>{libelle}</Text>
+              <View style={{ width: COLONNES_OPERATIONS[1] }}>
+                {quantites.length === 0 && <Text>—</Text>}
+                {quantites.map(({ label, valeur }) => (
+                  <Text key={label}>
+                    {label} : {sansEspaceFine(valeur)}
+                  </Text>
+                ))}
+              </View>
+              <Text style={[styles.droite, { width: COLONNES_OPERATIONS[2] }]}>{temps > 0 ? prix(temps) : "—"}</Text>
             </View>
           ))}
         </View>
@@ -375,15 +475,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
         )}
 
-        <View style={styles.section} wrap={false}>
-          <Text style={styles.titreSection}>Conditions</Text>
-          {CONDITIONS.map(({ label, valeur }) => (
-            <Text key={label} style={{ marginBottom: 3 }}>
-              <Text style={styles.gras}>{label} : </Text>
-              {valeur}
-            </Text>
-          ))}
-        </View>
+        <Annexe />
 
         <Text style={styles.pied} fixed>
           ArcelorMittal · Offre {offre.numeroOffre !== "" ? `n° ${offre.numeroOffre} ` : ""}du {date}

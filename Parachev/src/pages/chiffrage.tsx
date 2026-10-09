@@ -874,7 +874,11 @@ export default function Chiffrage() {
       const ajouter = (label: string, total: number, precision = "") => {
         if (total > 0) lignes.push({ label, valeur: `${formatHeures(total)}${precision}` })
       }
-      const diametre = (key: Champ) => (totalProjet(key) > 0 ? ` (Ø moyen ${formatHeures(totalProjet(key))} mm)` : "")
+      // Diamètres saisis dans les groupes, sans doublon, dans leur ordre.
+      const diametre = (key: Champ) => {
+        const diametres = Array.from(new Set(concernes.map((g) => g.valeurs[key].trim()).filter((d) => d !== "")))
+        return diametres.length > 0 ? ` (Ø ${diametres.join(", ")} mm)` : ""
+      }
       if (poste === POSTE_COUPES) {
         for (const type of TYPES_COUPE) {
           ajouter(libelleOperationRde(type), somme(concernes.map((g) => nombre(g.coupes[type]) * barresGroupe(g))))
@@ -913,6 +917,17 @@ export default function Chiffrage() {
       )
       return lignes
     }
+    // Objet de l'offre : une coupe si la gamme ne compte que la mise à
+    // longueur, un parachèvement sinon, puis les familles de profils et la
+    // classe d'exécution.
+    const coupeSeule =
+      postes.has(POSTE_COUPES) &&
+      postesGamme.every((poste) => poste === POSTE_COUPES || poste === POSTE_TOUJOURS_PROPOSE)
+    const familles = Array.from(new Set(groupes.map((g) => g.famille).filter((famille) => famille !== "")))
+    const objet = [
+      [coupeSeule ? "Coupe" : "Parachèvement", "de poutrelles", ...(familles.length > 0 ? [familles.join(" / ")] : [])].join(" "),
+      ...(normes.exc !== "" ? [normes.exc] : []),
+    ].join(" – ")
     // Heures des postes décochés : reportées sur le poste affiché qui en compte
     // le plus, pour que les lignes de l'offre s'additionnent jusqu'au total.
     const heuresOffre = postesGamme.map((poste) => ({ poste, heures: (resultat?.[poste] ?? 0) * coefReserve }))
@@ -929,6 +944,7 @@ export default function Chiffrage() {
       numeroOffre: client.numero_offre.trim(),
       numeroCommande: client.numero_11.trim(),
       numeroLaminage: client.numero_19.trim(),
+      objet,
       typeAffaire: typeNom,
       barres: groupes.map((groupe) => ({
         nombre: barresGroupe(groupe),
@@ -943,10 +959,10 @@ export default function Chiffrage() {
           valeur: estExigence(key) ? exigences[key].join(", ") : normes[key],
         }))
       ),
-      recapitulatif: postesGamme.flatMap(recapPoste),
       operations: affiches.map(({ poste, heures }) => ({
         libelle: libellePoste(poste),
         heures: heures + (poste === receveur ? heuresMasquees : 0),
+        quantites: recapPoste(poste),
       })),
       soudures: groupes.flatMap((groupe, index) =>
         (lignesSoudure[groupe.id] ?? []).map((ligne) => ({
