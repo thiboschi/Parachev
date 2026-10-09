@@ -801,17 +801,10 @@ fn ouvrir_document(app: tauri::AppHandle, chemin: String) -> Result<(), String> 
 }
 
 /// Enregistre un PDF généré par l'interface (offre de la page "Chiffrage")
-/// à l'emplacement choisi par l'utilisateur, puis l'ouvre. La seconde
-/// version de l'offre est enregistrée à côté, sous le même nom suivi de
-/// " - bis". Retourne le chemin du premier fichier, ou None si
-/// l'utilisateur a annulé.
+/// à l'emplacement choisi par l'utilisateur, puis l'ouvre. Retourne le
+/// chemin du fichier, ou None si l'utilisateur a annulé.
 #[tauri::command]
-async fn enregistrer_pdf(
-    app: tauri::AppHandle,
-    nom: String,
-    contenu: Vec<u8>,
-    contenu_bis: Vec<u8>,
-) -> Result<Option<String>, String> {
+async fn enregistrer_pdf(app: tauri::AppHandle, nom: String, contenu: Vec<u8>) -> Result<Option<String>, String> {
     let fichier = app
         .dialog()
         .file()
@@ -825,12 +818,7 @@ async fn enregistrer_pdf(
     let chemin = fichier.into_path().map_err(|e| e.to_string())?;
     std::fs::write(&chemin, contenu).map_err(|e| e.to_string())?;
 
-    let racine = chemin.file_stem().unwrap_or_default().to_string_lossy();
-    let chemin_bis = chemin.with_file_name(format!("{racine} - interne.pdf"));
-    std::fs::write(&chemin_bis, contenu_bis).map_err(|e| e.to_string())?;
-
     let chemin = chemin.to_string_lossy().to_string();
     let _ = tauri_plugin_opener::open_path(&chemin, None::<&str>);
-    let _ = tauri_plugin_opener::open_path(&chemin_bis, None::<&str>);
     Ok(Some(chemin))
 }

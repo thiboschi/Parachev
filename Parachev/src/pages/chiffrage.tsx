@@ -630,6 +630,9 @@ export default function Chiffrage() {
   const resultat = prediction ? resultatPredit : resultatSaisi
   const [calcul, setCalcul] = useState(false)
   const [multiplicateur, setMultiplicateur] = useState("")
+  // Postes décochés dans l'estimation : absents du détail des opérations de
+  // l'offre, leurs heures restent comptées dans le total.
+  const [postesMasques, setPostesMasques] = useState<Set<string>>(new Set())
 
   function modifierGroupe(id: number, modification: (groupe: GroupeBarres) => Partial<GroupeBarres>) {
     setGroupes((prev) => prev.map((g) => (g.id === id ? { ...g, ...modification(g) } : g)))
@@ -651,6 +654,7 @@ export default function Chiffrage() {
     // Les postes optionnels sont ceux de la gamme du type : à recocher.
     setGroupes((prev) => prev.map((g) => ({ ...g, postesOptionnels: new Set() })))
     setHeuresSaisies({})
+    setPostesMasques(new Set())
     setResultat(null)
   }
 
@@ -661,6 +665,7 @@ export default function Chiffrage() {
     setTypeNom("")
     setGroupes([groupeVide(0)])
     setHeuresSaisies({})
+    setPostesMasques(new Set())
     setResultat(null)
   }
 
@@ -802,6 +807,13 @@ export default function Chiffrage() {
       (classeTolerance2 ? MAJORATION_TOLERANCE : 1)
     : 0
 
+  // Supplément d'heures de chaque majoration. La tolérance s'applique au
+  // total déjà majoré DBS : total + suppléments = sous-total.
+  const supplementDbs = dbs ? (resultat?.total ?? 0) * (MAJORATION_DBS - 1) : 0
+  const supplementTolerance = classeTolerance2
+    ? ((resultat?.total ?? 0) + supplementDbs) * (MAJORATION_TOLERANCE - 1)
+    : 0
+
   const multiplicateurNombre = nombre(multiplicateur)
   const multiplicateurValide =
     multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
@@ -809,6 +821,8 @@ export default function Chiffrage() {
   // Tout ce qui est saisi et chiffré sur la page, pour le PDF de l'offre.
   function donneesOffre(total: number): DonneesOffre {
     const renseignees = (lignes: LigneInfo[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
+    const montant = multiplicateurValide ? sousTotal * multiplicateurNombre : null
+    const tonnes = groupes.reduce((somme, groupe) => somme + barresGroupe(groupe) * nombre(groupe.valeurs.poids_t), 0)
     const avecTotal = (groupe: GroupeBarres, key: Champ) => {
       const aide = aideTotal(groupe, key)
       return aide ? `${groupe.valeurs[key]} (${aide})` : groupe.valeurs[key]
@@ -864,6 +878,7 @@ export default function Chiffrage() {
         .map(({ poste }) => ({
           libelle: libellePoste(poste),
           heures: resultat?.[poste] ?? 0,
+          masquee: postesMasques.has(poste),
         })),
       soudures: groupes.flatMap((groupe, index) =>
         (lignesSoudure[groupe.id] ?? []).map((ligne) => ({
@@ -876,14 +891,13 @@ export default function Chiffrage() {
       ),
       totalHeures: total,
       majorations: [
-        ...(dbs ? [{ label: "DBS (×1,20)", heures: total * MAJORATION_DBS }] : []),
-        ...(classeTolerance2
-          ? [{ label: "Tolérance classe 2 (×1,25)", heures: total * MAJORATION_TOLERANCE }]
-          : []),
+        ...(dbs ? [{ label: "DBS (×1,20)", heures: supplementDbs }] : []),
+        ...(classeTolerance2 ? [{ label: "Tolérance classe 2 (×1,25)", heures: supplementTolerance }] : []),
       ],
       sousTotalHeures: sousTotal,
       tauxHoraire: multiplicateurValide ? multiplicateurNombre : null,
-      montant: multiplicateurValide ? sousTotal * multiplicateurNombre : null,
+      montant,
+      prixTonne: montant !== null && tonnes > 0 ? montant / tonnes : null,
     }
   }
 
@@ -910,18 +924,13 @@ export default function Chiffrage() {
     setExportPdf(true)
     try {
       // @react-pdf/renderer n'est chargé qu'au premier export.
-      const [{ genererOffrePdf }, { genererOffreBisPdf }] = await Promise.all([
-        import("@/components/chiffrage/offre-pdf"),
-        import("@/components/chiffrage/offre-pdf-bis"),
-      ])
-      const [contenu, contenuBis] = await Promise.all([genererOffrePdf(offre), genererOffreBisPdf(offre)])
-      // La seconde version est enregistrée à côté de la première (« … - bis.pdf »).
+      const { genererOffrePdf } = await import("@/components/chiffrage/offre-pdf")
+      const contenu = await genererOffrePdf(offre)
       const chemin = await invoke<string | null>("enregistrer_pdf", {
         nom: `${nom}.pdf`,
         contenu: Array.from(contenu),
-        contenuBis: Array.from(contenuBis),
       })
-      if (chemin) toast.success(`Offres enregistrées : ${chemin} et sa version « bis »`)
+      if (chemin) toast.success(`Offre enregistrée : ${chemin}`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
@@ -1415,17 +1424,13 @@ export default function Chiffrage() {
                 {resultat && dbs && (
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>DBS (×1,20)</span>
-                    <span className="tabular-nums">
-                      {formatHeures((resultat.total ?? 0) * MAJORATION_DBS)} h
-                    </span>
+                    <span className="tabular-nums">+ {formatHeures(supplementDbs)} h</span>
                   </div>
                 )}
                 {resultat && classeTolerance2 && (
                   <div className="flex items-center justify-between text-muted-foreground">
                     <span>Tolérance classe 2 (×1,25)</span>
-                    <span className="tabular-nums">
-                      {formatHeures((resultat.total ?? 0) * MAJORATION_TOLERANCE)} h
-                    </span>
+                    <span className="tabular-nums">+ {formatHeures(supplementTolerance)} h</span>
                   </div>
                 )}
                 {resultat && (dbs || classeTolerance2) && (
@@ -1452,6 +1457,27 @@ export default function Chiffrage() {
                     <span className="tabular-nums">
                       {formatHeures(sousTotal * multiplicateurNombre)} €
                     </span>
+                  </div>
+                )}
+                {postesGamme.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-2 border-t pt-1.5">
+                    <span className="text-muted-foreground">Opérations affichées sur l'offre PDF</span>
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
+                      {postesGamme.map((poste) => (
+                        <div key={poste} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`offre-${poste}`}
+                            checked={!postesMasques.has(poste)}
+                            onCheckedChange={(coche) =>
+                              setPostesMasques((prev) => basculer(prev, poste, coche !== true))
+                            }
+                          />
+                          <Label htmlFor={`offre-${poste}`} className="text-sm font-normal">
+                            {libellePoste(poste)}
+                          </Label>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">

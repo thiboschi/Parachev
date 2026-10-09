@@ -15,6 +15,9 @@ export interface LigneInfo {
 export interface OperationOffre {
   libelle: string
   heures: number
+  /** Décochée dans la page : absente du détail des opérations, ses heures
+   *  restent comptées dans le total. */
+  masquee: boolean
 }
 
 /** Un groupe de barres identiques : une ligne du tableau "Objet de l'offre". */
@@ -51,13 +54,20 @@ export interface DonneesOffre {
   /** Pièces à souder sur une barre (calculateur de soudage). */
   soudures: SoudureOffre[]
   totalHeures: number
-  /** Majorations appliquées au total (DBS, tolérance classe 2). */
+  /** Suppléments d'heures des majorations appliquées au total (DBS,
+   *  tolérance classe 2). */
   majorations: { label: string; heures: number }[]
   sousTotalHeures: number
   /** Multiplicateur (€/h) et montant, null si non renseigné. */
   tauxHoraire: number | null
   montant: number | null
+  /** Montant rapporté au poids total des barres (€/t), null sans montant
+   *  ou sans poids renseigné. */
+  prixTonne: number | null
 }
+
+// Signataire de l'offre, affiché dans l'en-tête.
+const AUTEUR = "Damien Schils"
 
 const MARINE = "#1e3a5f"
 const GRIS = "#64748b"
@@ -71,7 +81,6 @@ const format = (value: number, decimales: number, minimum = 0) =>
     .toLocaleString("fr-BE", { minimumFractionDigits: minimum, maximumFractionDigits: decimales })
     .replace(/[  ]/g, " ")
 
-const heures = (value: number) => `${format(value, 1)} h`
 const euros = (value: number) => `${format(value, 2, 2)} €`
 
 const styles = StyleSheet.create({
@@ -173,9 +182,12 @@ const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
 function OffrePdf({ offre }: { offre: DonneesOffre }) {
   const date = offre.date.toLocaleDateString("fr-BE", { day: "numeric", month: "long", year: "numeric" })
   const references: LigneInfo[] = [
+    { label: "N° d'offre", valeur: offre.numeroOffre },
     { label: "N° de commande", valeur: offre.numeroCommande },
     { label: "N° de laminage", valeur: offre.numeroLaminage },
   ].filter(({ valeur }) => valeur !== "")
+  // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
+  const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
 
   return (
     <Document title={`Offre ${offre.numeroOffre}`.trim()} author="Parachev">
@@ -184,8 +196,8 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           <Image src={logoArcelorMittal} style={styles.logo} />
           <View>
             <Text style={styles.titre}>OFFRE DE PRIX</Text>
-            {offre.numeroOffre !== "" && <Text style={styles.sousTitre}>N° {offre.numeroOffre}</Text>}
             <Text style={styles.sousTitre}>{date}</Text>
+            <Text style={styles.sousTitre}>{AUTEUR}</Text>
           </View>
         </View>
 
@@ -256,36 +268,38 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           <Text style={styles.titreSection}>Détail des opérations</Text>
           <View style={[styles.ligneTableau, styles.enteteTableau]} fixed>
             <Text style={[styles.celluleEntete, { width: "82%" }]}>Opération</Text>
-            <Text style={[styles.celluleEntete, styles.droite, { width: "18%" }]}>Temps</Text>
+            <Text style={[styles.celluleEntete, styles.droite, { width: "18%" }]}>Prix</Text>
           </View>
-          {offre.operations.map(({ libelle, heures: temps }) => (
-            <View key={libelle} style={styles.ligneTableau} wrap={false}>
-              <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
-              <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? heures(temps) : "—"}</Text>
-            </View>
-          ))}
+          {offre.operations
+            .filter(({ masquee }) => !masquee)
+            .map(({ libelle, heures: temps }) => (
+              <View key={libelle} style={styles.ligneTableau} wrap={false}>
+                <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
+                <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? prix(temps) : "—"}</Text>
+              </View>
+            ))}
 
           <View style={styles.totaux} wrap={false}>
             <View style={styles.ligneTotal}>
               <Text style={styles.gras}>Total</Text>
-              <Text style={styles.gras}>{heures(offre.totalHeures)}</Text>
+              <Text style={styles.gras}>{prix(offre.totalHeures)}</Text>
             </View>
             {offre.majorations.map(({ label, heures: temps }) => (
               <View key={label} style={styles.ligneTotal}>
                 <Text style={styles.detail}>{label}</Text>
-                <Text style={styles.detail}>{heures(temps)}</Text>
+                <Text style={styles.detail}>+ {prix(temps)}</Text>
               </View>
             ))}
             {offre.majorations.length > 0 && (
               <View style={[styles.ligneTotal, { borderTopWidth: 1, borderTopColor: TRAIT }]}>
                 <Text style={styles.gras}>Sous-total</Text>
-                <Text style={styles.gras}>{heures(offre.sousTotalHeures)}</Text>
+                <Text style={styles.gras}>{prix(offre.sousTotalHeures)}</Text>
               </View>
             )}
-            {offre.tauxHoraire !== null && (
+            {offre.prixTonne !== null && (
               <View style={styles.ligneTotal}>
-                <Text style={styles.detail}>Taux horaire</Text>
-                <Text style={styles.detail}>{euros(offre.tauxHoraire)} / h</Text>
+                <Text style={styles.detail}>Prix à la tonne</Text>
+                <Text style={styles.detail}>{euros(offre.prixTonne)} / t</Text>
               </View>
             )}
             {offre.montant !== null && (
