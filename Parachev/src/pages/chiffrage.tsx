@@ -35,13 +35,14 @@ const NON_RENSEIGNE = "none"
 // Champs purement informatifs de la section "Infos Client" : ni envoyés à
 // `chiffrer_manuellement`, ni utilisés dans le calcul. Le n° 11 est le
 // numéro de commande (1100...), le n° 19 la commande de laminage (1900...).
-type ChampClient = "numero_11" | "numero_19" | "numero_offre" | "client"
+type ChampClient = "numero_11" | "numero_19" | "numero_offre" | "client" | "commercial"
 
 const CHAMPS_CLIENT: { key: ChampClient; label: string; placeholder?: string }[] = [
   { key: "numero_11", label: "N° 11", placeholder: "1100…" },
   { key: "numero_19", label: "N° 19", placeholder: "1900…" },
   { key: "numero_offre", label: "N° d'offre" },
   { key: "client", label: "Nom du client" },
+  { key: "commercial", label: "Commercial" },
 ]
 
 const CLIENT_VIDE: Record<ChampClient, string> = {
@@ -49,6 +50,7 @@ const CLIENT_VIDE: Record<ChampClient, string> = {
   numero_19: "",
   numero_offre: "",
   client: "",
+  commercial: "",
 }
 
 // Mêmes champs que la section "Normes et exigences (RDE)" des filtres de la
@@ -629,9 +631,10 @@ export default function Chiffrage() {
     : null
   const resultat = prediction ? resultatPredit : resultatSaisi
   const [calcul, setCalcul] = useState(false)
-  const [multiplicateur, setMultiplicateur] = useState("")
+  const [tauxHoraire, setTauxHoraire] = useState("")
+  const [reserve, setReserve] = useState("")
   // Postes décochés dans l'estimation : absents du détail des opérations de
-  // l'offre, leurs heures restent comptées dans le total.
+  // l'offre, leurs heures y sont reportées sur un poste affiché.
   const [postesMasques, setPostesMasques] = useState<Set<string>>(new Set())
 
   function modifierGroupe(id: number, modification: (groupe: GroupeBarres) => Partial<GroupeBarres>) {
@@ -665,6 +668,7 @@ export default function Chiffrage() {
     setTypeNom("")
     setGroupes([groupeVide(0)])
     setHeuresSaisies({})
+    setReserve("")
     setPostesMasques(new Set())
     setResultat(null)
   }
@@ -814,15 +818,24 @@ export default function Chiffrage() {
     ? ((resultat?.total ?? 0) + supplementDbs) * (MAJORATION_TOLERANCE - 1)
     : 0
 
-  const multiplicateurNombre = nombre(multiplicateur)
-  const multiplicateurValide =
-    multiplicateur.trim() !== "" && !Number.isNaN(multiplicateurNombre)
+  // Réserve : pourcentage d'heures ajouté après les majorations.
+  const reserveNombre = nombre(reserve)
+  const reserveValide = reserveNombre >= 0
+  const coefReserve = reserveValide ? 1 + reserveNombre / 100 : 1
+  const heuresAvecReserve = sousTotal * coefReserve
+
+  const tauxHoraireNombre = nombre(tauxHoraire)
+  const tauxHoraireValide =
+    tauxHoraire.trim() !== "" && !Number.isNaN(tauxHoraireNombre)
+  // Montant de l'offre, puis le même rapporté au poids total des barres
+  // (€/t) : null sans taux horaire, ou sans poids renseigné pour le second.
+  const montant = tauxHoraireValide ? heuresAvecReserve * tauxHoraireNombre : null
+  const tonnes = groupes.reduce((somme, groupe) => somme + barresGroupe(groupe) * nombre(groupe.valeurs.poids_t), 0)
+  const prixTonne = montant !== null && tonnes > 0 ? montant / tonnes : null
 
   // Tout ce qui est saisi et chiffré sur la page, pour le PDF de l'offre.
   function donneesOffre(total: number): DonneesOffre {
     const renseignees = (lignes: LigneInfo[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
-    const montant = multiplicateurValide ? sousTotal * multiplicateurNombre : null
-    const tonnes = groupes.reduce((somme, groupe) => somme + barresGroupe(groupe) * nombre(groupe.valeurs.poids_t), 0)
     const avecTotal = (groupe: GroupeBarres, key: Champ) => {
       const aide = aideTotal(groupe, key)
       return aide ? `${groupe.valeurs[key]} (${aide})` : groupe.valeurs[key]
@@ -853,9 +866,19 @@ export default function Chiffrage() {
       }
       return details
     }
+    // Heures des postes décochés : reportées sur le poste affiché qui en compte
+    // le plus, pour que les lignes de l'offre s'additionnent jusqu'au total.
+    const heuresOffre = postesGamme.map((poste) => ({ poste, heures: (resultat?.[poste] ?? 0) * coefReserve }))
+    const affiches = heuresOffre.filter(({ poste }) => !postesMasques.has(poste))
+    const heuresMasquees = somme(heuresOffre.filter(({ poste }) => postesMasques.has(poste)).map(({ heures }) => heures))
+    const receveur = affiches.reduce<(typeof affiches)[number] | undefined>(
+      (retenu, ligne) => (retenu === undefined || ligne.heures > retenu.heures ? ligne : retenu),
+      undefined
+    )?.poste
     return {
       date: new Date(),
       client: client.client.trim(),
+      commercial: client.commercial.trim(),
       numeroOffre: client.numero_offre.trim(),
       numeroCommande: client.numero_11.trim(),
       numeroLaminage: client.numero_19.trim(),
@@ -873,13 +896,10 @@ export default function Chiffrage() {
           valeur: estExigence(key) ? exigences[key].join(", ") : normes[key],
         }))
       ),
-      operations: modules
-        .filter(({ poste }) => postes.has(poste))
-        .map(({ poste }) => ({
-          libelle: libellePoste(poste),
-          heures: resultat?.[poste] ?? 0,
-          masquee: postesMasques.has(poste),
-        })),
+      operations: affiches.map(({ poste, heures }) => ({
+        libelle: libellePoste(poste),
+        heures: heures + (poste === receveur ? heuresMasquees : 0),
+      })),
       soudures: groupes.flatMap((groupe, index) =>
         (lignesSoudure[groupe.id] ?? []).map((ligne) => ({
           designation: `${prefixeGroupe(index)}${ligne.designation}`,
@@ -889,15 +909,19 @@ export default function Chiffrage() {
           passes: nombrePasses(ligne)?.toString() ?? "—",
         }))
       ),
-      totalHeures: total,
+      // La réserve n'a pas de ligne dans l'offre : elle est répartie sur
+      // toutes ses heures (opérations, total, majorations, sous-total).
+      totalHeures: total * coefReserve,
       majorations: [
-        ...(dbs ? [{ label: "DBS (×1,20)", heures: supplementDbs }] : []),
-        ...(classeTolerance2 ? [{ label: "Tolérance classe 2 (×1,25)", heures: supplementTolerance }] : []),
+        ...(dbs ? [{ label: "DBS (×1,20)", heures: supplementDbs * coefReserve }] : []),
+        ...(classeTolerance2
+          ? [{ label: "Tolérance classe 2 (×1,25)", heures: supplementTolerance * coefReserve }]
+          : []),
       ],
-      sousTotalHeures: sousTotal,
-      tauxHoraire: multiplicateurValide ? multiplicateurNombre : null,
+      sousTotalHeures: heuresAvecReserve,
+      tauxHoraire: tauxHoraireValide ? tauxHoraireNombre : null,
       montant,
-      prixTonne: montant !== null && tonnes > 0 ? montant / tonnes : null,
+      prixTonne,
     }
   }
 
@@ -908,6 +932,10 @@ export default function Chiffrage() {
           ? "Cliquez sur « Chiffrer » avant d'exporter l'offre"
           : "Choisissez un type d'affaire avant d'exporter l'offre"
       )
+      return
+    }
+    if (!reserveValide) {
+      toast.error("Réserve invalide")
       return
     }
     // Avec la prédiction, la saisie est vérifiée par « Chiffrer ».
@@ -1440,22 +1468,49 @@ export default function Chiffrage() {
                   </div>
                 )}
                 <div className="mt-2 flex items-center justify-between gap-2 border-t pt-1.5">
-                  <Label htmlFor="multiplicateur" className="text-sm font-normal text-muted-foreground">
-                    Multiplicateur
+                  <Label htmlFor="reserve" className="text-sm font-normal text-muted-foreground">
+                    Réserve (%)
                   </Label>
                   <Input
-                    id="multiplicateur"
+                    id="reserve"
                     className="h-8 max-w-24 text-right tabular-nums"
                     inputMode="decimal"
-                    value={multiplicateur}
-                    onChange={(e) => setMultiplicateur(e.target.value)}
+                    aria-invalid={!reserveValide}
+                    value={reserve}
+                    onChange={(e) => setReserve(e.target.value)}
                   />
                 </div>
-                {resultat && multiplicateurValide && (
+                {resultat && reserveValide && reserveNombre > 0 && (
+                  <div className="flex items-center justify-between font-medium">
+                    <span>Total avec réserve</span>
+                    <span className="tabular-nums">{formatHeures(heuresAvecReserve)} h</span>
+                  </div>
+                )}
+                <div className="mt-2 flex items-center justify-between gap-2 border-t pt-1.5">
+                  <Label htmlFor="taux-horaire" className="text-sm font-normal text-muted-foreground">
+                    Taux horaire
+                  </Label>
+                  <Input
+                    id="taux-horaire"
+                    className="h-8 max-w-24 text-right tabular-nums"
+                    inputMode="decimal"
+                    value={tauxHoraire}
+                    onChange={(e) => setTauxHoraire(e.target.value)}
+                  />
+                </div>
+                {resultat && prixTonne !== null && (
+                  <div className="flex items-center justify-between text-muted-foreground">
+                    <span>Prix à la tonne</span>
+                    <span className="tabular-nums">
+                      {prixTonne.toLocaleString("fr-BE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € / t
+                    </span>
+                  </div>
+                )}
+                {resultat && tauxHoraireValide && (
                   <div className="flex items-center justify-between font-medium">
                     <span>Résultat</span>
                     <span className="tabular-nums">
-                      {formatHeures(sousTotal * multiplicateurNombre)} €
+                      {formatHeures(heuresAvecReserve * tauxHoraireNombre)} €
                     </span>
                   </div>
                 )}

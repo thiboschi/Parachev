@@ -15,9 +15,6 @@ export interface LigneInfo {
 export interface OperationOffre {
   libelle: string
   heures: number
-  /** Décochée dans la page : absente du détail des opérations, ses heures
-   *  restent comptées dans le total. */
-  masquee: boolean
 }
 
 /** Un groupe de barres identiques : une ligne du tableau "Objet de l'offre". */
@@ -44,6 +41,7 @@ export interface SoudureOffre {
 export interface DonneesOffre {
   date: Date
   client: string
+  commercial: string
   numeroOffre: string
   numeroCommande: string
   numeroLaminage: string
@@ -58,7 +56,7 @@ export interface DonneesOffre {
    *  tolérance classe 2). */
   majorations: { label: string; heures: number }[]
   sousTotalHeures: number
-  /** Multiplicateur (€/h) et montant, null si non renseigné. */
+  /** Taux horaire (€/h) et montant, null si non renseigné. */
   tauxHoraire: number | null
   montant: number | null
   /** Montant rapporté au poids total des barres (€/t), null sans montant
@@ -205,6 +203,11 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           <View style={styles.bloc}>
             <Text style={styles.etiquette}>Client</Text>
             <Text style={styles.nomClient}>{offre.client || "—"}</Text>
+            {offre.commercial !== "" && (
+              <Text style={{ marginTop: 4 }}>
+                Commercial : <Text style={styles.gras}>{offre.commercial}</Text>
+              </Text>
+            )}
           </View>
           <View style={styles.bloc}>
             <Text style={styles.etiquette}>Références</Text>
@@ -270,14 +273,12 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
             <Text style={[styles.celluleEntete, { width: "82%" }]}>Opération</Text>
             <Text style={[styles.celluleEntete, styles.droite, { width: "18%" }]}>Prix</Text>
           </View>
-          {offre.operations
-            .filter(({ masquee }) => !masquee)
-            .map(({ libelle, heures: temps }) => (
-              <View key={libelle} style={styles.ligneTableau} wrap={false}>
-                <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
-                <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? prix(temps) : "—"}</Text>
-              </View>
-            ))}
+          {offre.operations.map(({ libelle, heures: temps }) => (
+            <View key={libelle} style={styles.ligneTableau} wrap={false}>
+              <Text style={[styles.gras, { width: "82%" }]}>{libelle}</Text>
+              <Text style={[styles.droite, { width: "18%" }]}>{temps > 0 ? prix(temps) : "—"}</Text>
+            </View>
+          ))}
 
           <View style={styles.totaux} wrap={false}>
             <View style={styles.ligneTotal}>
