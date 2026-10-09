@@ -841,9 +841,16 @@ export default function Chiffrage() {
       return aide ? `${groupe.valeurs[key]} (${aide})` : groupe.valeurs[key]
     }
     const detailsGroupe = (groupe: GroupeBarres, poste: string) => {
-      const details = (CHAMPS_MODULE[poste] ?? [])
+      const percage = poste === "forage_numerique" || poste === POSTE_FORAGE_MANUEL
+      const details = (percage ? [] : (CHAMPS_MODULE[poste] ?? []))
         .filter((key) => groupe.valeurs[key].trim() !== "")
         .map((key) => `${LIBELLES_CHAMPS[key]} : ${avecTotal(groupe, key)}`)
+      // Perçage : une seule ligne, le nombre de trous par barre puis leur diamètre.
+      if (percage) {
+        const [trous, diametre] = CHAMPS_MODULE[poste].map((key) => groupe.valeurs[key].trim())
+        const mesures = [trous, diametre !== "" ? `Ø ${diametre} mm` : ""].filter((mesure) => mesure !== "")
+        if (mesures.length > 0) details.push(`Perçage : ${mesures.join(" - ")}`)
+      }
       if (poste === POSTE_CONTRE_FLECHE && groupe.contreFleche.trim() !== "") {
         details.push(`${LIBELLE_CONTRE_FLECHE} : ${groupe.contreFleche}`)
       }

@@ -70,6 +70,10 @@ export interface DonneesOffre {
 // Signataire de l'offre, affiché dans l'en-tête.
 const AUTEUR = "Damien Schils"
 
+// Phrase d'introduction de la première page, au-dessus du trait de l'en-tête.
+const ACCROCHE =
+  "Nous vous remercions pour votre demande et l'intérêt porté à nos services. Sur la base des éléments transmis, nous avons le plaisir de vous présenter notre proposition"
+
 // Textes de l'annexe, les mêmes pour toutes les offres.
 const A_VOTRE_CHARGE = [
   "Fourniture des profils avec sur-longueur suffisante",
@@ -139,15 +143,9 @@ const styles = StyleSheet.create({
     color: "#0f172a",
     lineHeight: 1.35,
   },
-  entete: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    paddingBottom: 14,
-    marginBottom: 16,
-    borderBottomWidth: 2,
-    borderBottomColor: MARINE,
-  },
+  entete: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  accroche: { marginTop: 12 },
+  traitEntete: { marginTop: 14, marginBottom: 16, borderBottomWidth: 2, borderBottomColor: MARINE },
   // Mêmes proportions que l'image (309 × 138 px).
   logo: { width: 103, height: 46 },
   titre: { fontFamily: "Helvetica-Bold", fontSize: 16, lineHeight: 1.2, color: MARINE, textAlign: "right" },
@@ -311,6 +309,9 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
             <Text style={styles.sousTitre}>{AUTEUR}</Text>
           </View>
         </View>
+        {/* Entre l'en-tête et son trait, tous deux répétés : la phrase ne sort que sur la première page. */}
+        <Text style={styles.accroche}>{ACCROCHE}</Text>
+        <View style={styles.traitEntete} fixed />
 
         <Text style={styles.objet}>
           Objet : <Text style={styles.gras}>{offre.objet}</Text>
