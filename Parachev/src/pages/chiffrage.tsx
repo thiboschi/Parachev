@@ -830,7 +830,7 @@ export default function Chiffrage() {
 
   // Tout ce qui est saisi et chiffré sur la page, pour le PDF de l'offre.
   function donneesOffre(total: number): DonneesOffre {
-    const renseignees = (lignes: LigneInfo[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
+    const renseignees = <T extends { valeur: string }>(lignes: T[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
     const avecTotal = (groupe: GroupeBarres, key: Champ) => {
       const aide = aideTotal(groupe, key)
       return aide ? `${groupe.valeurs[key]} (${aide})` : groupe.valeurs[key]
@@ -954,8 +954,8 @@ export default function Chiffrage() {
         operations: postesDuGroupe(groupe).flatMap((poste) => detailsGroupe(groupe, poste)),
       })),
       normes: renseignees(
-        CHAMPS_NORMES.map(({ key, label }) => ({
-          label,
+        CHAMPS_NORMES.map(({ key }) => ({
+          key,
           valeur: estExigence(key) ? exigences[key].join(", ") : normes[key],
         }))
       ),

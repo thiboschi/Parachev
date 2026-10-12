@@ -2,6 +2,7 @@ import { Document, Image, Page, StyleSheet, Text, View, pdf } from "@react-pdf/r
 
 // Embarqué dans le module (data URI) : le rendu du PDF n'a rien à télécharger.
 import logoArcelorMittal from "@/assets/logo_arcelormittal.png?inline"
+import type { ChampNorme } from "@/lib/recherche"
 
 // Offre de prix générée depuis la page "Chiffrage" : tout ce qui y est saisi
 // et chiffré, mis en page pour être envoyé au client. Ce module embarque
@@ -9,6 +10,12 @@ import logoArcelorMittal from "@/assets/logo_arcelormittal.png?inline"
 
 export interface LigneInfo {
   label: string
+  valeur: string
+}
+
+/** Une norme renseignée dans la section "Normes et Exigences". */
+export interface NormeOffre {
+  key: ChampNorme
   valeur: string
 }
 
@@ -49,7 +56,7 @@ export interface DonneesOffre {
   objet: string
   typeAffaire: string
   barres: BarresOffre[]
-  normes: LigneInfo[]
+  normes: NormeOffre[]
   operations: OperationOffre[]
   /** Pièces à souder sur une barre (calculateur de soudage). */
   soudures: SoudureOffre[]
@@ -71,6 +78,22 @@ const AUTEUR = "Damien Schils"
 // Phrase d'introduction de la première page, au-dessus du trait de l'en-tête.
 const ACCROCHE =
   "Nous vous remercions pour votre demande et l'intérêt porté à nos services.\nSur la base des éléments transmis, nous avons le plaisir de vous présenter notre proposition"
+
+// Normes rédigées, dans l'ordre de l'offre : le début de la phrase, que
+// termine la valeur choisie.
+const PHRASES_NORMES: { key: ChampNorme; phrase: string }[] = [
+  { key: "exc", phrase: "Fabrication suivant EN 1090-2:2018, classe d'exécution" },
+  { key: "tolerance", phrase: "Tolérances géométriques selon EN 1090-2 :" },
+  { key: "prep", phrase: "Degré de préparation selon EN ISO 8501-3 :" },
+  { key: "classeUs", phrase: "Contrôle par ultrasons :" },
+  { key: "en10204", phrase: "Document de contrôle :" },
+  { key: "en10163", phrase: "Exigences de réparation :" },
+  { key: "exigencesFabrication", phrase: "Exigences particulières de fabrication :" },
+  { key: "exigencesAcier", phrase: "Exigences particulières acier :" },
+]
+
+const TRACABILITE =
+  "Traçabilité des produits constitutifs garantie jusqu'à l'assemblage, sous forme de lots (plusieurs documents de contrôle possibles par repère)."
 
 // Textes de l'annexe, les mêmes pour toutes les offres.
 const LISTES_ANNEXE: { titre: string; lignes: string[] }[] = [
@@ -116,6 +139,12 @@ const CONDITIONS: LigneInfo[] = [
   { label: "Conditions de paiement", valeur: "Paiement à 30 jours fin de mois." },
 ]
 
+// Derniers paragraphes de l'annexe, avant la formule de politesse.
+const CLOTURE = [
+  "Si cette proposition ne correspond pas entièrement à vos attentes, nous vous invitons à nous en informer. Nous pourrons alors analyser une alternative technique ou commerciale afin de vous proposer la solution la plus adaptée.",
+  "Pour toute question ou précision supplémentaire, nous restons à votre entière disposition.",
+]
+
 const MARINE = "#1e3a5f"
 const GRIS = "#64748b"
 const TRAIT = "#e2e8f0"
@@ -157,8 +186,8 @@ const styles = StyleSheet.create({
   sousTitre: { color: GRIS, textAlign: "right", marginTop: 2 },
   references: { color: GRIS, fontSize: 8, textAlign: "right", marginTop: 2 },
   objet: { fontSize: 11 },
-  blocs: { flexDirection: "row", gap: 12, marginTop: 16 },
-  bloc: { flex: 1, backgroundColor: FOND, borderRadius: 4, padding: 10 },
+  blocs: { gap: 12, marginTop: 16 },
+  bloc: { backgroundColor: FOND, borderRadius: 4, padding: 10 },
   etiquette: {
     fontFamily: "Helvetica-Bold",
     fontSize: 7.5,
@@ -248,6 +277,11 @@ function Annexe() {
       </View>
 
       <View style={styles.signature} wrap={false}>
+        {CLOTURE.map((paragraphe) => (
+          <Text key={paragraphe} style={{ marginBottom: 8 }}>
+            {paragraphe}
+          </Text>
+        ))}
         <Text>
           Dans l'attente de votre retour, nous vous prions d'agréer, Madame, Monsieur, l'expression de nos sentiments
           les meilleurs.
@@ -271,6 +305,10 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
   const date = offre.date.toLocaleDateString("fr-BE", { day: "numeric", month: "long", year: "numeric" })
   // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
   const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
+  const normes = PHRASES_NORMES.flatMap(({ key, phrase }) => {
+    const norme = offre.normes.find((n) => n.key === key)
+    return norme ? [{ key, phrase, valeur: norme.valeur }] : []
+  })
   const tonnages = offre.barres.map(tonnagePosition)
   const totalBarres = offre.barres.reduce((total, { nombre }) => total + (nombre > 0 ? nombre : 0), 0)
   const tonnageTotal = tonnages.reduce<number>((total, t) => total + (t ?? 0), 0)
@@ -312,12 +350,12 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
           <View style={styles.bloc}>
             <Text style={styles.etiquette}>Normes et exigences</Text>
-            {offre.normes.length === 0 && <Text>—</Text>}
-            {offre.normes.map(({ label, valeur }) => (
-              <Text key={label}>
-                {label} : <Text style={styles.gras}>{valeur}</Text>
+            {normes.map(({ key, phrase, valeur }) => (
+              <Text key={key}>
+                {phrase} <Text style={styles.gras}>{valeur}</Text>
               </Text>
             ))}
+            <Text style={[styles.detail, normes.length > 0 ? { marginTop: 4 } : {}]}>{TRACABILITE}</Text>
           </View>
         </View>
 
