@@ -120,7 +120,7 @@ export type ChampNorme = (typeof CHAMPS_NORMES)[number]["key"]
 
 // États de navigation (location.state) entre la recherche et une affaire :
 // une affaire ouverte depuis la recherche propose un retour qui restaure les
-// critères ; toute autre arrivée sur /search (sidebar…) repart de zéro.
+// critères ; toute autre arrivée sur /recherche(sidebar…) repart de zéro.
 export interface EtatNavigationRecherche {
   depuisRecherche?: boolean
   restaurerRecherche?: boolean
@@ -159,10 +159,10 @@ export const QUANTITES: {
   { cle: "nbGoujons", label: "Nombre de goujons", valeur: (a) => a.variables?.nb_goujons },
   { cle: "nbTrousManuel", label: "Trous (forage manuel)", valeur: (a) => a.variables?.nb_trous_manuel },
   { cle: "nbTrousNumerique", label: "Trous (forage numérique)", valeur: (a) => a.variables?.nb_trous_numerique },
-  { cle: "diametreMoyen", label: "Ø moyen des trous numériques (mm)", valeur: (a) => a.variables?.diametre_moyen_numerique },
+  { cle: "diametreMoyen", label: "Ø des trous numériques (mm)", valeur: (a) => a.variables?.diametre_moyen_numerique },
   {
     cle: "diametreMoyenManuel",
-    label: "Ø moyen des trous manuels (mm)",
+    label: "Ø des trous manuels (mm)",
     valeur: (a) => a.variables?.diametre_moyen_manuel,
   },
   {
@@ -170,7 +170,7 @@ export const QUANTITES: {
     label: "Longueur de coupe (m)",
     valeur: (a) => (a.variables?.longueur_coupe == null ? null : a.variables.longueur_coupe / 1000),
   },
-  { cle: "contreFleche", label: "Contre-flèche moyenne (mm)", valeur: (a) => a.variables?.contre_fleche },
+  { cle: "contreFleche", label: "Contre-flèche (mm)", valeur: (a) => a.variables?.contre_fleche },
 ]
 
 export interface IntervalleFiltre {

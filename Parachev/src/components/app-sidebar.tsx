@@ -11,8 +11,8 @@ export const data = {
       icon: IconDashboard,
     },
     {
-      title: "Search",
-      url: "/search",
+      title: "Recherche",
+      url: "/recherche",
       icon: IconSearch,
     },
     {

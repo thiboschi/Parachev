@@ -19,8 +19,8 @@ import {
   type Tri,
 } from "@/lib/recherche"
 
-export default function Search() {
-  // Une nouvelle clé à chaque navigation vers /search : recliquer sur Search
+export default function Recherche() {
+  // Une nouvelle clé à chaque navigation vers /recherche : recliquer sur Recherche
   // dans la sidebar remonte la page (critères remis à zéro) même si on y est.
   const location = useLocation()
   const restaurer = (location.state as EtatNavigationRecherche | null)?.restaurerRecherche === true

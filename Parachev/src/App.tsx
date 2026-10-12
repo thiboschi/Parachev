@@ -2,7 +2,7 @@ import {BrowserRouter, Routes, Route} from "react-router-dom"
 import { Toaster } from "sonner";
 import Page from "./pages/dashboard";
 import Prevision from "./pages/prevision";
-import Search from "./pages/search";
+import Recherche from "./pages/recherche";
 import Coefficients from "./pages/coefficients";
 import Chiffrage from "./pages/chiffrage";
 
@@ -17,7 +17,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Page />} />
           <Route path="/prevision/:affaire" element={<Prevision/>} />
-          <Route path="/search" element={<Search/>} />
+          <Route path="/recherche" element={<Recherche/>} />
           <Route path="/coefficients" element={<Coefficients/>} />
           <Route path="/chiffrage" element={<Chiffrage/>} />
         </Routes>

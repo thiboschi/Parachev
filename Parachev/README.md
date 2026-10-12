@@ -9,7 +9,7 @@ Elle fonctionne entièrement en local : aucune donnée ne quitte le poste.
 | Page | Rôle |
 | --- | --- |
 | **Dashboard** | Graphiques et tableau des affaires indexées, avec le suivi de l'indexation en cours. |
-| **Search** | Recherche d'affaires par critères (client, profil, postes, quantités…) et en plein texte dans les mails et les documents. |
+| **Recherche** | Recherche d'affaires par critères (client, profil, postes, quantités…) et en plein texte dans les mails et les documents. |
 | **Prévision** (depuis une affaire) | Heures pointées par poste, variables lues dans le dossier (modifiables à la main) et documents de l'affaire. |
 | **Coefficients** | Modèle calibré de chaque poste ; chaque coefficient peut être corrigé à la main. |
 | **Chiffrage** | Chiffrage manuel d'une nouvelle affaire, poste par poste, avec export de l'offre en PDF. Deux modes sur la même saisie : « Manuel » (temps barème de l'atelier, calculateur de soudage, heures saisies à la main pour les autres postes) et « Auto » (heures du modèle calibré). |

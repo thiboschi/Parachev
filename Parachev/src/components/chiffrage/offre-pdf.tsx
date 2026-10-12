@@ -93,7 +93,7 @@ const PHRASES_NORMES: { key: ChampNorme; phrase: string }[] = [
 ]
 
 const TRACABILITE =
-  "Traçabilité des produits constitutifs garantie jusqu'à l'assemblage, sous forme de lots (plusieurs documents de contrôle possibles par repère)."
+  "Traçabilité des produits garantie jusqu'à l'assemblage (plusieurs documents de contrôle possibles)."
 
 // Textes de l'annexe, les mêmes pour toutes les offres.
 const LISTES_ANNEXE: { titre: string; lignes: string[] }[] = [

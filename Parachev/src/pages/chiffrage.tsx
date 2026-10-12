@@ -466,7 +466,7 @@ export default function Chiffrage() {
   const [mode, setMode] = useState<Mode>("manuel")
   const prediction = mode === "auto"
   // Valeurs proposées dans les listes : celles des affaires déjà en base,
-  // comme les filtres de la page Search.
+  // comme les filtres de la page Recherche.
   const { affaires } = useRechercheAffaires()
   const options: OptionsFiltres = useMemo(() => optionsFiltres(affaires), [affaires])
 

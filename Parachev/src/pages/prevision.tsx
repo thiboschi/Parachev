@@ -183,7 +183,7 @@ export default function Prevision() {
                     size="icon"
                     title="Retour à la recherche"
                     aria-label="Retour à la recherche"
-                    onClick={() => navigate("/search", { state: RETOUR_RECHERCHE })}
+                    onClick={() => navigate("/recherche",{ state: RETOUR_RECHERCHE })}
                   >
                     <IconArrowLeft />
                   </Button>
