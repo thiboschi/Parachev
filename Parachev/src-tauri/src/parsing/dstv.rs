@@ -50,9 +50,9 @@ pub struct ProgrammeCn {
 
 impl ProgrammeCn {
     /// Tôle ou fer plat (code DSTV "B").
-    pub fn est_tole(&self) -> bool {
-        self.code_profil.as_deref() == Some("B")
-    }
+    // pub fn est_tole(&self) -> bool {
+    //     self.code_profil.as_deref() == Some("B")
+    // }
 
     fn diametres(&self) -> impl Iterator<Item = (f64, f64)> + '_ {
         self.positions_par_diametre.iter().map(|(&d, &n)| (d as f64 / 10.0, n))

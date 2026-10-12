@@ -671,7 +671,7 @@ fn empreinte_fichier(chemin: &str) -> Option<String> {
         }
     };
     melanger(&taille.to_le_bytes());
-    let mut lire = |fichier: &mut fs::File, n: u64| -> Option<Vec<u8>> {
+    let lire = |fichier: &mut fs::File, n: u64| -> Option<Vec<u8>> {
         let mut tampon = Vec::with_capacity(n as usize);
         fichier.take(n).read_to_end(&mut tampon).ok()?;
         Some(tampon)
