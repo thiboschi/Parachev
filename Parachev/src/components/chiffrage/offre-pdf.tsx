@@ -45,8 +45,6 @@ export interface DonneesOffre {
   client: string
   commercial: string
   numeroOffre: string
-  numeroCommande: string
-  numeroLaminage: string
   /** Résumé de la prestation, ex. "Parachèvement de poutrelles HD – EXC3". */
   objet: string
   typeAffaire: string

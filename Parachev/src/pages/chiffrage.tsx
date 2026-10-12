@@ -33,21 +33,16 @@ import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
 const NON_RENSEIGNE = "none"
 
 // Champs purement informatifs de la section "Infos Client" : ni envoyés à
-// `chiffrer_manuellement`, ni utilisés dans le calcul. Le n° 11 est le
-// numéro de commande (1100...), le n° 19 la commande de laminage (1900...).
-type ChampClient = "numero_11" | "numero_19" | "numero_offre" | "client" | "commercial"
+// `chiffrer_manuellement`, ni utilisés dans le calcul.
+type ChampClient = "numero_offre" | "client" | "commercial"
 
-const CHAMPS_CLIENT: { key: ChampClient; label: string; placeholder?: string }[] = [
-  { key: "numero_11", label: "N° 11", placeholder: "1100…" },
-  { key: "numero_19", label: "N° 19", placeholder: "1900…" },
+const CHAMPS_CLIENT: { key: ChampClient; label: string }[] = [
   { key: "numero_offre", label: "N° d'offre" },
   { key: "client", label: "Nom du client" },
   { key: "commercial", label: "Commercial" },
 ]
 
 const CLIENT_VIDE: Record<ChampClient, string> = {
-  numero_11: "",
-  numero_19: "",
   numero_offre: "",
   client: "",
   commercial: "",
@@ -949,8 +944,6 @@ export default function Chiffrage() {
       client: client.client.trim(),
       commercial: client.commercial.trim(),
       numeroOffre: client.numero_offre.trim(),
-      numeroCommande: client.numero_11.trim(),
-      numeroLaminage: client.numero_19.trim(),
       objet,
       typeAffaire: typeNom,
       barres: groupes.map((groupe) => ({
@@ -1284,11 +1277,10 @@ export default function Chiffrage() {
               <Card>
                 <CardContent className="flex flex-col gap-5">
                   <Section titre="Infos Client">
-                    {CHAMPS_CLIENT.map(({ key, label, placeholder }) => (
+                    {CHAMPS_CLIENT.map(({ key, label }) => (
                       <ChampSaisie key={key} id={`client-${key}`} label={label}>
                         <Input
                           id={`client-${key}`}
-                          placeholder={placeholder}
                           value={client[key]}
                           onChange={(e) => setClient((prev) => ({ ...prev, [key]: e.target.value }))}
                         />
@@ -1450,9 +1442,9 @@ export default function Chiffrage() {
                 </CardAction>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-1.5 text-sm">
-                {(client.client || client.numero_11 || client.numero_offre) && (
+                {(client.client || client.numero_offre) && (
                   <span className="pb-1 font-medium">
-                    {[client.client, client.numero_11, client.numero_offre].filter(Boolean).join(" · ")}
+                    {[client.client, client.numero_offre].filter(Boolean).join(" · ")}
                   </span>
                 )}
                 {!resultat && (
