@@ -185,9 +185,8 @@ const styles = StyleSheet.create({
   titre: { fontFamily: "Helvetica-Bold", fontSize: 16, lineHeight: 1.2, color: MARINE, textAlign: "right" },
   sousTitre: { color: GRIS, textAlign: "right", marginTop: 2 },
   references: { color: GRIS, fontSize: 8, textAlign: "right", marginTop: 2 },
-  objet: { fontSize: 11 },
-  blocs: { gap: 12, marginTop: 16 },
-  bloc: { backgroundColor: FOND, borderRadius: 4, padding: 10 },
+  objet: { fontSize: 11, gap: 3 },
+  bloc: { marginTop: 16, backgroundColor: FOND, borderRadius: 4, padding: 10 },
   etiquette: {
     fontFamily: "Helvetica-Bold",
     fontSize: 7.5,
@@ -196,7 +195,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
     marginBottom: 4,
   },
-  nomClient: { fontFamily: "Helvetica-Bold", fontSize: 12 },
   section: { marginTop: 18 },
   titreSection: {
     fontFamily: "Helvetica-Bold",
@@ -334,29 +332,28 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
         <Text style={styles.accroche}>{ACCROCHE}</Text>
         <View style={styles.traitEntete} fixed />
 
-        <Text style={styles.objet}>
-          Objet : <Text style={styles.gras}>{offre.objet}</Text>
-        </Text>
+        <View style={styles.objet}>
+          <Text>
+            Objet : <Text style={styles.gras}>{offre.objet}</Text>
+          </Text>
+          <Text>
+            Client : <Text style={styles.gras}>{offre.client || "—"}</Text>
+          </Text>
+          {offre.commercial !== "" && (
+            <Text>
+              Commercial : <Text style={styles.gras}>{offre.commercial}</Text>
+            </Text>
+          )}
+        </View>
 
-        <View style={styles.blocs}>
-          <View style={styles.bloc}>
-            <Text style={styles.etiquette}>Client</Text>
-            <Text style={styles.nomClient}>{offre.client || "—"}</Text>
-            {offre.commercial !== "" && (
-              <Text style={{ marginTop: 4 }}>
-                Commercial : <Text style={styles.gras}>{offre.commercial}</Text>
-              </Text>
-            )}
-          </View>
-          <View style={styles.bloc}>
-            <Text style={styles.etiquette}>Normes et exigences</Text>
-            {normes.map(({ key, phrase, valeur }) => (
-              <Text key={key}>
-                {phrase} <Text style={styles.gras}>{valeur}</Text>
-              </Text>
-            ))}
-            <Text style={[styles.detail, normes.length > 0 ? { marginTop: 4 } : {}]}>{TRACABILITE}</Text>
-          </View>
+        <View style={styles.bloc}>
+          <Text style={styles.etiquette}>Normes et exigences</Text>
+          {normes.map(({ key, phrase, valeur }) => (
+            <Text key={key}>
+              {phrase} <Text style={styles.gras}>{valeur}</Text>
+            </Text>
+          ))}
+          <Text style={[styles.detail, normes.length > 0 ? { marginTop: 4 } : {}]}>{TRACABILITE}</Text>
         </View>
 
         {offre.barres.length > 0 && (
