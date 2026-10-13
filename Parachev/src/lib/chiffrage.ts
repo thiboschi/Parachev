@@ -363,16 +363,33 @@ export interface ModulePoste {
   optionnel: boolean
 }
 
+// Poste que le degré de préparation "P3" des normes ajoute à l'affaire (voir
+// demandeP3). Dans une gamme qui ne le compte pas, il se place avant les
+// postes qui le suivent dans celles qui le comptent, sinon en fin de gamme.
+const POSTE_P3 = "p3"
+const POSTES_APRES_P3 = ["assemblage_tracage", "soudage", "goujonnage"]
+
+// Le degré de préparation choisi ("P3", "P3 aile inferieure") demande-t-il
+// le poste P3 ?
+export const demandeP3 = (preparation: string) => /^P3\b/i.test(preparation.trim())
+
 // Modules d'un type du "Flux de production BFC" : tous les postes de ses
 // itinéraires, dans l'ordre de la gamme. Un poste est obligatoire s'il est
-// une étape à lui seul dans chaque itinéraire.
-export function modulesDuType(type: TypeProduction): ModulePoste[] {
+// une étape à lui seul dans chaque itinéraire. `avecP3` y ajoute le poste P3,
+// obligatoire, quand les normes le demandent.
+export function modulesDuType(type: TypeProduction, avecP3 = false): ModulePoste[] {
   const postes = Array.from(new Set(type.itineraires.flat(2)))
+  if (avecP3 && !postes.includes(POSTE_P3)) {
+    const suivant = postes.findIndex((poste) => POSTES_APRES_P3.includes(poste))
+    postes.splice(suivant === -1 ? postes.length : suivant, 0, POSTE_P3)
+  }
   const modules = postes.map((poste) => ({
     poste,
-    optionnel: !type.itineraires.every((itineraire) =>
-      itineraire.some((etape) => etape.length === 1 && etape[0] === poste)
-    ),
+    optionnel:
+      !(avecP3 && poste === POSTE_P3) &&
+      !type.itineraires.every((itineraire) =>
+        itineraire.some((etape) => etape.length === 1 && etape[0] === poste)
+      ),
   }))
   if (!postes.includes(POSTE_TOUJOURS_PROPOSE)) {
     modules.push({ poste: POSTE_TOUJOURS_PROPOSE, optionnel: false })

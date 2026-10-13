@@ -26,6 +26,7 @@ import {
   barresGroupe,
   champsDes,
   coupesParBarre,
+  demandeP3,
   groupeVide,
   heuresContreFlecheGroupe,
   heuresForageManuelGroupe,
@@ -116,7 +117,9 @@ export function useChiffrage() {
     [optionsProfils]
   )
   const type = TYPES_PRODUCTION.find((t) => t.nom === typeNom)
-  const modules = useMemo(() => (type ? modulesDuType(type) : []), [type])
+  // Le degré de préparation "P3" des normes ajoute le poste P3 à la gamme.
+  const avecP3 = demandeP3(normes.prep)
+  const modules = useMemo(() => (type ? modulesDuType(type, avecP3) : []), [type, avecP3])
   // Postes chiffrés : ceux d'au moins un groupe, les autres le sont à 0 h.
   const postes = new Set(groupes.flatMap((g) => postesDuGroupe(modules, g)))
 
