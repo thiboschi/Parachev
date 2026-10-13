@@ -142,6 +142,9 @@ export function CalculateurSoudage({
             <Champ label="Longueur à souder par pièce (mm)" large>
               <Saisie valeur={ligne.longueur} onChange={(v) => modifierLigne(ligne.id, "longueur", v)} />
             </Champ>
+            <Champ label="Poids par pièce (kg)">
+              <Saisie valeur={ligne.poids} onChange={(v) => modifierLigne(ligne.id, "poids", v)} />
+            </Champ>
             <Champ label="Préparation" large>
               <Select
                 value={ligne.preparation}
@@ -199,6 +202,9 @@ export function CalculateurSoudage({
         <div className="flex flex-col gap-1.5">
           <Resultat label="Longueur à souder par barre" valeur={`${formatNombre(temps.longueurM, 3)} m`} />
           <Resultat label="Masse déposée par barre" valeur={`${formatNombre(temps.masseKg)} kg`} />
+          {temps.poidsPiecesKg > 0 && (
+            <Resultat label="Poids des pièces par barre" valeur={`${formatNombre(temps.poidsPiecesKg)} kg`} />
+          )}
           <Resultat label="Soudage" valeur={`${formatNombre(temps.soudage)} h`} />
           <Resultat label="Meulage" valeur={`${formatNombre(temps.meulage)} h`} />
           <Resultat label="EPI" valeur={`${formatNombre(temps.epi)} h`} />

@@ -372,6 +372,10 @@ const somme = (valeurs: number[]) => valeurs.reduce((total, valeur) => total + v
 // (voir POSTES_ANNEXES dans flux-production.ts) : proposée pour tous les types.
 const POSTE_TOUJOURS_PROPOSE = "manutention"
 
+// Seuls postes que l'on peut retirer du détail des opérations de l'offre
+// (voir postesMasques) : les autres y figurent toujours.
+const POSTES_MASQUABLES = ["manutention", "p3", "controle_cnd"]
+
 /** Un module de prédiction = un poste de la gamme du type de poutre. */
 interface ModulePoste {
   poste: string
@@ -733,8 +737,10 @@ export default function Chiffrage() {
   // Postes décochés dans l'estimation : absents du détail des opérations de
   // l'offre, leurs heures y sont reportées sur un poste affiché.
   const [postesMasques, setPostesMasques] = useState<Set<string>>(new Set())
+  const postesMasquables = postesGamme.filter((poste) => POSTES_MASQUABLES.includes(poste))
   // Poids indicatif des goujons : absent de l'offre tant que la case n'est
-  // pas cochée dans l'estimation.
+  // pas cochée dans le volet "Goujonnage". Un seul choix pour le projet, la
+  // ligne de l'offre étant le total de ses groupes.
   const [poidsGoujonsAffiche, setPoidsGoujonsAffiche] = useState(false)
 
   function modifierGroupe(id: number, modification: (groupe: GroupeBarres) => Partial<GroupeBarres>) {
@@ -1253,16 +1259,28 @@ export default function Chiffrage() {
           </div>
         )}
         {poste === "goujonnage" && (
-          <span className="text-xs text-muted-foreground">
-            {poidsGoujonUnitaire === null
-              ? "Renseignez le diamètre et la hauteur des goujons pour estimer leur poids."
-              : `Poids des goujons : ${formatPoidsGoujon(poidsGoujonUnitaire)} kg pièce${
-                  poidsGoujons !== null
-                    ? `, ${formatHeures(poidsGoujons)} kg par barre${nbBarres > 0 ? ` (total : ${formatHeures(poidsGoujons * nbBarres)} kg)` : ""}`
-                    : ""
-                }.`}{" "}
-            Poids indicatif, non ajouté au tonnage.
-          </span>
+          <div className="flex flex-col gap-2">
+            <span className="text-xs text-muted-foreground">
+              {poidsGoujonUnitaire === null
+                ? "Renseignez le diamètre et la hauteur des goujons pour estimer leur poids."
+                : `Poids des goujons : ${formatPoidsGoujon(poidsGoujonUnitaire)} kg pièce${
+                    poidsGoujons !== null
+                      ? `, ${formatHeures(poidsGoujons)} kg par barre${nbBarres > 0 ? ` (total : ${formatHeures(poidsGoujons * nbBarres)} kg)` : ""}`
+                      : ""
+                  }.`}{" "}
+              Poids indicatif, non ajouté au tonnage.
+            </span>
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id={`${id}-poids-goujons`}
+                checked={poidsGoujonsAffiche}
+                onCheckedChange={(coche) => setPoidsGoujonsAffiche(coche === true)}
+              />
+              <Label htmlFor={`${id}-poids-goujons`} className="text-sm font-normal">
+                Afficher le poids des goujons sur l'offre PDF
+              </Label>
+            </div>
+          </div>
         )}
         {baremeManuel !== null && (
           <span className="text-xs text-muted-foreground">
@@ -1802,11 +1820,11 @@ export default function Chiffrage() {
                     </span>
                   </div>
                 )}
-                {postesGamme.length > 0 && (
+                {postesMasquables.length > 0 && (
                   <div className="mt-2 flex flex-col gap-2 border-t pt-1.5">
                     <span className="text-muted-foreground">Opérations affichées sur l'offre PDF</span>
                     <div className="flex flex-wrap gap-x-4 gap-y-2">
-                      {postesGamme.map((poste) => (
+                      {postesMasquables.map((poste) => (
                         <div key={poste} className="flex items-center gap-2">
                           <Checkbox
                             id={`offre-${poste}`}
@@ -1821,18 +1839,6 @@ export default function Chiffrage() {
                         </div>
                       ))}
                     </div>
-                    {postesGamme.includes("goujonnage") && !postesMasques.has("goujonnage") && (
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id="offre-poids-goujons"
-                          checked={poidsGoujonsAffiche}
-                          onCheckedChange={(coche) => setPoidsGoujonsAffiche(coche === true)}
-                        />
-                        <Label htmlFor="offre-poids-goujons" className="text-sm font-normal">
-                          Afficher le poids des goujons (indicatif)
-                        </Label>
-                      </div>
-                    )}
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">

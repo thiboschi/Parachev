@@ -19,10 +19,12 @@ export const PREPARATIONS: { key: Preparation; label: string }[] = [
   { key: "K", label: "Type K" },
 ]
 
-// Champs d'une ligne, saisis en texte (vide = non renseigné).
+// Champs d'une ligne, saisis en texte (vide = non renseigné). Le poids de la
+// pièce (kg) est indicatif : il n'entre pas dans le calcul des temps.
 export type ChampSoudure =
   | "nombre"
   | "longueur"
+  | "poids"
   | "passes"
   | "epaisseur"
   | "angle"
@@ -88,6 +90,7 @@ export function ligneVide(id: number): LigneSoudure {
     preparation: "angle",
     nombre: "1",
     longueur: "",
+    poids: "",
     passes: "1",
     epaisseur: "",
     angle: "40",
@@ -182,6 +185,7 @@ const COEFFICIENT_PAUSES = 1 + 2 / 6
 export type TempsSoudage = {
   longueurM: number // longueur à souder par barre
   masseKg: number // masse déposée par barre
+  poidsPiecesKg: number // poids des pièces soudées sur une barre, 0 si non saisi
   soudage: number // heures par barre
   meulage: number
   epi: number
@@ -204,11 +208,13 @@ export function calculerSoudage(
 
   let longueurMm = 0
   let minutesSoudage = 0
+  let poidsPiecesKg = 0
   for (const ligne of lignes) {
     const longueur = nombre(ligne.nombre) * nombre(ligne.longueur)
     const passes = nombrePasses(ligne)
     if (!(longueur > 0) || passes === null) return null
     longueurMm += longueur
+    poidsPiecesKg += nombre(ligne.nombre) * ouZero(ligne.poids)
     minutesSoudage += (longueur * passes) / vitesse
   }
 
@@ -223,6 +229,7 @@ export function calculerSoudage(
   return {
     longueurM,
     masseKg: longueurM * MASSE_DEPOSEE_KG_PAR_M,
+    poidsPiecesKg,
     soudage,
     meulage,
     epi,
