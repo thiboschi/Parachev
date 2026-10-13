@@ -19,6 +19,7 @@ import { CadencesSoudage, CalculateurSoudage, useParametresSoudage } from "@/com
 import { LIBELLES_ZONE_GOUJONS, type ZoneGoujons } from "@/hooks/use-affaire-db"
 import { useRechercheAffaires } from "@/hooks/use-recherche-affaires"
 import { TYPES_PRODUCTION, type TypeProduction } from "@/lib/flux-production"
+import { poidsGoujon } from "@/lib/goujons"
 import { heuresForageManuel, heuresForageNumerique, heuresOblongs } from "@/lib/percage"
 import { libellePoste } from "@/lib/postes"
 import { heuresContreFleche } from "@/lib/presse"
@@ -160,6 +161,18 @@ const POSTE_DU_CHAMP = Object.fromEntries(
 // première impose un retournement de la barre (nb_retournements_goujons).
 const ZONES_GOUJONS = Object.keys(LIBELLES_ZONE_GOUJONS) as ZoneGoujons[]
 
+// Type des goujons d'une barre (diamètre × hauteur, comme la colonne "Diam."
+// de FC-GOUJ) : aucun poste ne le chiffre, il ne sert qu'au poids indicatif
+// des goujons (voir lib/goujons.ts).
+type ChampGoujon = "diametre" | "hauteur"
+
+const CHAMPS_GOUJON: { key: ChampGoujon; label: string }[] = [
+  { key: "diametre", label: "Diamètre des goujons (mm)" },
+  { key: "hauteur", label: "Hauteur des goujons (mm)" },
+]
+
+const GOUJON_VIDE: Record<ChampGoujon, string> = { diametre: "", hauteur: "" }
+
 // Trous oblongs d'une barre, en option des postes qui peuvent les réaliser :
 // aucun poste ne les chiffre d'après leur nombre, ils ne servent qu'au temps
 // barème (voir heuresOblongs).
@@ -223,6 +236,7 @@ interface GroupeBarres {
   contreFleche: string
   valeurs: Record<Champ, string>
   zonesGoujons: Set<ZoneGoujons>
+  goujon: Record<ChampGoujon, string>
   // Option "Trous oblongs" de chaque poste de POSTES_AVEC_OBLONGS : cochée
   // ou non, et ses dimensions (propres au poste).
   oblongsActifs: Set<string>
@@ -240,6 +254,7 @@ const groupeVide = (id: number): GroupeBarres => ({
   contreFleche: "",
   valeurs: CHAMPS_VIDES,
   zonesGoujons: new Set(),
+  goujon: GOUJON_VIDE,
   oblongsActifs: new Set(),
   oblongs: {},
   coupes: COUPES_VIDES,
@@ -260,6 +275,23 @@ const totalGroupe = (groupe: GroupeBarres, key: Champ) =>
   (CHAMPS_PAR_BARRE.has(key) ? barresGroupe(groupe) : 1)
 
 const retournementsParBarre = (groupe: GroupeBarres) => Math.max(groupe.zonesGoujons.size - 1, 0)
+
+// Type de goujon saisi ("Ø 25 × 200") ; "" tant qu'une dimension manque.
+const typeGoujon = ({ goujon }: GroupeBarres) =>
+  goujon.diametre.trim() !== "" && goujon.hauteur.trim() !== ""
+    ? `Ø ${goujon.diametre.trim()} × ${goujon.hauteur.trim()}`
+    : ""
+
+// Poids d'un goujon du groupe, en kg ; null sans diamètre ou sans hauteur.
+const poidsGoujonGroupe = ({ goujon }: GroupeBarres) => poidsGoujon(nombre(goujon.diametre), nombre(goujon.hauteur))
+
+// Poids indicatif des goujons d'une barre du groupe, en kg ; null sans
+// goujons ou sans leur type.
+const poidsGoujonsParBarre = (groupe: GroupeBarres) => {
+  const unitaire = poidsGoujonGroupe(groupe)
+  const goujons = nombre(groupe.valeurs.nb_goujons)
+  return unitaire !== null && goujons > 0 ? unitaire * goujons : null
+}
 
 const oblongsDuPoste = (groupe: GroupeBarres, poste: string) => groupe.oblongs[poste] ?? OBLONGS_VIDES
 
@@ -377,6 +409,9 @@ const nombre = (brut: string) => (brut.trim() === "" ? 0 : Number(brut.trim().re
 
 const formatHeures = (value: number) =>
   value.toLocaleString("fr-BE", { maximumFractionDigits: 1 })
+
+// Poids d'un goujon, à 10 g près.
+const formatPoidsGoujon = (kg: number) => kg.toLocaleString("fr-BE", { maximumFractionDigits: 2 })
 
 function Section({ titre, children }: { titre: string; children: React.ReactNode }) {
   return (
@@ -698,6 +733,9 @@ export default function Chiffrage() {
   // Postes décochés dans l'estimation : absents du détail des opérations de
   // l'offre, leurs heures y sont reportées sur un poste affiché.
   const [postesMasques, setPostesMasques] = useState<Set<string>>(new Set())
+  // Poids indicatif des goujons : absent de l'offre tant que la case n'est
+  // pas cochée dans l'estimation.
+  const [poidsGoujonsAffiche, setPoidsGoujonsAffiche] = useState(false)
 
   function modifierGroupe(id: number, modification: (groupe: GroupeBarres) => Partial<GroupeBarres>) {
     setGroupes((prev) => prev.map((g) => (g.id === id ? { ...g, ...modification(g) } : g)))
@@ -732,6 +770,7 @@ export default function Chiffrage() {
     setHeuresSaisies({})
     setReserve("")
     setPostesMasques(new Set())
+    setPoidsGoujonsAffiche(false)
     setResultat(null)
   }
 
@@ -935,6 +974,7 @@ export default function Chiffrage() {
         }
         if (nombre(oblongs) > 0) details.push(`${LIBELLE_OBLONGS_ROBOT} : ${oblongs}`)
       }
+      if (poste === "goujonnage" && typeGoujon(groupe) !== "") details.push(`Goujons : ${typeGoujon(groupe)} mm`)
       if (poste === "goujonnage" && groupe.zonesGoujons.size > 0) {
         const zones = ZONES_GOUJONS.filter((zone) => groupe.zonesGoujons.has(zone)).map((zone) => LIBELLES_ZONE_GOUJONS[zone])
         const retournements = retournementsParBarre(groupe)
@@ -988,7 +1028,21 @@ export default function Chiffrage() {
       if (poste === POSTE_FORAGE_MANUEL) {
         ajouter("Trous perçage manuel", totalProjet("nb_trous_manuel"), diametre("diametre_moyen_manuel"))
       }
-      if (poste === "goujonnage") ajouter("Goujons", totalProjet("nb_goujons"))
+      if (poste === "goujonnage") {
+        const types = Array.from(new Set(concernes.map(typeGoujon).filter((type) => type !== "")))
+        ajouter("Goujons", totalProjet("nb_goujons"), types.length > 0 ? ` (${types.join(", ")} mm)` : "")
+        // Poids indicatif, hors tonnage, sur demande : seulement si chaque
+        // groupe goujonné a le type de ses goujons, un total partiel tromperait.
+        const goujonnes = concernes.filter((g) => nombre(g.valeurs.nb_goujons) > 0)
+        const poids = goujonnes.map(poidsGoujonsParBarre)
+        if (poidsGoujonsAffiche && !poids.includes(null)) {
+          ajouter(
+            "Poids des goujons",
+            somme(goujonnes.map((g, i) => (poids[i] ?? 0) * barresGroupe(g))),
+            " kg"
+          )
+        }
+      }
       if (poste === "oxycoupage") ajouter("Longueur de coupe", totalProjet("longueur_coupe") / 1000, " m")
       if (poste === "soudage") {
         ajouter(
@@ -1124,6 +1178,8 @@ export default function Chiffrage() {
     const avecOblongs = POSTES_AVEC_OBLONGS.includes(poste)
     const nbBarres = barresGroupe(groupe)
     const retournements = retournementsParBarre(groupe)
+    const poidsGoujonUnitaire = poidsGoujonGroupe(groupe)
+    const poidsGoujons = poidsGoujonsParBarre(groupe)
     const oblongsCoches = groupe.oblongsActifs.has(poste)
     const baremeOblongs = heuresOblongsBareme(groupe, poste)
     const coupes = coupesParBarre(groupe)
@@ -1180,7 +1236,33 @@ export default function Chiffrage() {
                 />
               </ChampSaisie>
             )}
+            {poste === "goujonnage" &&
+              CHAMPS_GOUJON.map(({ key, label }) => (
+                <ChampSaisie key={key} id={`${id}-goujon-${key}`} label={label}>
+                  <Input
+                    id={`${id}-goujon-${key}`}
+                    className="text-right tabular-nums"
+                    inputMode="decimal"
+                    value={groupe.goujon[key]}
+                    onChange={(e) =>
+                      modifierGroupe(groupe.id, (g) => ({ goujon: { ...g.goujon, [key]: e.target.value } }))
+                    }
+                  />
+                </ChampSaisie>
+              ))}
           </div>
+        )}
+        {poste === "goujonnage" && (
+          <span className="text-xs text-muted-foreground">
+            {poidsGoujonUnitaire === null
+              ? "Renseignez le diamètre et la hauteur des goujons pour estimer leur poids."
+              : `Poids des goujons : ${formatPoidsGoujon(poidsGoujonUnitaire)} kg pièce${
+                  poidsGoujons !== null
+                    ? `, ${formatHeures(poidsGoujons)} kg par barre${nbBarres > 0 ? ` (total : ${formatHeures(poidsGoujons * nbBarres)} kg)` : ""}`
+                    : ""
+                }.`}{" "}
+            Poids indicatif, non ajouté au tonnage.
+          </span>
         )}
         {baremeManuel !== null && (
           <span className="text-xs text-muted-foreground">
@@ -1739,6 +1821,18 @@ export default function Chiffrage() {
                         </div>
                       ))}
                     </div>
+                    {postesGamme.includes("goujonnage") && !postesMasques.has("goujonnage") && (
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="offre-poids-goujons"
+                          checked={poidsGoujonsAffiche}
+                          onCheckedChange={(coche) => setPoidsGoujonsAffiche(coche === true)}
+                        />
+                        <Label htmlFor="offre-poids-goujons" className="text-sm font-normal">
+                          Afficher le poids des goujons (indicatif)
+                        </Label>
+                      </div>
+                    )}
                   </div>
                 )}
                 <div className="mt-2 flex items-center gap-2">
