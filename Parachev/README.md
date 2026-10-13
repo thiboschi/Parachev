@@ -73,6 +73,7 @@ Les deux modes de la page Chiffrage utilisent les temps barème de l'atelier. Il
 | --- | --- | --- | --- | --- |
 | [sciage.ts](src/lib/sciage.ts) | Mise à longueur | Feuilles `DATA-TEMPS` et `SCIE` | Chiffre le poste dès que des coupes sont saisies. | Remplace la calibration dès que des coupes sont saisies. |
 | [presse.ts](src/lib/presse.ts) | Contre-flèche | Feuille `PRESSE` | Chiffre le poste dès qu'une contre-flèche est saisie. Le redressage n'a pas de barème. | Remplace la calibration dès qu'une contre-flèche est saisie. |
+| [robot.ts](src/lib/robot.ts) | Robot | Feuille `ROBOT` | Chiffre le poste dès qu'une opération aux bouts ou des oblongs sont saisis. | Remplace la calibration dès qu'une opération aux bouts ou des oblongs sont saisis. |
 | [percage.ts](src/lib/percage.ts) | Forage manuel | Feuille `FMAN` | Chiffre le poste dès que les trous et leur diamètre sont saisis. | Indicatif, affiché à côté des heures calibrées. |
 | [percage.ts](src/lib/percage.ts) | Forage numérique, trous oblongs | Feuilles `FWAG` et `DATA-TEMPS` | Indicatif. | Indicatif. |
 | [soudage.ts](src/lib/soudage.ts) | Soudage | Classeur « 00 Calcul des temps de soudage » | Calculateur ; les cadences sont des paramètres modifiables. | Remplace la calibration dès que le calculateur est rempli. |

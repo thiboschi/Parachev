@@ -24,6 +24,7 @@ import { libellePoste } from "@/lib/postes"
 import { heuresContreFleche } from "@/lib/presse"
 import { CHAMPS_NORMES, libelleOperationRde, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
 import { PROFILS_CATALOGUE, familleProfil, profilCorrespond } from "@/lib/profils"
+import { OPERATIONS_ROBOT, heuresBoutsRobot, heuresOblongsRobot, type OperationRobot } from "@/lib/robot"
 import { heuresSciage } from "@/lib/sciage"
 import { PREPARATIONS, nombrePasses, type LigneSoudure, type ParametresSoudure } from "@/lib/soudage"
 import type { DonneesOffre, LigneInfo } from "@/components/chiffrage/offre-pdf"
@@ -193,6 +194,23 @@ const libelleCoupe = (type: TypeCoupe) => `${libelleOperationRde(type)} par barr
 const POSTE_CONTRE_FLECHE = "presse_cintrage"
 const LIBELLE_CONTRE_FLECHE = "CFL (mm)"
 
+// Poste dont l'opération aux bouts et les oblongs saisis (`robot` du groupe)
+// donnent les heures au barème du robot (voir lib/robot.ts), à la place de
+// la calibration.
+const POSTE_ROBOT = "robot"
+const LIBELLE_OBLONGS_ROBOT = "Oblongs oxycoupés par barre"
+const OPTIONS_ROBOT = Object.entries(OPERATIONS_ROBOT).map(([valeur, libelle]) => ({ valeur, libelle }))
+
+interface SaisieRobot {
+  // Opération faite aux bouts de chaque barre ; "" = aucune.
+  operation: OperationRobot | ""
+  // Un seul bout travaillé par barre, au lieu des deux.
+  unBout: boolean
+  oblongs: string
+}
+
+const ROBOT_VIDE: SaisieRobot = { operation: "", unBout: false, oblongs: "" }
+
 /** Barres identiques d'un projet : même profil, mêmes dimensions et mêmes
  *  opérations sur chaque barre. Un projet en compte un ou plusieurs. */
 interface GroupeBarres {
@@ -210,6 +228,7 @@ interface GroupeBarres {
   oblongsActifs: Set<string>
   oblongs: Record<string, Record<ChampOblong, string>>
   coupes: Record<TypeCoupe, string>
+  robot: SaisieRobot
   // Postes optionnels de la gamme (voir ModulePoste) cochés pour ce groupe.
   postesOptionnels: Set<string>
 }
@@ -224,6 +243,7 @@ const groupeVide = (id: number): GroupeBarres => ({
   oblongsActifs: new Set(),
   oblongs: {},
   coupes: COUPES_VIDES,
+  robot: ROBOT_VIDE,
   postesOptionnels: new Set(),
 })
 
@@ -271,6 +291,32 @@ const heuresContreFlecheGroupe = (groupe: GroupeBarres) =>
     contreFleche: nombre(groupe.contreFleche),
   })
 
+const boutsRobot = (groupe: GroupeBarres) => (groupe.robot.unBout ? 1 : 2)
+
+const oblongsRobot = (groupe: GroupeBarres) => nombre(groupe.robot.oblongs) * barresGroupe(groupe)
+
+// Le groupe a-t-il du travail saisi pour le robot ?
+const aSaisieRobot = (groupe: GroupeBarres) =>
+  groupe.robot.operation !== "" || nombre(groupe.robot.oblongs) > 0
+
+// Heures barème du robot pour le groupe, opération aux bouts et oblongs ;
+// null si l'un des deux est hors barème.
+const heuresRobotGroupe = (groupe: GroupeBarres) => {
+  const { operation, oblongs } = groupe.robot
+  const heuresBouts =
+    operation === ""
+      ? 0
+      : heuresBoutsRobot({
+          profil: groupe.profil,
+          nbBarres: barresGroupe(groupe),
+          longueur: longueurGroupe(groupe),
+          operation,
+          bouts: boutsRobot(groupe),
+        })
+  const heuresOblongs = nombre(oblongs) > 0 ? heuresOblongsRobot(groupe.profil, oblongsRobot(groupe)) : 0
+  return heuresBouts === null || heuresOblongs === null ? null : heuresBouts + heuresOblongs
+}
+
 // Heures barème de forage manuel du groupe ; null hors barème.
 const POSTE_FORAGE_MANUEL = "forage_manuel"
 const heuresForageManuelGroupe = (groupe: GroupeBarres) =>
@@ -284,6 +330,7 @@ const aSaisieParGroupe = (poste: string) =>
   (CHAMPS_MODULE[poste] ?? []).length > 0 ||
   POSTES_AVEC_OBLONGS.includes(poste) ||
   poste === POSTE_COUPES ||
+  poste === POSTE_ROBOT ||
   poste === "goujonnage" ||
   poste === "soudage"
 
@@ -461,8 +508,8 @@ export default function Chiffrage() {
   // En manuel, les heures de chaque poste viennent des barèmes atelier et du
   // calculateur de soudage, ou sont saisies à la main dans l'estimation. En
   // auto (prédiction), elles viennent de la calibration
-  // (`chiffrer_manuellement`), que le calculateur et les barèmes de sciage et
-  // de contre-flèche remplacent dès que leurs quantités sont saisies.
+  // (`chiffrer_manuellement`), que le calculateur et les barèmes de sciage, de
+  // contre-flèche et du robot remplacent dès que leurs quantités sont saisies.
   const [mode, setMode] = useState<Mode>("manuel")
   const prediction = mode === "auto"
   // Valeurs proposées dans les listes : celles des affaires déjà en base,
@@ -566,6 +613,14 @@ export default function Chiffrage() {
   const contreFlecheCalculee =
     heuresContreFlecheGroupes.length > 0 ? somme(heuresContreFlecheGroupes) : null
   const presseActive = postes.has(POSTE_CONTRE_FLECHE)
+  // De même pour le robot, au barème d'après l'opération aux bouts et les
+  // oblongs saisis dans le volet du poste de chaque groupe.
+  const heuresRobotGroupes = groupes
+    .filter((g) => passePar(g, POSTE_ROBOT) && aSaisieRobot(g))
+    .map(heuresRobotGroupe)
+    .filter((h) => h !== null)
+  const robotCalcule = heuresRobotGroupes.length > 0 ? somme(heuresRobotGroupes) : null
+  const robotActif = postes.has(POSTE_ROBOT)
   // Sans prédiction, le forage manuel est lui aussi chiffré au barème (FMAN),
   // d'après les trous saisis dans le volet du poste de chaque groupe.
   const heuresForageManuelGroupes = groupes
@@ -580,6 +635,7 @@ export default function Chiffrage() {
       ["soudage", soudageActif ? soudageCalcule : null],
       [POSTE_COUPES, sciageActif ? sciageCalcule : null],
       [POSTE_CONTRE_FLECHE, presseActive ? contreFlecheCalculee : null],
+      [POSTE_ROBOT, robotActif ? robotCalcule : null],
     ]
     const suivant = { ...resultatBrut }
     for (const [poste, heures] of calculees) {
@@ -588,11 +644,22 @@ export default function Chiffrage() {
       suivant[poste] = heures
     }
     return suivant
-  }, [resultatBrut, soudageActif, soudageCalcule, sciageActif, sciageCalcule, presseActive, contreFlecheCalculee])
+  }, [
+    resultatBrut,
+    soudageActif,
+    soudageCalcule,
+    sciageActif,
+    sciageCalcule,
+    presseActive,
+    contreFlecheCalculee,
+    robotActif,
+    robotCalcule,
+  ])
   // Heures au barème atelier des postes chiffrés ainsi.
   const heuresBareme: Record<string, number | null> = {
     [POSTE_COUPES]: sciageCalcule,
     [POSTE_CONTRE_FLECHE]: contreFlecheCalculee,
+    [POSTE_ROBOT]: robotCalcule,
     ...(prediction ? {} : { [POSTE_FORAGE_MANUEL]: forageManuelCalcule }),
   }
   // Heures calculées sur la page pour un poste : calculateur ou barème.
@@ -730,6 +797,10 @@ export default function Chiffrage() {
         toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLE_CONTRE_FLECHE}"`)
         return false
       }
+      if (passePar(groupe, POSTE_ROBOT) && !(nombre(groupe.robot.oblongs) >= 0)) {
+        toast.error(`${prefixeGroupe(index)}Valeur invalide pour "${LIBELLE_OBLONGS_ROBOT}"`)
+        return false
+      }
     }
     return true
   }
@@ -857,6 +928,13 @@ export default function Chiffrage() {
           })
         )
       }
+      if (poste === POSTE_ROBOT) {
+        const { operation, oblongs } = groupe.robot
+        if (operation !== "") {
+          details.push(`${OPERATIONS_ROBOT[operation]} : ${groupe.robot.unBout ? "un bout" : "deux bouts"} par barre`)
+        }
+        if (nombre(oblongs) > 0) details.push(`${LIBELLE_OBLONGS_ROBOT} : ${oblongs}`)
+      }
       if (poste === "goujonnage" && groupe.zonesGoujons.size > 0) {
         const zones = ZONES_GOUJONS.filter((zone) => groupe.zonesGoujons.has(zone)).map((zone) => LIBELLES_ZONE_GOUJONS[zone])
         const retournements = retournementsParBarre(groupe)
@@ -894,6 +972,15 @@ export default function Chiffrage() {
           somme(cintres.map(barresContreFleche)),
           fleches.length > 0 ? ` (${fleches.join(" / ")} mm)` : ""
         )
+      }
+      if (poste === POSTE_ROBOT) {
+        for (const operation of Object.keys(OPERATIONS_ROBOT) as OperationRobot[]) {
+          const bouts = somme(
+            concernes.filter((g) => g.robot.operation === operation).map((g) => boutsRobot(g) * barresGroupe(g))
+          )
+          ajouter(OPERATIONS_ROBOT[operation], bouts, bouts > 1 ? " bouts" : " bout")
+        }
+        ajouter(`Trous oblongs (${libellePoste(poste)})`, somme(concernes.map(oblongsRobot)))
       }
       if (poste === "forage_numerique") {
         ajouter("Trous perçage numérique", totalProjet("nb_trous_numerique"), diametre("diametre_moyen_numerique"))
@@ -1042,6 +1129,7 @@ export default function Chiffrage() {
     const coupes = coupesParBarre(groupe)
     const baremeSciage = heuresSciageGroupe(groupe)
     const baremeContreFleche = heuresContreFlecheGroupe(groupe)
+    const baremeRobot = heuresRobotGroupe(groupe)
     // Temps barème de perçage (voir lib/percage.ts). Avec la prédiction, ils
     // sont affichés pour comparaison : l'estimation reste celle de la
     // calibration. Sans, celui du forage manuel chiffre le poste.
@@ -1150,6 +1238,61 @@ export default function Chiffrage() {
                 : baremeSciage !== null
                   ? `Barème atelier (DATA-TEMPS), sciage : ${formatHeures(baremeSciage)} h pour ${formatHeures(coupes)} coupe${coupes > 1 ? "s" : ""} par barre.`
                   : "Hors barème : renseignez le nombre de barres et un profil du barème atelier (coupe biaise au robot sur les HL 1000, HL 1100 et HD 400 x 1086)."}
+            </span>
+          </div>
+        )}
+        {poste === POSTE_ROBOT && (
+          <div className="flex flex-col gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Liste
+                label="Opération aux bouts"
+                vide="Aucune"
+                valeur={groupe.robot.operation}
+                options={OPTIONS_ROBOT}
+                onChange={(operation) =>
+                  modifierGroupe(groupe.id, (g) => ({
+                    robot: { ...g.robot, operation: operation as OperationRobot | "" },
+                  }))
+                }
+              />
+              <ChampSaisie
+                id={`${id}-oblongs-robot`}
+                label={LIBELLE_OBLONGS_ROBOT}
+                aide={oblongsRobot(groupe) > 0 ? `total : ${formatHeures(oblongsRobot(groupe))}` : undefined}
+              >
+                <Input
+                  id={`${id}-oblongs-robot`}
+                  className="text-right tabular-nums"
+                  inputMode="decimal"
+                  value={groupe.robot.oblongs}
+                  onChange={(e) =>
+                    modifierGroupe(groupe.id, (g) => ({ robot: { ...g.robot, oblongs: e.target.value } }))
+                  }
+                />
+              </ChampSaisie>
+            </div>
+            {groupe.robot.operation !== "" && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id={`${id}-un-bout`}
+                  checked={groupe.robot.unBout}
+                  onCheckedChange={(coche) =>
+                    modifierGroupe(groupe.id, (g) => ({ robot: { ...g.robot, unBout: coche === true } }))
+                  }
+                />
+                <Label htmlFor={`${id}-un-bout`} className="text-sm font-normal">
+                  Un seul bout par barre
+                </Label>
+              </div>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {!aSaisieRobot(groupe)
+                ? robotCalcule !== null
+                  ? "Sans opération ni oblong saisi, ce groupe n'est pas compté au robot."
+                  : `Sans opération ni oblong saisi, ${sansBareme}`
+                : baremeRobot !== null
+                  ? `Barème atelier (ROBOT) : ${formatHeures(baremeRobot)} h pour ${formatHeures(nbBarres)} barre${nbBarres > 1 ? "s" : ""}${groupe.robot.operation !== "" && longueurGroupe(groupe) > 30 ? ", transport à deux ponts compris" : ""}.`
+                  : "Hors barème : renseignez le nombre de barres et le profil. Opérations aux bouts jusqu'à 1100 mm de haut (HD 400 : préparation de chanfrein seulement, aux deux bouts, au-delà de 314 kg/m ; Skanska ou WIP : deux bouts, à partir de 320 mm de haut) ; oblongs sur HEA, HEB et HEM."}
             </span>
           </div>
         )}
