@@ -35,13 +35,7 @@ export function SiteHeader() {
   function handleCalibrer() {
     setCalibrating(true);
     toast.promise(
-      invoke("recalibrer")
-        .then(() => {
-          // Permet à la page Coefficients (si elle est montée) de
-          // rafraîchir son affichage sans avoir besoin d'un store partagé.
-          window.dispatchEvent(new Event("coefficients-updated"));
-        })
-        .finally(() => setCalibrating(false)),
+      invoke("recalibrer").finally(() => setCalibrating(false)),
       {
         loading: "Calcul des coefficients…",
         success: "Coefficients recalculés",

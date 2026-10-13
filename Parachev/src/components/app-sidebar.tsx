@@ -1,5 +1,5 @@
 import * as React from "react"
-import { IconAdjustmentsHorizontal, IconCalculator, IconDashboard, IconSearch } from "@tabler/icons-react"
+import { IconCalculator, IconDashboard, IconFileText, IconSearch } from "@tabler/icons-react"
 import { NavMain } from "@/components/dashboard/nav-main"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 
@@ -16,14 +16,15 @@ export const data = {
       icon: IconSearch,
     },
     {
-      title: "Coefficients",
-      url: "/coefficients",
-      icon: IconAdjustmentsHorizontal,
-    },
-    {
       title: "Chiffrage",
       url: "/chiffrage",
       icon: IconCalculator,
+      separatorBefore: true,
+    },
+    {
+      title: "Modèle d'offre",
+      url: "/modele-offre",
+      icon: IconFileText,
     },
   ]
 }

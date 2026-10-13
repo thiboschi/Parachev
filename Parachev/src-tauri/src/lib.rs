@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use crate::calibration::{calibrer_tous_les_postes, poste_variables};
+use crate::calibration::calibrer_tous_les_postes;
 use crate::watcher::Progression;
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
@@ -111,9 +111,6 @@ pub fn run() {
             previsualiser_affaire,
             chiffrer_manuellement,
             recalibrer,
-            lister_coefficients,
-            modifier_coefficient,
-            lister_variables_poste,
             lister_grandeurs_utilisees,
             lister_heures,
             lister_heures_affaire,
@@ -134,6 +131,8 @@ pub fn run() {
             obtenir_dossier_affaire,
             ouvrir_document,
             enregistrer_pdf,
+            obtenir_modele_offre,
+            enregistrer_modele_offre,
             obtenir_progression_indexation
         ])
         .setup(|app| {
@@ -312,71 +311,6 @@ fn recalibrer(app: tauri::AppHandle) -> Result<(), String> {
     prevision::enregistrer_coefficients(&mut conn, &export)?;
 
     Ok(())
-}
-
-#[derive(Serialize)]
-struct CoefficientLigne {
-    poste: String,
-    variable: String,
-    valeur: f64,
-}
-
-#[derive(Serialize)]
-struct CoefficientsInfo {
-    version: Option<u32>,
-    date_calibration: Option<String>,
-    lignes: Vec<CoefficientLigne>,
-}
-
-/// Liste le contenu brut de la table `coefficients`, pour affichage --
-/// `lignes` est vide (avec version/date_calibration à None) tant qu'aucune
-/// calibration n'a été lancée.
-#[tauri::command]
-fn lister_coefficients(app: tauri::AppHandle) -> Result<CoefficientsInfo, String> {
-    let conn = ouvrir_db(&app)?;
-    prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
-
-    let version = config::lire_config(&conn, "coefficients_version")?
-        .and_then(|v| v.parse().ok());
-    let date_calibration = config::lire_config(&conn, "coefficients_date_calibration")?;
-
-    let mut stmt = conn
-        .prepare("SELECT poste, variable, valeur FROM coefficients ORDER BY poste, variable")
-        .map_err(|e| e.to_string())?;
-    let lignes = stmt
-        .query_map([], |row| {
-            Ok(CoefficientLigne {
-                poste: row.get(0)?,
-                variable: row.get(1)?,
-                valeur: row.get(2)?,
-            })
-        })
-        .map_err(|e| e.to_string())?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| e.to_string())?;
-
-    Ok(CoefficientsInfo { version, date_calibration, lignes })
-}
-
-/// Modifie ou ajoute un coefficient (poste+variable), pour des tests
-/// manuels depuis l'écran Coefficients -- ne relance pas de calibration,
-/// n'incrémente pas la version, juste la valeur en base.
-#[tauri::command]
-fn modifier_coefficient(app: tauri::AppHandle, poste: String, variable: String, valeur: f64) -> Result<(), String> {
-    let conn = ouvrir_db(&app)?;
-    prevision::modifier_coefficient(&conn, &poste, &variable, valeur)
-}
-
-/// Variables du modèle par défaut de chaque poste (premier candidat de
-/// calibration::poste_variables) -- utilisé par l'écran Coefficients pour
-/// proposer les bons champs même sur un poste pas encore calibré (aucune
-/// ligne en base pour l'instant).
-#[tauri::command]
-fn lister_variables_poste() -> HashMap<String, Vec<String>> {
-    poste_variables()
-        .into_iter()
-        .map(|(poste, candidats)| (poste.to_string(), candidats.into_iter().next().unwrap_or_default()))
-        .collect()
 }
 
 /// Grandeurs saisissables utilisées par la calibration actuelle, avec les
@@ -821,4 +755,24 @@ async fn enregistrer_pdf(app: tauri::AppHandle, nom: String, contenu: Vec<u8>) -
     let chemin = chemin.to_string_lossy().to_string();
     let _ = tauri_plugin_opener::open_path(&chemin, None::<&str>);
     Ok(Some(chemin))
+}
+
+/// Modèle de l'offre PDF (textes fixes : signataire, annexe, conditions…)
+/// en JSON, tel qu'enregistré depuis la page "Modèle d'offre". None tant
+/// que l'utilisateur n'a rien modifié : l'interface garde alors ses textes
+/// par défaut (src/lib/modele-offre.ts).
+#[tauri::command]
+fn obtenir_modele_offre(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let conn = ouvrir_db(&app)?;
+    config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+    config::lire_config(&conn, config::CLE_MODELE_OFFRE)
+}
+
+#[tauri::command]
+fn enregistrer_modele_offre(app: tauri::AppHandle, modele: String) -> Result<(), String> {
+    serde_json::from_str::<serde_json::Value>(&modele)
+        .map_err(|e| format!("Modèle d'offre invalide : {e}"))?;
+    let conn = ouvrir_db(&app)?;
+    config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+    config::ecrire_config(&conn, config::CLE_MODELE_OFFRE, &modele)
 }

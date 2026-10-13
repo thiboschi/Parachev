@@ -49,6 +49,7 @@ import {
   type Mode,
 } from "@/lib/chiffrage"
 import { TYPES_PRODUCTION } from "@/lib/flux-production"
+import { lireModeleOffre } from "@/lib/modele-offre"
 import { libellePoste } from "@/lib/postes"
 import { PROFILS_CATALOGUE, familleProfil } from "@/lib/profils"
 import { CHAMPS_NORMES, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
@@ -463,7 +464,9 @@ export function useChiffrage() {
     try {
       // @react-pdf/renderer n'est chargé qu'au premier export.
       const { genererOffrePdf } = await import("@/components/chiffrage/offre-pdf")
-      const contenu = await genererOffrePdf(offre)
+      // Relu à chaque export : une modification du modèle vaut dès l'offre suivante.
+      const modele = lireModeleOffre(await invoke<string | null>("obtenir_modele_offre"))
+      const contenu = await genererOffrePdf(offre, modele)
       const chemin = await invoke<string | null>("enregistrer_pdf", {
         nom: `${nom}.pdf`,
         contenu: Array.from(contenu),

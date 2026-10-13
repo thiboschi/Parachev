@@ -2,11 +2,14 @@ import { Document, Image, Page, StyleSheet, Text, View, pdf } from "@react-pdf/r
 
 // Embarqué dans le module (data URI) : le rendu du PDF n'a rien à télécharger.
 import logoArcelorMittal from "@/assets/logo_arcelormittal.png?inline"
+import type { ModeleOffre } from "@/lib/modele-offre"
 import type { ChampNorme } from "@/lib/recherche"
 
 // Offre de prix générée depuis la page "Chiffrage" : tout ce qui y est saisi
-// et chiffré, mis en page pour être envoyé au client. Ce module embarque
-// @react-pdf/renderer : il est chargé à la demande (import dynamique).
+// et chiffré, mis en page pour être envoyé au client. Les textes fixes
+// (signataire, annexe, conditions…) viennent du modèle d'offre, modifiable
+// depuis la page "Modèle d'offre". Ce module embarque @react-pdf/renderer :
+// il est chargé à la demande (import dynamique).
 
 export interface LigneInfo {
   label: string
@@ -71,79 +74,6 @@ export interface DonneesOffre {
    *  ou sans poids renseigné. */
   prixTonne: number | null
 }
-
-// Signataire de l'offre, affiché dans l'en-tête.
-const AUTEUR = "Damien Schils"
-
-// Phrase d'introduction de la première page, au-dessus du trait de l'en-tête.
-const ACCROCHE =
-  "Nous vous remercions pour votre demande et l'intérêt porté à nos services.\nSur la base des éléments transmis, nous avons le plaisir de vous présenter notre proposition"
-
-// Normes rédigées, dans l'ordre de l'offre : le début de la phrase, que
-// termine la valeur choisie.
-const PHRASES_NORMES: { key: ChampNorme; phrase: string }[] = [
-  { key: "exc", phrase: "Fabrication suivant EN 1090-2:2018, classe d'exécution" },
-  { key: "tolerance", phrase: "Tolérances géométriques selon EN 1090-2 :" },
-  { key: "prep", phrase: "Degré de préparation selon EN ISO 8501-3 :" },
-  { key: "classeUs", phrase: "Contrôle par ultrasons :" },
-  { key: "en10204", phrase: "Document de contrôle :" },
-  { key: "en10163", phrase: "Exigences de réparation :" },
-  { key: "exigencesFabrication", phrase: "Exigences particulières de fabrication :" },
-  { key: "exigencesAcier", phrase: "Exigences particulières acier :" },
-]
-
-const TRACABILITE =
-  "Traçabilité des produits garantie jusqu'à l'assemblage (plusieurs documents de contrôle possibles)."
-
-// Textes de l'annexe, les mêmes pour toutes les offres.
-const LISTES_ANNEXE: { titre: string; lignes: string[] }[] = [
-  {
-    titre: "À votre charge",
-    lignes: [
-      "Fourniture des profils, avec une surlongueur suffisante",
-      "Stockage intermédiaire et acheminement des profils jusqu'à notre atelier, à notre demande, au fur et à mesure de l'avancement de l'affaire",
-      "Fourniture des plans d'exécution BPE au format DWG (traçage des plans d'assemblage et des plans de débit) et des fichiers DSTV, le tout sur barre droite",
-      "Fourniture des nomenclatures associées (expédition, assemblage et débit)",
-      "Traitements de surface",
-      "Transports",
-    ],
-  },
-  {
-    titre: "Non compris dans notre offre",
-    lignes: [
-      "Fourniture de la boulonnerie",
-      "Fourniture des tôles de calage",
-      "Fourniture des platines d'ancrage",
-      "Toute prestation non mentionnée dans la présente offre",
-    ],
-  },
-]
-
-const CONDITIONS: LigneInfo[] = [
-  {
-    label: "Délais",
-    valeur:
-      "Les délais de fabrication pourront vous être communiqués par Victor / Mario, en fonction de vos besoins et du planning de production en cours.",
-  },
-  {
-    label: "Validité de l'offre",
-    valeur:
-      "Le prix matière des tôles ne peut être garanti, en raison des fluctuations de leur prix d'achat. Toute augmentation sera répercutée à la date de réception de la commande. Le prix de la main-d'œuvre est valable 3 mois.",
-  },
-  { label: "Prix", valeur: "Tous nos prix s'entendent hors taxes (H.T.)." },
-  {
-    label: "Remarques",
-    valeur:
-      "Toute modification ou tout ajout par rapport aux clauses de notre devis donnera lieu à un recalcul de notre prix et à une révision de notre offre. Si, pour des raisons esthétiques, les poutres nécessitent une finition ou un soin particulier, nous vous prions de nous consulter afin que nous adaptions notre prix.",
-  },
-  { label: "Conditions de paiement", valeur: "Paiement à 30 jours fin de mois." },
-]
-
-// Derniers paragraphes de l'annexe, avant la formule de politesse.
-const CLOTURE = [
-  "Si cette proposition ne correspond pas entièrement à vos attentes, nous vous invitons à nous en informer. Nous pourrons alors analyser une alternative technique ou commerciale afin de vous proposer la solution la plus adaptée.",
-  "Pour toute question ou précision supplémentaire, nous restons à votre entière disposition.",
-]
 
 const MARINE = "#1e3a5f"
 const GRIS = "#64748b"
@@ -245,18 +175,18 @@ const styles = StyleSheet.create({
 // Conditions de l'offre, sur une nouvelle page : ce qui reste à la charge du
 // client, ce qui n'est pas compris, les conditions des devis envoyés aux
 // clients, puis la formule de politesse et la signature.
-function Annexe() {
+function Annexe({ modele }: { modele: ModeleOffre }) {
   return (
     <View break>
       <Text style={styles.titreAnnexe}>Annexe — Conditions de l'offre</Text>
 
-      {LISTES_ANNEXE.map(({ titre, lignes }, i) => (
-        <View key={titre} style={styles.section} wrap={false}>
+      {modele.listesAnnexe.map(({ titre, lignes }, i) => (
+        <View key={i} style={styles.section} wrap={false}>
           <Text style={styles.titreSection}>
             {i + 1}. {titre}
           </Text>
-          {lignes.map((ligne) => (
-            <View key={ligne} style={styles.puce}>
+          {lignes.map((ligne, j) => (
+            <View key={j} style={styles.puce}>
               <Text style={styles.pucePoint}>•</Text>
               <Text style={{ flex: 1 }}>{ligne}</Text>
             </View>
@@ -264,27 +194,26 @@ function Annexe() {
         </View>
       ))}
 
-      <View style={styles.section}>
-        <Text style={styles.titreSection}>{LISTES_ANNEXE.length + 1}. Informations</Text>
-        {CONDITIONS.map(({ label, valeur }) => (
-          <View key={label} style={styles.ligneTableau} wrap={false}>
-            <Text style={styles.libelleCondition}>{label}</Text>
-            <Text style={{ flex: 1 }}>{valeur}</Text>
-          </View>
-        ))}
-      </View>
+      {modele.conditions.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.titreSection}>{modele.listesAnnexe.length + 1}. Informations</Text>
+          {modele.conditions.map(({ label, valeur }, i) => (
+            <View key={i} style={styles.ligneTableau} wrap={false}>
+              <Text style={styles.libelleCondition}>{label}</Text>
+              <Text style={{ flex: 1 }}>{valeur}</Text>
+            </View>
+          ))}
+        </View>
+      )}
 
       <View style={styles.signature} wrap={false}>
-        {CLOTURE.map((paragraphe) => (
-          <Text key={paragraphe} style={{ marginBottom: 8 }}>
+        {modele.cloture.map((paragraphe, i) => (
+          <Text key={i} style={{ marginBottom: 8 }}>
             {paragraphe}
           </Text>
         ))}
-        <Text>
-          Dans l'attente de votre retour, nous vous prions d'agréer, Madame, Monsieur, l'expression de nos sentiments
-          les meilleurs.
-        </Text>
-        <Text style={[styles.gras, { marginTop: 14 }]}>{AUTEUR}</Text>
+        {modele.politesse !== "" && <Text>{modele.politesse}</Text>}
+        {modele.auteur !== "" && <Text style={[styles.gras, { marginTop: 14 }]}>{modele.auteur}</Text>}
       </View>
     </View>
   )
@@ -299,11 +228,11 @@ const COLONNES_OPERATIONS = ["30%", "70%"]
 // Largeurs des colonnes du tableau des pièces à souder.
 const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
 
-function OffrePdf({ offre }: { offre: DonneesOffre }) {
+function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre }) {
   const date = offre.date.toLocaleDateString("fr-BE", { day: "numeric", month: "long", year: "numeric" })
   // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
   const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
-  const normes = PHRASES_NORMES.flatMap(({ key, phrase }) => {
+  const normes = modele.phrasesNormes.flatMap(({ key, phrase }) => {
     const norme = offre.normes.find((n) => n.key === key)
     return norme ? [{ key, phrase, valeur: norme.valeur }] : []
   })
@@ -318,9 +247,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           <Image src={logoArcelorMittal} style={styles.logo} />
           <View style={{ alignItems: "flex-end" }}>
             <Text style={styles.titre}>OFFRE TECHNIQUE & COMMERCIALE</Text>
-            <Text style={styles.sousTitre}>
-              {AUTEUR} - {date}
-            </Text>
+            <Text style={styles.sousTitre}>{modele.auteur !== "" ? `${modele.auteur} - ${date}` : date}</Text>
             {offre.numeroOffre !== "" && (
               <Text style={styles.references}>
                 N° d'offre : <Text style={styles.gras}>{offre.numeroOffre}</Text>
@@ -329,7 +256,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
         </View>
         {/* Entre l'en-tête et son trait, tous deux répétés : la phrase ne sort que sur la première page. */}
-        <Text style={styles.accroche}>{ACCROCHE}</Text>
+        {modele.accroche !== "" && <Text style={styles.accroche}>{modele.accroche}</Text>}
         <View style={styles.traitEntete} fixed />
 
         <View style={styles.objet}>
@@ -346,15 +273,19 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           )}
         </View>
 
-        <View style={styles.bloc}>
-          <Text style={styles.etiquette}>Normes et exigences</Text>
-          {normes.map(({ key, phrase, valeur }) => (
-            <Text key={key}>
-              {phrase} <Text style={styles.gras}>{valeur}</Text>
-            </Text>
-          ))}
-          <Text style={[styles.detail, normes.length > 0 ? { marginTop: 4 } : {}]}>{TRACABILITE}</Text>
-        </View>
+        {(normes.length > 0 || modele.tracabilite !== "") && (
+          <View style={styles.bloc}>
+            <Text style={styles.etiquette}>Normes et exigences</Text>
+            {normes.map(({ key, phrase, valeur }) => (
+              <Text key={key}>
+                {phrase} <Text style={styles.gras}>{valeur}</Text>
+              </Text>
+            ))}
+            {modele.tracabilite !== "" && (
+              <Text style={[styles.detail, normes.length > 0 ? { marginTop: 4 } : {}]}>{modele.tracabilite}</Text>
+            )}
+          </View>
+        )}
 
         {offre.barres.length > 0 && (
           <View style={styles.section}>
@@ -471,7 +402,7 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
           </View>
         )}
 
-        <Annexe />
+        <Annexe modele={modele} />
 
         <Text style={styles.pied} fixed>
           ArcelorMittal · Offre {offre.numeroOffre !== "" ? `n° ${offre.numeroOffre} ` : ""}du {date}
@@ -481,8 +412,8 @@ function OffrePdf({ offre }: { offre: DonneesOffre }) {
   )
 }
 
-/** Contenu du fichier PDF de l'offre. */ 
-export async function genererOffrePdf(offre: DonneesOffre): Promise<Uint8Array> {
-  const blob = await pdf(<OffrePdf offre={offre} />).toBlob()
+/** Contenu du fichier PDF de l'offre. */
+export async function genererOffrePdf(offre: DonneesOffre, modele: ModeleOffre): Promise<Uint8Array> {
+  const blob = await pdf(<OffrePdf offre={offre} modele={modele} />).toBlob()
   return new Uint8Array(await blob.arrayBuffer())
 }
