@@ -37,6 +37,10 @@ export interface AffaireRecherche {
   postes_prevus: string[]
   /** Postes réalisés : colonnes SUIVI datées + postes ERP avec heures. */
   postes_realises: string[]
+  /** Machines nommées (Voortman, Koike…) dans les libellés de la fiche. */
+  machines_prevues: string[]
+  /** Machines nommées dans les colonnes SUIVI. */
+  machines_realisees: string[]
   profils: string[]
   nuances: string[]
   usines: string[]

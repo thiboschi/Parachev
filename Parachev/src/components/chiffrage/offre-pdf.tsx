@@ -63,16 +63,13 @@ export interface DonneesOffre {
   operations: OperationOffre[]
   /** Pièces à souder sur une barre (calculateur de soudage). */
   soudures: SoudureOffre[]
-  totalHeures: number
-  /** Suppléments d'heures des majorations appliquées au total (DBS,
-   *  tolérance classe 2). */
-  majorations: { label: string; heures: number }[]
-  /** Taux horaire (€/h) et montant, null si non renseigné. */
-  tauxHoraire: number | null
+  // Montants en € HT, null sans taux horaire : l'offre n'affiche pas
+  // d'heures. Le prix à la tonne s'en déduit, avec le tonnage des barres.
+  /** Total avant majorations, affiché seulement s'il y en a. */
+  sousTotal: number | null
+  /** Majorations appliquées au total (DBS, tolérance classe 2). */
+  majorations: { label: string; montant: number | null }[]
   montant: number | null
-  /** Montant rapporté au poids total des barres (€/t), null sans montant
-   *  ou sans poids renseigné. */
-  prixTonne: number | null
 }
 
 const MARINE = "#1e3a5f"
@@ -230,15 +227,15 @@ const COLONNES_SOUDURES = ["34%", "12%", "20%", "22%", "12%"]
 
 function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre }) {
   const date = offre.date.toLocaleDateString("fr-BE", { day: "numeric", month: "long", year: "numeric" })
-  // Les temps sont chiffrés au taux horaire : l'offre n'affiche pas d'heures.
-  const prix = (temps: number) => (offre.tauxHoraire !== null ? euros(temps * offre.tauxHoraire) : "—")
+  const prix = (montant: number | null) => (montant !== null ? euros(montant) : "—")
   const normes = modele.phrasesNormes.flatMap(({ key, phrase }) => {
-    const norme = offre.normes.find((n) => n.key === key)
+    const norme = offre.normes.find((n) => n.key === key && n.valeur.trim() !== "")
     return norme ? [{ key, phrase, valeur: norme.valeur }] : []
   })
   const tonnages = offre.barres.map(tonnagePosition)
   const totalBarres = offre.barres.reduce((total, { nombre }) => total + (nombre > 0 ? nombre : 0), 0)
   const tonnageTotal = tonnages.reduce<number>((total, t) => total + (t ?? 0), 0)
+  const prixTonne = offre.montant !== null && tonnageTotal > 0 ? offre.montant / tonnageTotal : null
 
   return (
     <Document title={`Offre ${offre.numeroOffre}`.trim()} author="Parachev">
@@ -329,13 +326,13 @@ function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre 
             <Text style={[styles.celluleEntete, { width: COLONNES_OPERATIONS[0] }]}>Opération</Text>
             <Text style={[styles.celluleEntete, { width: COLONNES_OPERATIONS[1] }]}>Quantités</Text>
           </View>
-          {offre.operations.map(({ libelle, quantites }) => (
-            <View key={libelle} style={styles.ligneTableau} wrap={false}>
+          {offre.operations.map(({ libelle, quantites }, i) => (
+            <View key={i} style={styles.ligneTableau} wrap={false}>
               <Text style={[styles.gras, { width: COLONNES_OPERATIONS[0] }]}>{libelle}</Text>
               <View style={{ width: COLONNES_OPERATIONS[1] }}>
                 {quantites.length === 0 && <Text>—</Text>}
-                {quantites.map(({ label, valeur }) => (
-                  <Text key={label}>
+                {quantites.map(({ label, valeur }, j) => (
+                  <Text key={j}>
                     {label} : {sansEspaceFine(valeur)}
                   </Text>
                 ))}
@@ -349,13 +346,15 @@ function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre 
           {offre.majorations.length > 0 && (
             <View style={[styles.montant, styles.sousTotal]}>
               <Text style={[styles.texteMontant, styles.texteSousTotal]}>Sous-total</Text>
-              <Text style={[styles.texteMontant, styles.texteSousTotal]}>{prix(offre.totalHeures)}</Text>
+              <Text style={[styles.texteMontant, styles.texteSousTotal]}>{prix(offre.sousTotal)}</Text>
             </View>
           )}
-          {offre.majorations.map(({ label, heures: temps }) => (
-            <View key={label} style={styles.ligneTotal}>
+          {offre.majorations.map(({ label, montant }, i) => (
+            <View key={i} style={styles.ligneTotal}>
               <Text style={styles.detail}>{label}</Text>
-              <Text style={styles.detail}>+ {prix(temps)}</Text>
+              {/* Une majoration négative, saisie à la relecture, est une remise ("–" : le
+                  signe moins n'existe pas dans les polices standard du PDF). */}
+              <Text style={styles.detail}>{montant !== null && montant < 0 ? `– ${euros(-montant)}` : `+ ${prix(montant)}`}</Text>
             </View>
           ))}
           {offre.montant !== null && (
@@ -364,10 +363,10 @@ function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre 
               <Text style={styles.texteMontant}>{euros(offre.montant)}</Text>
             </View>
           )}
-          {offre.prixTonne !== null && (
+          {prixTonne !== null && (
             <View style={[styles.ligneTotal, { marginTop: 3 }]}>
               <Text style={styles.detail}>Prix à la tonne</Text>
-              <Text style={styles.detail}>{euros(offre.prixTonne)} / t</Text>
+              <Text style={styles.detail}>{euros(prixTonne)} / t</Text>
             </View>
           )}
         </View>

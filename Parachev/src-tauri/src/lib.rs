@@ -7,6 +7,7 @@ mod prevision;
 mod calibration;
 mod config;
 mod indexeur;
+mod offres;
 mod quantites;
 mod recherche;
 
@@ -133,6 +134,10 @@ pub fn run() {
             enregistrer_pdf,
             obtenir_modele_offre,
             enregistrer_modele_offre,
+            enregistrer_offre,
+            lister_offres,
+            obtenir_offre,
+            supprimer_offre,
             obtenir_progression_indexation
         ])
         .setup(|app| {
@@ -154,6 +159,7 @@ pub fn run() {
             prevision::initialiser_schema_coefficients(&conn).map_err(|e| e.to_string())?;
             indexeur::initialiser_schema(&conn).map_err(|e| e.to_string())?;
             quantites::initialiser_schema(&conn).map_err(|e| e.to_string())?;
+            offres::initialiser_schema(&conn).map_err(|e| e.to_string())?;
 
             // Migration ponctuelle depuis coefficients.json vers la table
             // `coefficients` -- si un fichier existe déjà (installation
@@ -775,4 +781,40 @@ fn enregistrer_modele_offre(app: tauri::AppHandle, modele: String) -> Result<(),
     let conn = ouvrir_db(&app)?;
     config::initialiser_schema(&conn).map_err(|e| e.to_string())?;
     config::ecrire_config(&conn, config::CLE_MODELE_OFFRE, &modele)
+}
+
+/// Enregistre une offre retouchée (voir offres.rs) : la crée si `id` est
+/// None, la remplace sinon. Retourne son id.
+#[tauri::command]
+fn enregistrer_offre(
+    app: tauri::AppHandle,
+    id: Option<i64>,
+    numero: String,
+    client: String,
+    montant: Option<f64>,
+    contenu: String,
+) -> Result<i64, String> {
+    serde_json::from_str::<serde_json::Value>(&contenu)
+        .map_err(|e| format!("Offre invalide : {e}"))?;
+    let conn = ouvrir_db(&app)?;
+    offres::enregistrer(&conn, id, &numero, &client, montant, &contenu)
+}
+
+#[tauri::command]
+fn lister_offres(app: tauri::AppHandle) -> Result<Vec<offres::ResumeOffre>, String> {
+    let conn = ouvrir_db(&app)?;
+    offres::lister(&conn)
+}
+
+/// Contenu JSON d'une offre enregistrée.
+#[tauri::command]
+fn obtenir_offre(app: tauri::AppHandle, id: i64) -> Result<String, String> {
+    let conn = ouvrir_db(&app)?;
+    offres::obtenir(&conn, id)
+}
+
+#[tauri::command]
+fn supprimer_offre(app: tauri::AppHandle, id: i64) -> Result<(), String> {
+    let conn = ouvrir_db(&app)?;
+    offres::supprimer(&conn, id)
 }

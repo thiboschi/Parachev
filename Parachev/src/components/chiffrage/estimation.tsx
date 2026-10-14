@@ -1,3 +1,4 @@
+import { RelectureOffre } from "@/components/chiffrage/relecture-offre"
 import { Button } from "@/components/ui/button"
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -47,10 +48,12 @@ export function Estimation({ chiffrage }: { chiffrage: Chiffrage }) {
     postesMasques,
     setPostesMasques,
     calcul,
-    exportPdf,
+    relecture,
+    setRelecture,
+    ouvertureOffre,
     chiffrer,
     reinitialiser,
-    exporterPdf,
+    ouvrirOffre,
   } = chiffrage
   return (
     <Card className="lg:sticky lg:top-4">
@@ -236,13 +239,14 @@ export function Estimation({ chiffrage }: { chiffrage: Chiffrage }) {
           </Button>
           <Button
             variant={prediction ? "outline" : "default"}
-            onClick={exporterPdf}
-            disabled={calcul || exportPdf || !resultat}
+            onClick={ouvrirOffre}
+            disabled={calcul || ouvertureOffre || !resultat}
           >
-            {exportPdf ? "PDF…" : "PDF"}
+            {ouvertureOffre ? "Offre…" : "Offre PDF"}
           </Button>
         </div>
       </CardContent>
+      {relecture && <RelectureOffre initiale={relecture} onFermer={() => setRelecture(null)} />}
     </Card>
   )
 }

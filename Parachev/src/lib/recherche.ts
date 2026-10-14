@@ -54,6 +54,13 @@ function machinesAffaire(a: AffaireRecherche, source: SourceMachines): Set<strin
   return new Set(postes.filter((p) => !POSTES_HORS_MACHINES.has(p)))
 }
 
+/** Machines nommées (Voortman, Koike…) de l'affaire selon la source choisie. */
+function machinesNommeesAffaire(a: AffaireRecherche, source: SourceMachines): string[] {
+  if (source === "prevu") return a.machines_prevues
+  if (source === "realise") return a.machines_realisees
+  return [...a.machines_prevues, ...a.machines_realisees]
+}
+
 // Champs "Normes et exigences" du RDE, dans l'ordre d'affichage, avec les
 // valeurs de leur liste déroulante (feuille "liste" du gabarit Excel) : la
 // recherche ne propose que celles portées par une affaire, le chiffrage les
@@ -192,6 +199,8 @@ export interface Filtres {
   fluxStrict: boolean
   /** Toutes les machines cochées doivent avoir été utilisées (ET). */
   machines: string[]
+  /** Toutes les machines nommées cochées doivent avoir servi (ET). */
+  machinesNommees: string[]
   sourceMachines: SourceMachines
   /** Toutes les opérations cochées doivent être demandées dans le RDE (ET). */
   operationsRde: string[]
@@ -226,6 +235,7 @@ export const FILTRES_VIDES: Filtres = {
   typesProduction: [],
   fluxStrict: false,
   machines: [],
+  machinesNommees: [],
   sourceMachines: "toutes",
   operationsRde: [],
   typesAffaire: [],
@@ -287,6 +297,7 @@ export interface OptionsFiltres {
   clients: string[]
   typesProduction: OptionFiltre[]
   machines: OptionFiltre[]
+  machinesNommees: OptionFiltre[]
   operationsRde: OptionFiltre[]
   typesAffaire: OptionFiltre[]
   traitements: OptionFiltre[]
@@ -316,6 +327,7 @@ export function optionsFiltres(affaires: AffaireRecherche[], fluxStrict = false)
     clients: Array.from(new Set(affaires.map((a) => a.client).filter((c): c is string => !!c))).sort(),
     typesProduction: compter(affaires, (a) => typesProductionAffaire(a, fluxStrict)),
     machines: compter(affaires, (a) => [...machinesAffaire(a, "toutes")], libellePoste),
+    machinesNommees: compter(affaires, (a) => machinesNommeesAffaire(a, "toutes")),
     operationsRde: compter(affaires, (a) => a.operations_rde, libelleOperationRde),
     typesAffaire: compter(affaires, (a) => [a.type_affaire]),
     traitements: compter(affaires, (a) => a.traitements),
@@ -452,6 +464,7 @@ export function filtrerAffaires(
       if (!typesProduction.some((t) => affaireCorrespondAuType(postes, t, indices, f.fluxStrict))) return false
     }
     if (!toutesParmi(f.machines, machinesAffaire(a, f.sourceMachines))) return false
+    if (!toutesParmi(f.machinesNommees, machinesNommeesAffaire(a, f.sourceMachines))) return false
     if (!toutesParmi(f.operationsRde, a.operations_rde)) return false
 
     if (!unParmi(f.typesAffaire, [a.type_affaire])) return false

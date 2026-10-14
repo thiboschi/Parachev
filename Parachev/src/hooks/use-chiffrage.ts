@@ -50,6 +50,7 @@ import {
 } from "@/lib/chiffrage"
 import { TYPES_PRODUCTION } from "@/lib/flux-production"
 import { lireModeleOffre } from "@/lib/modele-offre"
+import type { OffreEnCours } from "@/lib/offre-enregistree"
 import { libellePoste } from "@/lib/postes"
 import { PROFILS_CATALOGUE, familleProfil } from "@/lib/profils"
 import { CHAMPS_NORMES, optionsFiltres, type ChampNorme, type OptionFiltre, type OptionsFiltres } from "@/lib/recherche"
@@ -144,7 +145,9 @@ export function useChiffrage() {
     (id: number, lignes: LigneSoudure[]) => setLignesSoudure((prev) => ({ ...prev, [id]: lignes })),
     []
   )
-  const [exportPdf, setExportPdf] = useState(false)
+  // Offre en relecture avant l'export, null quand la relecture est fermée.
+  const [relecture, setRelecture] = useState<OffreEnCours | null>(null)
+  const [ouvertureOffre, setOuvertureOffre] = useState(false)
   const soudageActif = postes.has("soudage")
   // Heures de mise à longueur au barème de sciage, d'après les coupes saisies
   // dans le volet du poste de chaque groupe : la somme des groupes au barème,
@@ -416,7 +419,8 @@ export function useChiffrage() {
   const tonnes = groupes.reduce((somme, groupe) => somme + barresGroupe(groupe) * nombre(groupe.valeurs.poids_t), 0)
   const prixTonne = montant !== null && tonnes > 0 ? montant / tonnes : null
 
-  async function exporterPdf() {
+  // Ouvre la relecture de l'offre (voir RelectureOffre), d'où elle s'exporte.
+  async function ouvrirOffre() {
     if (!resultat) {
       toast.error(
         prediction
@@ -457,25 +461,16 @@ export function useChiffrage() {
       supplementTolerance,
       tauxHoraire: tauxHoraireValide ? tauxHoraireNombre : null,
       montant,
-      prixTonne,
     })
-    const nom = `Offre ${offre.numeroOffre || offre.client || "chiffrage"}`.replace(/[\\/:*?"<>|]/g, "-")
-    setExportPdf(true)
+    setOuvertureOffre(true)
     try {
-      // @react-pdf/renderer n'est chargé qu'au premier export.
-      const { genererOffrePdf } = await import("@/components/chiffrage/offre-pdf")
-      // Relu à chaque export : une modification du modèle vaut dès l'offre suivante.
+      // Relu à chaque ouverture : une modification du modèle vaut dès l'offre suivante.
       const modele = lireModeleOffre(await invoke<string | null>("obtenir_modele_offre"))
-      const contenu = await genererOffrePdf(offre, modele)
-      const chemin = await invoke<string | null>("enregistrer_pdf", {
-        nom: `${nom}.pdf`,
-        contenu: Array.from(contenu),
-      })
-      if (chemin) toast.success(`Offre enregistrée : ${chemin}`)
+      setRelecture({ id: null, offre, modele })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
-      setExportPdf(false)
+      setOuvertureOffre(false)
     }
   }
 
@@ -540,9 +535,11 @@ export function useChiffrage() {
     postesMasques,
     setPostesMasques,
     calcul,
-    exportPdf,
+    relecture,
+    setRelecture,
+    ouvertureOffre,
     chiffrer,
     reinitialiser,
-    exporterPdf,
+    ouvrirOffre,
   }
 }

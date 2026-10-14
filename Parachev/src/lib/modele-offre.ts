@@ -106,18 +106,22 @@ const texte = (valeur: unknown, defaut: string) => (typeof valeur === "string" ?
 const textes = (valeur: unknown): string[] =>
   Array.isArray(valeur) ? valeur.filter((v): v is string => typeof v === "string") : []
 
-/**
- * Modèle à partir du JSON enregistré (null si rien ne l'a été). Tout ce qui
- * manque ou n'a pas la forme attendue reprend le texte par défaut : un
- * modèle enregistré par une version précédente de l'app reste lisible.
- */
+/** Modèle à partir du JSON enregistré (null si rien ne l'a été). */
 export function lireModeleOffre(json: string | null): ModeleOffre {
-  let brut: unknown = null
   try {
-    brut = json === null ? null : JSON.parse(json)
+    return normaliserModeleOffre(json === null ? null : JSON.parse(json))
   } catch {
     // JSON illisible : modèle par défaut.
+    return MODELE_PAR_DEFAUT
   }
+}
+
+/**
+ * Tout ce qui manque ou n'a pas la forme attendue reprend le texte par
+ * défaut : un modèle enregistré par une version précédente de l'app reste
+ * lisible.
+ */
+export function normaliserModeleOffre(brut: unknown): ModeleOffre {
   if (!estObjet(brut)) return MODELE_PAR_DEFAUT
 
   const defaut = MODELE_PAR_DEFAUT

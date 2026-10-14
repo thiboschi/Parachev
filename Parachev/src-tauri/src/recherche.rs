@@ -5,6 +5,7 @@
 //! (quelques centaines à quelques milliers d'affaires : tout tient en
 //! mémoire, et les filtres restent souples).
 
+use crate::parsing::operations;
 use rusqlite::{Connection, OptionalExtension, Row};
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
@@ -65,6 +66,10 @@ pub struct AffaireRecherche {
     pub operations_rde: Vec<String>,
     pub postes_prevus: Vec<String>,
     pub postes_realises: Vec<String>,
+    // Machines nommées (Voortman, Koike...) dans les libellés de la fiche
+    // (prévues) et des colonnes SUIVI (réalisées).
+    pub machines_prevues: Vec<String>,
+    pub machines_realisees: Vec<String>,
     // Matière
     pub profils: Vec<String>,
     pub nuances: Vec<String>,
@@ -265,9 +270,9 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         entree(&mut affaires, &a).profils.push(profil);
     }
 
-    for (a, source, operation, date_debut, date_fin, heures) in requete(
+    for (a, source, operation, libelle, date_debut, date_fin, heures) in requete(
         conn,
-        "SELECT affaire, source, operation, date_debut, date_fin, heures FROM affaire_operations",
+        "SELECT affaire, source, operation, libelle, date_debut, date_fin, heures FROM affaire_operations",
         |r| {
             Ok((
                 r.get::<_, String>(0)?,
@@ -275,11 +280,20 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
                 r.get::<_, String>(2)?,
                 r.get::<_, Option<String>>(3)?,
                 r.get::<_, Option<String>>(4)?,
-                r.get::<_, Option<f64>>(5)?,
+                r.get::<_, Option<String>>(5)?,
+                r.get::<_, Option<f64>>(6)?,
             ))
         },
     )? {
         let x = entree(&mut affaires, &a);
+        // Avant le tri par poste : une machine peut être nommée dans un
+        // libellé non reconnu comme poste ("autre").
+        let machines = operations::machines_depuis_libelle(libelle.as_deref().unwrap_or(""));
+        match (source.as_str(), operation.as_str()) {
+            ("fiche", _) => x.machines_prevues.extend(machines.iter().map(|m| m.to_string())),
+            ("suivi", o) if o != "expedition" => x.machines_realisees.extend(machines.iter().map(|m| m.to_string())),
+            _ => {}
+        }
         match (source.as_str(), operation.as_str()) {
             ("rde", _) => x.operations_rde.push(operation),
             (_, "autre") => {}
@@ -350,7 +364,14 @@ pub fn lister_affaires(conn: &Connection) -> Result<Vec<AffaireRecherche>, Strin
         }
         x.nuances = nuances.remove(&x.affaire).map(|s| s.into_iter().collect()).unwrap_or_default();
         x.usines = usines.remove(&x.affaire).map(|s| s.into_iter().collect()).unwrap_or_default();
-        for v in [&mut x.profils, &mut x.postes_prevus, &mut x.postes_realises, &mut x.operations_rde] {
+        for v in [
+            &mut x.profils,
+            &mut x.postes_prevus,
+            &mut x.postes_realises,
+            &mut x.machines_prevues,
+            &mut x.machines_realisees,
+            &mut x.operations_rde,
+        ] {
             v.sort();
             v.dedup();
         }

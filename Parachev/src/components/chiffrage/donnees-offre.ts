@@ -66,7 +66,6 @@ export interface SaisieOffre {
   // Null sans taux horaire valide.
   tauxHoraire: number | null
   montant: number | null
-  prixTonne: number | null
 }
 
 // Tout ce qui est saisi et chiffré sur la page, pour le PDF de l'offre.
@@ -89,7 +88,6 @@ export function donneesOffre({
   supplementTolerance,
   tauxHoraire,
   montant,
-  prixTonne,
 }: SaisieOffre): DonneesOffre {
   const renseignees = <T extends { valeur: string }>(lignes: T[]) => lignes.filter(({ valeur }) => valeur.trim() !== "")
   const avecTotal = (groupe: GroupeBarres, key: Champ) => {
@@ -231,6 +229,7 @@ export function donneesOffre({
     (retenu, ligne) => (retenu === undefined || ligne.heures > retenu.heures ? ligne : retenu),
     undefined
   )?.poste
+  const prix = (heures: number) => (tauxHoraire !== null ? heures * tauxHoraire : null)
   return {
     date: new Date(),
     client: client.client.trim(),
@@ -267,16 +266,14 @@ export function donneesOffre({
     ),
     // La réserve n'a pas de ligne dans l'offre : elle est répartie sur
     // toutes ses heures (opérations, total, majorations).
-    totalHeures: (resultat.total ?? 0) * coefReserve,
+    sousTotal: prix((resultat.total ?? 0) * coefReserve),
     // Sans les coefficients : l'offre est lue par le client.
     majorations: [
-      ...(dbs ? [{ label: "Majoration DBS", heures: supplementDbs * coefReserve }] : []),
+      ...(dbs ? [{ label: "Majoration DBS", montant: prix(supplementDbs * coefReserve) }] : []),
       ...(classeTolerance2
-        ? [{ label: "Majoration tolérance classe 2", heures: supplementTolerance * coefReserve }]
+        ? [{ label: "Majoration tolérance classe 2", montant: prix(supplementTolerance * coefReserve) }]
         : []),
     ],
-    tauxHoraire,
     montant,
-    prixTonne,
   }
 }

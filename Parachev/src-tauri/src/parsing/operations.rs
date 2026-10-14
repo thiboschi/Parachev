@@ -124,6 +124,25 @@ pub fn postes_depuis_libelle(libelle: &str) -> Vec<&'static str> {
     postes
 }
 
+/// Machines de l'atelier reconnaissables à leur nom dans un libellé de fiche
+/// ou de colonne SUIVI, avec les motifs qui les désignent. "COMBI" (scie +
+/// forage) est la Voortman ("SCIE COMBI VOORTMAN"). Les libellés génériques
+/// ("SCIE", "OXY", "PRESSE"...) ne disent pas quelle machine a servi : ils ne
+/// sont rattachés à aucune.
+const MACHINES: &[(&str, &[&str])] = &[("Voortman", &["VOORTMAN", "COMBI"]), ("Koike", &["KOIKE"])];
+
+/// Machines nommées dans un libellé de fiche PREVI ou de colonne SUIVI --
+/// plus fin qu'un poste ("SCIE COMBI VOORTMAN" et "SCIE" sont tous deux du
+/// sciage). Vide si aucune machine n'est nommée.
+pub fn machines_depuis_libelle(libelle: &str) -> Vec<&'static str> {
+    let n = normaliser(libelle);
+    MACHINES
+        .iter()
+        .filter(|(_, motifs)| motifs.iter().any(|m| n.contains(m)))
+        .map(|(machine, _)| *machine)
+        .collect()
+}
+
 /// Clé d'une case "Opérations de fabrication" du RDE (feuille parachèvement).
 /// None pour un libellé qui n'est pas une case connue (ex. "Type poutre:").
 pub fn operation_rde(libelle: &str) -> Option<&'static str> {
@@ -219,6 +238,17 @@ mod tests {
         assert_eq!(postes_depuis_libelle("1/2 T  NR  1/2 T"), vec!["presse_cintrage"]);
         assert_eq!(postes_depuis_libelle("KOIKE"), vec!["oxycoupage"]);
         assert!(postes_depuis_libelle("KLEINLUX").is_empty());
+    }
+
+    #[test]
+    fn machines_nommees() {
+        assert_eq!(machines_depuis_libelle("SCIE COMBI VOORTMAN"), vec!["Voortman"]);
+        assert_eq!(machines_depuis_libelle("COMBI SCIE + FOR."), vec!["Voortman"]);
+        assert_eq!(machines_depuis_libelle("PERCAGE VOORTMAN"), vec!["Voortman"]);
+        assert_eq!(machines_depuis_libelle("KOIKE / MEULAGE KOIKE"), vec!["Koike"]);
+        assert_eq!(machines_depuis_libelle("ROBOT/KOIKE"), vec!["Koike"]);
+        assert!(machines_depuis_libelle("SCIE").is_empty());
+        assert!(machines_depuis_libelle("OXY poutre").is_empty());
     }
 
     #[test]

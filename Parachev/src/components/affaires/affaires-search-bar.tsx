@@ -265,8 +265,9 @@ export function AffaireSearchBar({
                 </label>
               </div>
               {multi("machines", "Machines / postes", "toutes requises")}
+              {multi("machinesNommees", "Machine (Voortman, Koike…)", "toutes requises")}
               <div className="flex flex-col gap-1">
-                <Label className="text-xs text-muted-foreground">Machine</Label>
+                <Label className="text-xs text-muted-foreground">Machines et postes : source</Label>
                 <Select
                   items={SOURCES_MACHINES}
                   value={filtres.sourceMachines}

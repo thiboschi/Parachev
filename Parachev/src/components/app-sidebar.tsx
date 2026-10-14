@@ -1,5 +1,5 @@
 import * as React from "react"
-import { IconCalculator, IconDashboard, IconFileText, IconSearch } from "@tabler/icons-react"
+import { IconArchive, IconCalculator, IconDashboard, IconFileText, IconSearch } from "@tabler/icons-react"
 import { NavMain } from "@/components/dashboard/nav-main"
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar"
 
@@ -25,6 +25,11 @@ export const data = {
       title: "Modèle d'offre",
       url: "/modele-offre",
       icon: IconFileText,
+    },
+    {
+      title: "Offres",
+      url: "/offres",
+      icon: IconArchive,
     },
   ]
 }
