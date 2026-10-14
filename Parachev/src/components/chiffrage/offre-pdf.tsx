@@ -341,36 +341,6 @@ function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre 
           ))}
         </View>
 
-        {/* Hors de la section : son en-tête de tableau ne se répète pas au-dessus des totaux seuls. */}
-        <View style={styles.totaux} wrap={false}>
-          {offre.majorations.length > 0 && (
-            <View style={[styles.montant, styles.sousTotal]}>
-              <Text style={[styles.texteMontant, styles.texteSousTotal]}>Sous-total</Text>
-              <Text style={[styles.texteMontant, styles.texteSousTotal]}>{prix(offre.sousTotal)}</Text>
-            </View>
-          )}
-          {offre.majorations.map(({ label, montant }, i) => (
-            <View key={i} style={styles.ligneTotal}>
-              <Text style={styles.detail}>{label}</Text>
-              {/* Une majoration négative, saisie à la relecture, est une remise ("–" : le
-                  signe moins n'existe pas dans les polices standard du PDF). */}
-              <Text style={styles.detail}>{montant !== null && montant < 0 ? `– ${euros(-montant)}` : `+ ${prix(montant)}`}</Text>
-            </View>
-          ))}
-          {offre.montant !== null && (
-            <View style={styles.montant}>
-              <Text style={styles.texteMontant}>Montant HT</Text>
-              <Text style={styles.texteMontant}>{euros(offre.montant)}</Text>
-            </View>
-          )}
-          {prixTonne !== null && (
-            <View style={[styles.ligneTotal, { marginTop: 3 }]}>
-              <Text style={styles.detail}>Prix à la tonne</Text>
-              <Text style={styles.detail}>{euros(prixTonne)} / t</Text>
-            </View>
-          )}
-        </View>
-
         {offre.soudures.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.titreSection}>Soudage — pièces à souder par barre</Text>
@@ -400,6 +370,36 @@ function OffrePdf({ offre, modele }: { offre: DonneesOffre; modele: ModeleOffre 
             ))}
           </View>
         )}
+
+        {/* Hors de la section : son en-tête de tableau ne se répète pas au-dessus des totaux seuls. */}
+        <View style={styles.totaux} wrap={false}>
+          {offre.majorations.length > 0 && (
+            <View style={[styles.montant, styles.sousTotal]}>
+              <Text style={[styles.texteMontant, styles.texteSousTotal]}>Sous-total</Text>
+              <Text style={[styles.texteMontant, styles.texteSousTotal]}>{prix(offre.sousTotal)}</Text>
+            </View>
+          )}
+          {offre.majorations.map(({ label, montant }, i) => (
+            <View key={i} style={styles.ligneTotal}>
+              <Text style={styles.detail}>{label}</Text>
+              {/* Une majoration négative, saisie à la relecture, est une remise ("–" : le
+                  signe moins n'existe pas dans les polices standard du PDF). */}
+              <Text style={styles.detail}>{montant !== null && montant < 0 ? `– ${euros(-montant)}` : `+ ${prix(montant)}`}</Text>
+            </View>
+          ))}
+          {offre.montant !== null && (
+            <View style={styles.montant}>
+              <Text style={styles.texteMontant}>Montant HT</Text>
+              <Text style={styles.texteMontant}>{euros(offre.montant)}</Text>
+            </View>
+          )}
+          {prixTonne !== null && (
+            <View style={[styles.ligneTotal, { marginTop: 3 }]}>
+              <Text style={styles.detail}>Prix à la tonne</Text>
+              <Text style={styles.detail}>{euros(prixTonne)} / t</Text>
+            </View>
+          )}
+        </View>
 
         <Annexe modele={modele} />
 
